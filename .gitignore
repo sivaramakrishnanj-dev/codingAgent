@@ -1,0 +1,12 @@
+# Editor / vault config
+.obsidian/
+
+# OS noise
+.DS_Store
+
+# Java / Maven build output (relevant once Phase 5 code lands)
+target/
+*.class
+
+# Local agent state (the tool stores sessions/memory under ~/.codingagent, but guard against project-local stray state)
+.codingagent/
