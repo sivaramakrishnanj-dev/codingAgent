@@ -2,11 +2,11 @@
 doc: design-progress
 last_updated: 2026-06-14
 last_updated_at_commit: 96f754b
-current_phase: 1
-current_sub_phase: 1c-nfrs
+current_phase: 2
+current_sub_phase: 2-overview
 current_sub_phase_status: not-started
-next_action: Draft Phase 1c — pin all 7 symbolic NFRs from the 1b table with numeric/version/platform values; add operational NFRs (Java version, build tool, supported OS, memory/disk, timeouts, coverage gate, test-runtime budget); include an NFR→AC coverage check table. Phase 1 closes when 1c resolves.
-next_artifact_to_touch: design/00-requirements.md
+next_action: Begin Phase 2 — draft 01-overview.md (purpose, problem, scope in/out, actors for design-reader, C4 L1 Mermaid context diagram, external-contracts prose, quality-attributes table from NFRs, operating envelope, open questions OQ-A..N, future-work, reading-onward pointers). Verify the exact current Bedrock model id (WebFetch) before/as part of the engine ADR, not here.
+next_artifact_to_touch: design/01-overview.md
 ---
 
 # Design progress — codingAgent
@@ -17,7 +17,9 @@ Phase 1a (personas + user stories) is **resolved** — approved by user ("good t
 
 Phase 1b (EARS acceptance criteria) is **resolved** — approved by user ("good to go"), reviewed in `reviews/2026-06-14-acceptance-criteria-1b-r1.md`. Baselined: RD-1..RD-10 behavioral defaults, CLI exit-code seed (0/1/2/3/4/5/130), 80 EARS-tagged ACs (AC-1.1..AC-21.4) across US-1..US-21, and a 7-symbol `NFR-*` table for 1c. `ASK_ONCE_THEN_REMEMBER` resolved as RD-1 (tool + normalized prefix) with RD-2 destructive-denylist carve-out — the §2 parked question is now closed.
 
-Next move is **Phase 1c — NFRs** (the last sub-phase of Phase 1): pin all 7 symbolic NFRs numerically, add operational NFRs, and provide an NFR→AC coverage check. Phase 1 closes when 1c resolves.
+**Phase 1 is complete.** All three sub-phases resolved: 1a (3 personas, 21 stories), 1b (10 RD defaults, exit-code seed, 80 EARS ACs), 1c (all NFRs pinned). 1c approval also folded in a user-directed AWS-credential requirement (RD-11, AC-8.6–8.8, NFR-AWS-CREDENTIALS): named-profile-first, fall back to the AWS default credential chain, fail to exit 4 only if neither yields usable credentials.
+
+Now entering **Phase 2 — Design**. First artifact is `01-overview.md`. The brainstorm pre-explored most Phase 2 ground — see § 6 below; that material becomes the overview, architecture, and ADRs. Per-file review in Phase 2.
 
 ## 2. Deferred decisions
 
@@ -37,6 +39,8 @@ Cross-phase scope facts established during brainstorming that later phases must 
 - Permission model: 4 modes + Class R/X taxonomy (RD-4), default `ASK_EVERY_TIME` (RD-3, `NFR-PERMISSION-DEFAULT`), `ASK_ONCE_THEN_REMEMBER` = tool+prefix (RD-1), destructive-denylist always-prompt/never-remember/READ_ONLY-denied (RD-2), grants not persisted cross-session nor inherited by sub-agents (RD-5, AC-10.6).
 - Verification contract: zero exit from configured test command = success (RD-10, AC-20.4); agent stops & surfaces after `NFR-VERIFY-MAX-ITERATIONS` (AC-3.4, AC-20.5).
 - Web-lookup denied in `READ_ONLY` (RD-6, AC-11.2).
+- AWS credentials: named-profile-first, fall back to AWS default credential provider chain, fail (exit 4) only if neither resolves (RD-11, AC-8.6–8.8, NFR-AWS-CREDENTIALS). Read/invoke-only Bedrock — no AWS write verbs. **→ needs a Phase 2 ADR for SDK v2 provider wiring** (`ProfileCredentialsProvider` → `DefaultCredentialsProvider`).
+- All NFR numeric values pinned in 1c: Opus 4.x default (`NFR-MODEL-DEFAULT`, exact id Phase 2), 5 verify retries (`NFR-VERIFY-MAX-ITERATIONS`), 1 sub-agent (`NFR-SUBAGENT-MAX`), 0.85 compaction (`NFR-CONTEXT-COMPACT-THRESHOLD`), 16 KB output cap (`NFR-OUTPUT-MAX-INLINE`), 3 Bedrock retries (`NFR-BEDROCK-MAX-RETRIES`), Java 21 (`NFR-PLAT-JAVA`), 80% coverage gate (`NFR-TEST-COVERAGE`).
 
 ## 4. Recovery notes
 
@@ -46,6 +50,7 @@ _(none yet)_
 
 - 1a-user-stories — resolved (review: `reviews/2026-06-14-requirements-1a-r1.md`) — `19cbe08`
 - 1b-acceptance-criteria — resolved (review: `reviews/2026-06-14-acceptance-criteria-1b-r1.md`) — `96f754b`
+- 1c-nfrs — resolved, **Phase 1 closed** (review: `reviews/2026-06-14-nfrs-1c-r1.md`) — `<SHA-pending>`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 

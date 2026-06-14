@@ -1,10 +1,10 @@
 ---
 doc: requirements
 last_reviewed: 2026-06-14
-phase: 1b-acceptance-criteria
+phase: resolved
 status: resolved
-review: reviews/2026-06-14-acceptance-criteria-1b-r1.md
-approved_in: 96f754b
+review: reviews/2026-06-14-nfrs-1c-r1.md
+approved_in: pending
 ---
 
 # Requirements — codingAgent
@@ -179,6 +179,7 @@ Decisions pinned so the criteria below are concrete and testable. Carried into `
 | **RD-8** | Compaction preserves original | The original conversation is **never deleted** on compaction — archived and linked (`derived-from`). |
 | **RD-9** | Memory store form | Human-readable **markdown per entry + index**, two tiers (global, project), hand-editable/deletable, **re-read fresh** on each load. |
 | **RD-10** | Verification success signal | **Zero exit** from the configured **test** command = success for the unit of work. |
+| **RD-11** | AWS credential resolution | **Named-profile-first with fallback.** If an AWS profile name is configured, resolve Bedrock credentials from it; if that profile is **not found**, fall back to the **AWS default credential provider chain** (env vars → SSO/SDK cache → instance/container role). Only if neither yields usable credentials does the agent fail (exit `4`). *(User-directed.)* |
 
 ### CLI exit-code / failure-category contract (seed)
 
@@ -218,13 +219,13 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 
 #### US-3 — Implement tasks one at a time
 
-| AC | Type | Criterion | Refs |
-|----|------|-----------|------|
-| **AC-3.1** | St | While implementing, the agent shall work one task at a time in breakdown order, unless dependencies dictate otherwise. | US-3 |
-| **AC-3.2** | Ev | When a task's changes are complete, the agent shall verify them via the configured build/test commands. | AC-20.1 |
-| **AC-3.3** | Ev | When a task passes verification, the agent shall mark it complete in the task-breakdown artifact before starting the next. | US-3 |
-| **AC-3.4** | Un | If a task fails verification after `NFR-VERIFY-MAX-ITERATIONS`, then the agent shall stop and surface the failure rather than continuing silently. | NFR-VERIFY-MAX-ITERATIONS |
-| **AC-3.5** | Op | Where the developer requested a single specific task, the agent shall implement only that task and then stop. | US-3 |
+| AC         | Type | Criterion                                                                                                                                          | Refs                      |
+| ---------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| **AC-3.1** | St   | While implementing, the agent shall work one task at a time in breakdown order, unless dependencies dictate otherwise.                             | US-3                      |
+| **AC-3.2** | Ev   | When a task's changes are complete, the agent shall verify them via the configured build/test commands.                                            | AC-20.1                   |
+| **AC-3.3** | Ev   | When a task passes verification, the agent shall mark it complete in the task-breakdown artifact before starting the next.                         | US-3                      |
+| **AC-3.4** | Un   | If a task fails verification after `NFR-VERIFY-MAX-ITERATIONS`, then the agent shall stop and surface the failure rather than continuing silently. | NFR-VERIFY-MAX-ITERATIONS |
+| **AC-3.5** | Op   | Where the developer requested a single specific task, the agent shall implement only that task and then stop.                                      | US-3                      |
 
 #### US-4 — Understand existing code (brownfield)
 
@@ -237,12 +238,12 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 
 #### US-5 — Make a specific change
 
-| AC | Type | Criterion | Refs |
-|----|------|-----------|------|
-| **AC-5.1** | Ev | When the developer requests a specific change, the agent shall locate the relevant files via search before editing. | US-5 |
-| **AC-5.2** | Ev | When the agent edits a file, the edit shall be subject to the active permission mode. | RD-4 |
-| **AC-5.3** | Ev | When a change is applied, the agent shall verify it via the configured build/test commands. | AC-20.1 |
-| **AC-5.4** | Un | If the requested change is ambiguous (multiple plausible targets), then the agent shall ask a clarifying question rather than guessing. | US-5 |
+| AC         | Type | Criterion                                                                                                                               | Refs    |
+| ---------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| **AC-5.1** | Ev   | When the developer requests a specific change, the agent shall locate the relevant files via search before editing.                     | US-5    |
+| **AC-5.2** | Ev   | When the agent edits a file, the edit shall be subject to the active permission mode.                                                   | RD-4    |
+| **AC-5.3** | Ev   | When a change is applied, the agent shall verify it via the configured build/test commands.                                             | AC-20.1 |
+| **AC-5.4** | Un   | If the requested change is ambiguous (multiple plausible targets), then the agent shall ask a clarifying question rather than guessing. | US-5    |
 
 #### US-6 — Terminal CLI
 
@@ -272,6 +273,9 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 | **AC-8.3** | Ev | When no model is configured, the agent shall use `NFR-MODEL-DEFAULT`. | NFR-MODEL-DEFAULT |
 | **AC-8.4** | Ev | When no permission mode is configured, the agent shall default to `NFR-PERMISSION-DEFAULT`. | RD-3 |
 | **AC-8.5** | Un | If a configured value is malformed (unknown mode, unparseable command), then the agent shall exit `2` identifying the offending key. | exit-code 2 |
+| **AC-8.6** | Op | Where an AWS profile name is configured, the agent shall resolve Bedrock credentials from that named profile (`~/.aws/config` / `~/.aws/credentials`). | RD-11, NFR-AWS-CREDENTIALS |
+| **AC-8.7** | Un | If the configured AWS profile is not found, then the agent shall fall back to the AWS default credential provider chain rather than failing. | RD-11, NFR-AWS-CREDENTIALS |
+| **AC-8.8** | Un | If no usable AWS credentials are resolved by either path, then the agent shall exit `4` (model-backend) with a message naming the attempted profile and the fallback. | RD-11, exit-code 4 |
 
 #### US-9 — Choose permission mode
 
@@ -409,4 +413,96 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 
 ---
 
-_Next sub-phase: **1c — NFRs** (pin every `NFR-*` above with a numeric/version/platform value; add operational NFRs; NFR→AC coverage check). Not started._
+## Phase 1c — Non-Functional Requirements
+
+Every NFR has a numeric value, version, or platform name. Symbolic NFRs introduced in 1b are pinned here; operational NFRs needed for implementation but not referenced from 1b are added. "Configurable" means overridable per AC-8.1/AC-8.2 precedence; the value given is the built-in default.
+
+> **Two NFR scopes, distinguished by tag:**
+> **[runtime]** governs how the shipped agent *behaves at run time*. **[product]** governs the agent's *own codebase* quality (enforced in the Phase 5 build).
+
+### Platform & runtime — `NFR-PLAT-*` [product/runtime]
+
+| NFR | Value | Notes |
+|-----|-------|-------|
+| **NFR-PLAT-JAVA** | Java 21 (LTS) | The agent itself runs on a Java 21 JVM. |
+| **NFR-PLAT-BUILD** | Maven 3.9+ | Build tool for the agent's own codebase. Open-source, GitHub. |
+| **NFR-PLAT-OS** | macOS 13+, Linux (glibc) | Windows out of scope for v1 (WSL2 expected to work, untested). |
+| **NFR-PLAT-MEM** | default JVM max heap 1 GB (`-Xmx1g`), configurable | Excludes memory of subprocesses the agent spawns (builds, delegates). |
+
+### Model & Bedrock — `NFR-MODEL-*`, `NFR-BEDROCK-*` [runtime]
+
+| NFR | Value | Notes |
+|-----|-------|-------|
+| **NFR-MODEL-DEFAULT** | **Claude Opus 4.x** | Default model; configurable (AC-8.3). **Exact Bedrock model id pinned in a Phase 2 ADR after WebFetch verification** — not asserted here. Cost note: Opus is the high-capability/high-cost tier; sub-agents may run a cheaper model (see NFR-MODEL-SUBAGENT). |
+| **NFR-MODEL-SUBAGENT** | inherits parent model unless overridden | A sub-agent may be configured to a cheaper/faster model than its parent (carry-forward from brainstorm). |
+| **NFR-MODEL-CONTEXT-WINDOW** | model-dependent; read from config at startup | The agent must know the active model's effective input-token window to compute `NFR-CONTEXT-COMPACT-THRESHOLD`. |
+| **NFR-BEDROCK-REGION** | `us-east-1`, configurable | AWS region for Bedrock calls. |
+| **NFR-BEDROCK-MAX-RETRIES** | 3, exponential backoff + jitter | On a retryable Bedrock error. Exhaustion → exit `4` (model-backend). |
+| **NFR-BEDROCK-CALL-TIMEOUT** | connect 10 s; overall response 300 s; configurable | Covers streaming responses incl. extended thinking. Timeout counts toward retry budget. |
+| **NFR-AWS-CREDENTIALS** | named-profile-first, else default credential chain (RD-11) | Configured profile name resolves from `~/.aws/{config,credentials}`; profile-not-found falls back to the AWS SDK v2 default provider chain (env → SSO/SDK cache → instance/container role). No usable credentials → exit `4` (AC-8.6–8.8). The agent issues **read/invoke** Bedrock calls only — never AWS write verbs. |
+
+### Permission & safety — `NFR-PERMISSION-*` [runtime]
+
+| NFR | Value | Notes |
+|-----|-------|-------|
+| **NFR-PERMISSION-DEFAULT** | `ASK_EVERY_TIME` | Default permission mode (RD-3, AC-8.4). |
+| **NFR-PERMISSION-DENYLIST** | seed list per RD-2, configurable | Destructive-command denylist: always prompts, never auto-approved, denied in `READ_ONLY`. Full list pinned in Phase 2 permission ADR. |
+
+### Context management — `NFR-CONTEXT-*`, `NFR-SUBAGENT-*`, `NFR-OUTPUT-*` [runtime]
+
+| NFR | Value | Notes |
+|-----|-------|-------|
+| **NFR-CONTEXT-COMPACT-THRESHOLD** | **0.85** × effective input window | Auto-compaction trigger (AC-18.1). Absolute token count = 0.85 × `NFR-MODEL-CONTEXT-WINDOW`. Manual compaction available at any utilization (AC-18.2). |
+| **NFR-SUBAGENT-MAX** | **1**, configurable to N | Max concurrent sub-agents per parent (AC-17.3). v1 ships at 1 (context-isolation benefit, no concurrent-write conflict surface); raise via config. |
+| **NFR-SUBAGENT-BUDGET** | own context window + wall-clock 600 s, configurable | A sub-agent that exceeds its budget returns a failure result to the parent (AC-17.6). |
+| **NFR-OUTPUT-MAX-INLINE** | **16 KB** (≈ 4,000 tokens), configurable | Tool/command output above this is reduced before entering context (AC-19.1); full output persisted to the log (AC-19.2). |
+
+### Verification & command execution — `NFR-VERIFY-*`, `NFR-CMD-*` [runtime]
+
+| NFR | Value | Notes |
+|-----|-------|-------|
+| **NFR-VERIFY-MAX-ITERATIONS** | **5** | Max verify→fix attempts before the agent stops and surfaces (AC-3.4, AC-20.5). |
+| **NFR-CMD-TIMEOUT** | 300 s (5 min) default, configurable | Per-command timeout for `run_command`. On timeout the command is treated as a failure and surfaced. Long builds may raise it via config. |
+
+### Network & delegation — `NFR-NET-*` [runtime]
+
+| NFR | Value | Notes |
+|-----|-------|-------|
+| **NFR-NET-WEBLOOKUP-TIMEOUT** | 120 s default, configurable | Web-lookup delegate timeout. On timeout/unavailable → AC-11.3 failure path (report, do not fabricate). |
+
+### Logging & persistence — `NFR-LOG-*` [runtime]
+
+| NFR | Value | Notes |
+|-----|-------|-------|
+| **NFR-LOG-FORMAT** | JSONL | One JSON object per line, append-only (AC-13.3). |
+| **NFR-LOG-LOCATION** | `~/.codingagent/`, keyed by repo | User-global; survives `git clean`. Repo key = git remote URL when present, else normalized absolute path (AC-7.3). |
+| **NFR-LOG-DURABILITY** | flush per event | A crash loses at most the single in-flight event (supports AC-13.4). |
+| **NFR-LOG-RETENTION** | indefinite; operator-managed | Sessions (incl. compaction-superseded) retained, never auto-deleted in v1 (AC-15.1, RD-8). |
+
+### Testing & quality — `NFR-TEST-*` [product]
+
+| NFR | Value | Notes |
+|-----|-------|-------|
+| **NFR-TEST-FRAMEWORK** | JUnit 5 | Test platform for the agent's own codebase. |
+| **NFR-TEST-COVERAGE** | line coverage ≥ 80% on business logic | Phase 5 build gate. |
+| **NFR-TEST-RUNTIME** | unit suite ≤ 120 s | Integration tests tagged separately and excluded from the default profile. |
+
+### NFR → AC coverage check
+
+Confirms every symbolic `NFR-*` introduced in 1b is now pinned and still referenced by ≥ 1 AC.
+
+| Symbolic NFR (from 1b) | Pinned value | Referenced by |
+|------------------------|--------------|---------------|
+| `NFR-MODEL-DEFAULT` | Claude Opus 4.x (exact id Phase 2) | AC-8.3 |
+| `NFR-PERMISSION-DEFAULT` | `ASK_EVERY_TIME` | AC-8.4, RD-3 |
+| `NFR-VERIFY-MAX-ITERATIONS` | 5 | AC-3.4, AC-20.5 |
+| `NFR-SUBAGENT-MAX` | 1 (configurable) | AC-17.3 |
+| `NFR-CONTEXT-COMPACT-THRESHOLD` | 0.85 × effective window | AC-18.1 |
+| `NFR-OUTPUT-MAX-INLINE` | 16 KB | AC-19.1 |
+| `NFR-BEDROCK-MAX-RETRIES` | 3 + backoff | exit-code 4 (AC reference via US-11/US-20 backend-failure paths) |
+
+All 7 symbolic NFRs resolved. ✅
+
+---
+
+_**Phase 1 complete.** All three sub-phases (1a personas/stories, 1b EARS acceptance criteria, 1c NFRs) resolved. Next phase: **Phase 2 — Design** (`01-overview.md` first), where the brainstorm's carry-forward ADR material (`design-progress.md` § 6) becomes overview + architecture + ADRs._
