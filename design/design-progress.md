@@ -3,9 +3,9 @@ doc: design-progress
 last_updated: 2026-06-14
 last_updated_at_commit: 19cbe08
 current_phase: 1
-current_sub_phase: 1b-acceptance-criteria
+current_sub_phase: 1c-nfrs
 current_sub_phase_status: not-started
-next_action: Draft Phase 1b — 3-8 EARS acceptance criteria per user story (US-1..US-21), with a resolved-behavioral-defaults table at the top and symbolic NFR-* references (pinned later in 1c). Pin ASK_ONCE_THEN_REMEMBER matching semantics here.
+next_action: Draft Phase 1c — pin all 7 symbolic NFRs from the 1b table with numeric/version/platform values; add operational NFRs (Java version, build tool, supported OS, memory/disk, timeouts, coverage gate, test-runtime budget); include an NFR→AC coverage check table. Phase 1 closes when 1c resolves.
 next_artifact_to_touch: design/00-requirements.md
 ---
 
@@ -15,14 +15,16 @@ next_artifact_to_touch: design/00-requirements.md
 
 Phase 1a (personas + user stories) is **resolved** — approved by user ("good to go"), reviewed in `reviews/2026-06-14-requirements-1a-r1.md`, committed as the project's first commit. 3 personas (P1 Developer, P2 Operator, P3 The Agent) and 21 user stories (US-1..US-21) are baselined.
 
-Next move is **Phase 1b — EARS acceptance criteria**: 3–8 ACs per user story, each tagged with one EARS template, symbolic `NFR-*` references (pinned numerically in 1c), and a resolved-behavioral-defaults table at the top. Must pin `ASK_ONCE_THEN_REMEMBER` matching semantics (§ 2) while writing US-9/US-10 ACs.
+Phase 1b (EARS acceptance criteria) is **resolved** — approved by user ("good to go"), reviewed in `reviews/2026-06-14-acceptance-criteria-1b-r1.md`. Baselined: RD-1..RD-10 behavioral defaults, CLI exit-code seed (0/1/2/3/4/5/130), 80 EARS-tagged ACs (AC-1.1..AC-21.4) across US-1..US-21, and a 7-symbol `NFR-*` table for 1c. `ASK_ONCE_THEN_REMEMBER` resolved as RD-1 (tool + normalized prefix) with RD-2 destructive-denylist carve-out — the §2 parked question is now closed.
+
+Next move is **Phase 1c — NFRs** (the last sub-phase of Phase 1): pin all 7 symbolic NFRs numerically, add operational NFRs, and provide an NFR→AC coverage check. Phase 1 closes when 1c resolves.
 
 ## 2. Deferred decisions
 
 - **Project name** — working name is `codingAgent` (the directory). Not yet decided as the product name. Resolve before/at Phase 4 config-generation (`project_name` in `.kiro/spec-driven.yaml`).
-- **`ASK_ONCE_THEN_REMEMBER` matching semantics** — what counts as "the same command" for approval reuse (exact string / prefix glob like `mvn *` / tool-type)? Resolve in Phase 1b (acceptance criteria) or the permission-model ADR (Phase 2).
-- **Parallel sub-agent execution detail** — v1 starts with one sub-agent, config for N; whether N>1 run concurrently vs sequentially-with-isolation is a Phase 2 architecture detail. Capability captured in US-17.
-- **Compaction "matching"/trigger threshold value** — numeric token threshold is a Phase 1c NFR, not 1a.
+- **Parallel sub-agent execution detail** — v1 starts with one sub-agent, config for N; whether N>1 run concurrently vs sequentially-with-isolation is a Phase 2 architecture detail. Capability captured in US-17, bound by `NFR-SUBAGENT-MAX` (1c).
+- ~~**`ASK_ONCE_THEN_REMEMBER` matching semantics**~~ — **RESOLVED in 1b as RD-1** (tool + normalized command prefix; file-writes per subtree) with RD-2 destructive-denylist carve-out.
+- ~~**Compaction trigger threshold value**~~ — moved to 1c as `NFR-CONTEXT-COMPACT-THRESHOLD`.
 
 ## 3. Carry-forwards
 
@@ -32,6 +34,9 @@ Cross-phase scope facts established during brainstorming that later phases must 
 - AWS Bedrock is the only model backend for v1 (OOS-list entry "non-Bedrock providers").
 - Single-user local CLI, one repo at a time (US-6; OOS-list entries for multi-user/daemon and IDE/GUI).
 - Memory write policy is **explicit + agent-proposed-and-approved** for v1 (US-12 explicit; US-21 proposed; OOS-list entry "auto-extraction").
+- Permission model: 4 modes + Class R/X taxonomy (RD-4), default `ASK_EVERY_TIME` (RD-3, `NFR-PERMISSION-DEFAULT`), `ASK_ONCE_THEN_REMEMBER` = tool+prefix (RD-1), destructive-denylist always-prompt/never-remember/READ_ONLY-denied (RD-2), grants not persisted cross-session nor inherited by sub-agents (RD-5, AC-10.6).
+- Verification contract: zero exit from configured test command = success (RD-10, AC-20.4); agent stops & surfaces after `NFR-VERIFY-MAX-ITERATIONS` (AC-3.4, AC-20.5).
+- Web-lookup denied in `READ_ONLY` (RD-6, AC-11.2).
 
 ## 4. Recovery notes
 
@@ -40,6 +45,7 @@ _(none yet)_
 ## 5. Landed — historical
 
 - 1a-user-stories — resolved (review: `reviews/2026-06-14-requirements-1a-r1.md`) — `19cbe08`
+- 1b-acceptance-criteria — resolved (review: `reviews/2026-06-14-acceptance-criteria-1b-r1.md`) — `<SHA-pending>`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 

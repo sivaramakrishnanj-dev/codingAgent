@@ -11,3 +11,4 @@ The approval artifacts for the design baseline. **"Silence made explicit"** — 
 | Date | Review | Artifact | Round | Status |
 |---|---|---|---|---|
 | 2026-06-14 | `2026-06-14-requirements-1a-r1.md` | `00-requirements.md` § 1a | r1 | ✅ approved |
+| 2026-06-14 | `2026-06-14-acceptance-criteria-1b-r1.md` | `00-requirements.md` § 1b | r1 | ✅ approved |

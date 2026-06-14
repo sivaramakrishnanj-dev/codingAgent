@@ -9,7 +9,7 @@ Spec-driven design baseline for **codingAgent**, an LLM-based coding agent (loca
 | Phase | Sub-phase | Artifact | Status |
 |---|---|---|---|
 | 1 — Requirements | 1a user stories | `00-requirements.md` § 1a | ✅ resolved |
-| 1 — Requirements | 1b EARS acceptance criteria | `00-requirements.md` § 1b | ⬜ not started |
+| 1 — Requirements | 1b EARS acceptance criteria | `00-requirements.md` § 1b | ✅ resolved |
 | 1 — Requirements | 1c NFRs | `00-requirements.md` § 1c | ⬜ not started |
 | 2 — Design | overview | `01-overview.md` | ⬜ not started |
 | 2 — Design | architecture (+ ADRs) | `02-architecture.md`, `adr/` | ⬜ not started |
