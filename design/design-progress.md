@@ -1,7 +1,7 @@
 ---
 doc: design-progress
 last_updated: 2026-06-14
-last_updated_at_commit: e03b032
+last_updated_at_commit: 7c458ef
 current_phase: 2
 current_sub_phase: 2-architecture
 current_sub_phase_status: not-started
@@ -53,7 +53,7 @@ _(none yet)_
 - 1a-user-stories — resolved (review: `reviews/2026-06-14-requirements-1a-r1.md`) — `19cbe08`
 - 1b-acceptance-criteria — resolved (review: `reviews/2026-06-14-acceptance-criteria-1b-r1.md`) — `96f754b`
 - 1c-nfrs — resolved, **Phase 1 closed** (review: `reviews/2026-06-14-nfrs-1c-r1.md`) — `e03b032`
-- 2-overview — resolved (review: `reviews/2026-06-14-overview-r1.md`) — `<SHA-pending>`
+- 2-overview — resolved (review: `reviews/2026-06-14-overview-r1.md`) — `7c458ef`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 

@@ -4,7 +4,7 @@ last_reviewed: 2026-06-14
 phase: 2-design
 status: resolved
 review: reviews/2026-06-14-overview-r1.md
-approved_in: pending
+approved_in: 7c458ef
 ---
 
 # Overview — codingAgent
