@@ -4,7 +4,7 @@ last_reviewed: 2026-06-14
 phase: 1b-acceptance-criteria
 status: resolved
 review: reviews/2026-06-14-acceptance-criteria-1b-r1.md
-approved_in: pending
+approved_in: 96f754b
 ---
 
 # Requirements — codingAgent

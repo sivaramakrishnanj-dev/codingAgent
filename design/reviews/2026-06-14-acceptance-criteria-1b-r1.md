@@ -6,7 +6,7 @@ round: 1
 reviewed_on: 2026-06-14
 reviewer: user
 status: approved
-approved_in: pending
+approved_in: 96f754b
 ---
 
 # Review — 00-requirements.md (Phase 1b — EARS acceptance criteria) r1
