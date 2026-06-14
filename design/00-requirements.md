@@ -4,7 +4,7 @@ last_reviewed: 2026-06-14
 phase: 1a-user-stories
 status: resolved
 review: reviews/2026-06-14-requirements-1a-r1.md
-approved_in: acf7818
+approved_in: 19cbe08
 ---
 
 # Requirements — codingAgent

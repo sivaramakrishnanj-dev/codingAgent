@@ -1,7 +1,7 @@
 ---
 doc: design-progress
 last_updated: 2026-06-14
-last_updated_at_commit: acf7818
+last_updated_at_commit: 19cbe08
 current_phase: 1
 current_sub_phase: 1b-acceptance-criteria
 current_sub_phase_status: not-started
@@ -39,7 +39,7 @@ _(none yet)_
 
 ## 5. Landed — historical
 
-- 1a-user-stories — resolved (review: `reviews/2026-06-14-requirements-1a-r1.md`) — `acf7818`
+- 1a-user-stories — resolved (review: `reviews/2026-06-14-requirements-1a-r1.md`) — `19cbe08`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
