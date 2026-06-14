@@ -58,6 +58,21 @@ The brainstorm pre-explored a lot of **Phase 2 (architecture/ADR)** ground. None
 
 ### A. Engine & role
 - **AWS SDK for Java v2, Bedrock Converse API, direct** (no LangChain4j/Spring AI). We own the loop: build request → parse text + `toolUse` → dispatch tools → append `toolResult` → repeat. → *ADR: engine / SDK choice.*
+
+#### A.1 Bedrock Converse — VERIFIED facts (read 2026-06-14 from docs.aws.amazon.com via ReadInternalWebsites; ground the architecture in these, not memory)
+- **Stateless API.** "Bedrock doesn't store any text… maintain context by including all messages in subsequent requests." → this is the *justification* for our persistence/event-log/resume design. Resume = replay events → rebuild `messages[]`.
+- **Request shape:** `modelId`, `messages[]` (role + typed `content[]` blocks), `system[]` (separate from messages), `inferenceConfig` (maxTokens/temperature/topP/stopSequences), `additionalModelRequestFields` (model-specific: Claude extended-thinking budget, top_k), `toolConfig` (tools[] + toolChoice). Response: `output.message.content[]`, `stopReason`, `usage`, `metrics.latencyMs`.
+- **ContentBlock types:** text, toolUse, toolResult, reasoningContent, cachePoint, (image/document/video = multimodal, OOS v1).
+- **Client-side tool-use loop (OUR LOOP):** send toolConfig → model returns `stopReason: tool_use` + `toolUse {toolUseId,name,input}` → **permission gate here** → execute → append `toolResult {toolUseId,content,status?}` as user-role msg → re-call → until `stopReason: end_turn`. Each tool = `toolSpec {name, description, inputSchema:<JSON Schema>}`.
+- **stopReason values:** `end_turn | tool_use | max_tokens | stop_sequence | guardrail_intervened | content_filtered | malformed_model_output | malformed_tool_use | model_context_window_exceeded`. → drives loop state machine (Phase 3). `model_context_window_exceeded` → triggers compaction.
+- **usage returned every call:** inputTokens, outputTokens, totalTokens, cacheReadInputTokens, cacheWriteInputTokens, cacheDetails. → `NFR-CONTEXT-COMPACT-THRESHOLD` is MEASURED not estimated.
+- **ConverseStream events:** messageStart → (contentBlockStart, contentBlockDelta×N [text/reasoning/toolUse partial JSON], contentBlockStop) per block → messageStop(stopReason) → metadata(usage). → CLI streams; toolUse input assembled from partial-JSON deltas.
+- **⚠ GOTCHA — reasoning signatures:** `reasoningContent` blocks carry a `signature` (hash over conversation); MUST resend signature + all prior messages unchanged or the call errors. → transcript stores reasoning blocks verbatim; **compaction must start a fresh derived conversation, cannot edit history in place** (validates `derived-from` design — and explains WHY it's mandatory).
+- **Prompt caching (`cachePoint`):** caches static prefix, order tools→system→messages; cached tokens billed reduced + don't count vs rate limit; changing earlier section invalidates later. Opus 4.5/4.6 need ≥4096 tokens/checkpoint, max 4; Opus 4.5 supports 1h TTL (others 5m). → **cost mitigation for Opus default**; tool defs + system prompt + memory index are ideal cache targets. → *its own ADR.*
+- **Error taxonomy:** ThrottlingException 429, ModelTimeoutException 408, ModelNotReadyException 429 (SDK auto-retries 5×), ServiceUnavailableException 503, InternalServerException 500 (all retryable); ValidationException 400, AccessDeniedException 403 (not retryable); ModelErrorException 424. → `NFR-BEDROCK-MAX-RETRIES` + exit 4.
+- **VERIFIED model IDs (current GA):** Opus 4.6 = `anthropic.claude-opus-4-6-v1` (newest); Opus 4.5 = `anthropic.claude-opus-4-5-20251101-v1:0`; Sonnet 4.5 = `anthropic.claude-sonnet-4-5-20250929-v1:0`; Haiku 4.5 = `anthropic.claude-haiku-4-5-20251001-v1:0`. Cross-region inference-profile form `us.anthropic.claude-…` for availability. → **resolves deferred `NFR-MODEL-DEFAULT` exact id; pin in engine ADR.**
+- **No managed web-search tool in Converse** (tool use is client-side only). → **CONFIRMS** the "delegate web search to headless claude" decision (was ⚠ unverified in § F, now verified TRUE). Bonus: Bedrock exposes Anthropic-native `bash_*`/`text_editor_*`/`memory_*` tool types but via the Anthropic Messages API format (a different mode than Converse) → alternative-considered in the tool ADR; we stay on Converse for model-agnosticism.
+- **Also available, likely OOS v1 (note in ADRs):** Guardrails (`guardrailConfig`), structured outputs (`outputConfig.textFormat`), `requestMetadata` tagging, service tiers, server-side tool use (Lambda/AgentCore Gateway).
 - **Primary coder**, not orchestrator — our loop is the coder; external CLIs are capability delegates. → *ADR: delegation model / design principle.*
 - **Principle: "own your core, rent your periphery."** → *overview / architecture design principle.*
 
@@ -92,7 +107,7 @@ The brainstorm pre-explored a lot of **Phase 2 (architecture/ADR)** ground. None
 - **RL ladder:** v1 = rung 1 (curated semantic memory) + rung 2 (outcome capture). Rung 3 (trajectory/few-shot retrieval) later; rungs 4–5 (reward model / DPO / weight RL) future-work, gated on proven need. → *overview / future-work.*
 
 ### F. External delegation
-- **Web search/summary via headless claude/kiro-cli delegate** (rent the periphery). **⚠ Unverified claim to check in Phase 2:** that Bedrock Converse has *no managed web-search tool* (the reason we delegate). Verify via WebFetch before asserting in an ADR. → *ADR: delegation + operations.*
+- **Web search/summary via headless claude/kiro-cli delegate** (rent the periphery). **✅ VERIFIED 2026-06-14:** Bedrock Converse has *no managed web-search tool* (tool use is client-side only) — the delegation decision is confirmed correct, no longer an assumption. → *ADR: delegation + operations.*
 - **Delegate must be constrained:** run print-mode, output text, tools restricted to web-only, timeout — don't let a foreign agent loose in the repo. Internal sub-agent vs external delegate are two backends behind one delegation seam. → *architecture / operations.*
 
 ### G. Staging (informs Phase 4 milestones — not binding yet)
