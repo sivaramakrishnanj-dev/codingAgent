@@ -147,7 +147,8 @@ flowchart TB
 | Embeddings / RAG / vector retrieval (for code or memory) | **Future-work** (memory retrieval rung 3). v1 = index + selective load. |
 | Multi-user / shared service / long-running daemon | **Future-work**. v1 = single-user local CLI. |
 | Non-Java code-generation *targets* | **Future-work** — core is language-agnostic; a Java/Maven config ships first. |
-| Non-Bedrock model providers (OpenAI, Anthropic direct, local models) | **Future-work**. v1 = AWS Bedrock only. |
+| Non-**Bedrock** model providers (OpenAI, Anthropic direct, local models) | **Future-work**. v1 = AWS Bedrock only. |
+| Non-**Claude** providers within Bedrock (Nova, Llama, Mistral) | **Post-v1**. *Architecturally supported* via the provider-agnostic Converse seam + capability layer, but **not validated or shipped in v1** (v1 targets Claude only). See NFR-MODEL-PROVIDER. |
 | IDE plugin / GUI / web front-end | **Future-work**. v1 = terminal CLI only. |
 | MCP-compatible tool registry | **Future-work**. |
 | Container / Docker sandboxing | **Future-work**. v1 safety surface = permission gate. |
@@ -433,8 +434,9 @@ Every NFR has a numeric value, version, or platform name. Symbolic NFRs introduc
 
 | NFR | Value | Notes |
 |-----|-------|-------|
-| **NFR-MODEL-DEFAULT** | **Claude Opus 4.x** | Default model; configurable (AC-8.3). **Exact Bedrock model id pinned in a Phase 2 ADR after WebFetch verification** — not asserted here. Cost note: Opus is the high-capability/high-cost tier; sub-agents may run a cheaper model (see NFR-MODEL-SUBAGENT). |
-| **NFR-MODEL-SUBAGENT** | inherits parent model unless overridden | A sub-agent may be configured to a cheaper/faster model than its parent (carry-forward from brainstorm). |
+| **NFR-MODEL-PROVIDER** | Claude-only in v1; provider-agnostic by design | The model boundary is **designed** to reach any Bedrock model family through the Converse API (Anthropic Claude, Amazon Nova, Meta Llama, Mistral, …) selectable by `modelId`, with provider-specific capabilities (extended thinking, prompt caching, model-specific inference params) behind a **feature-detected model-capability layer**. **v1 targets, validates, and ships Claude only** — non-Claude Bedrock providers are an architectural seam, not a tested path, and bringing one up is **post-v1**. Non-Bedrock providers (OpenAI, Anthropic direct, local) remain fully OOS. *(Added 2026-06-14 per user direction; see OQ-J + the model-provider ADR.)* |
+| **NFR-MODEL-DEFAULT** | **Claude Opus 4.x** | Default model; configurable (AC-8.3). **Exact Bedrock model id pinned in a Phase 2 ADR** — verified current GA id is `anthropic.claude-opus-4-6-v1` (see `design-progress.md` § 6.A.1). Cost note: Opus is the high-capability/high-cost tier; sub-agents may run a cheaper model (see NFR-MODEL-SUBAGENT). |
+| **NFR-MODEL-SUBAGENT** | inherits parent model unless overridden | A sub-agent may be configured to a cheaper/faster model than its parent (carry-forward from brainstorm). May differ in provider, subject to NFR-MODEL-PROVIDER capability detection. |
 | **NFR-MODEL-CONTEXT-WINDOW** | model-dependent; read from config at startup | The agent must know the active model's effective input-token window to compute `NFR-CONTEXT-COMPACT-THRESHOLD`. |
 | **NFR-BEDROCK-REGION** | `us-east-1`, configurable | AWS region for Bedrock calls. |
 | **NFR-BEDROCK-MAX-RETRIES** | 3, exponential backoff + jitter | On a retryable Bedrock error. Exhaustion → exit `4` (model-backend). |

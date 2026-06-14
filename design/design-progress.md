@@ -3,10 +3,10 @@ doc: design-progress
 last_updated: 2026-06-14
 last_updated_at_commit: e03b032
 current_phase: 2
-current_sub_phase: 2-overview
+current_sub_phase: 2-architecture
 current_sub_phase_status: not-started
-next_action: Begin Phase 2 — draft 01-overview.md (purpose, problem, scope in/out, actors for design-reader, C4 L1 Mermaid context diagram, external-contracts prose, quality-attributes table from NFRs, operating envelope, open questions OQ-A..N, future-work, reading-onward pointers). Verify the exact current Bedrock model id (WebFetch) before/as part of the engine ADR, not here.
-next_artifact_to_touch: design/01-overview.md
+next_action: Draft 02-architecture.md — component decomposition + Mermaid component diagram, the agent-loop sequence diagram (Converse client-side tool-use cycle from § 6.A.1), failure-handling matrix (stopReason + error taxonomy → exit codes), concurrency/shutdown, module boundaries. ADRs emerge here — write each as its own design/adr/NNNN-*.md: engine/SDK, model-provider+capability-layer (OQ-J), command-execution spine, permission model (OQ-E), persistence/event-sourcing, conversation-tree+compaction (OQ-D), memory, delegation, prompt-caching (OQ-I), sub-agents (OQ-C). Also seed adr/0000-template.md.
+next_artifact_to_touch: design/02-architecture.md
 ---
 
 # Design progress — codingAgent
@@ -19,7 +19,9 @@ Phase 1b (EARS acceptance criteria) is **resolved** — approved by user ("good 
 
 **Phase 1 is complete.** All three sub-phases resolved: 1a (3 personas, 21 stories), 1b (10 RD defaults, exit-code seed, 80 EARS ACs), 1c (all NFRs pinned). 1c approval also folded in a user-directed AWS-credential requirement (RD-11, AC-8.6–8.8, NFR-AWS-CREDENTIALS): named-profile-first, fall back to the AWS default credential chain, fail to exit 4 only if neither yields usable credentials.
 
-Now entering **Phase 2 — Design**. First artifact is `01-overview.md`. The brainstorm pre-explored most Phase 2 ground — see § 6 below; that material becomes the overview, architecture, and ADRs. Per-file review in Phase 2.
+In **Phase 2 — Design**. `01-overview.md` is **resolved** (review: `reviews/2026-06-14-overview-r1.md`). Approval folded in a user-directed scope refinement: **provider-agnostic by design, Claude-only validated/shipped in v1** (`NFR-MODEL-PROVIDER`, OQ-J). Converse API verified facts live in § 6.A.1; raw docs in `research/`.
+
+Next move is **`02-architecture.md`** — the big one. Components + Mermaid diagram, the agent-loop sequence (Converse client-side tool-use cycle), failure-handling matrix, concurrency/shutdown, module boundaries, and the **ADRs** (each its own file under `adr/`). OQ-A..OQ-J get resolved here. Per-file review continues.
 
 ## 2. Deferred decisions
 
@@ -51,6 +53,7 @@ _(none yet)_
 - 1a-user-stories — resolved (review: `reviews/2026-06-14-requirements-1a-r1.md`) — `19cbe08`
 - 1b-acceptance-criteria — resolved (review: `reviews/2026-06-14-acceptance-criteria-1b-r1.md`) — `96f754b`
 - 1c-nfrs — resolved, **Phase 1 closed** (review: `reviews/2026-06-14-nfrs-1c-r1.md`) — `e03b032`
+- 2-overview — resolved (review: `reviews/2026-06-14-overview-r1.md`) — `<SHA-pending>`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
@@ -95,6 +98,7 @@ The brainstorm pre-explored a lot of **Phase 2 (architecture/ADR)** ground. None
 - **Compaction:** auto at token threshold **+** manual command; summarize → seed fresh derived conversation → archive old (preserved) → link lineage. **Compaction is the learning-harvest trigger** (reflect → distil durable learnings before archiving). → *architecture + state-machine.*
 - **Output disposal:** big tool/command outputs truncated/summarized/stored-and-referenced before hitting the window. "Every token-producer needs a disposal story." → *architecture.*
 - **Models:** configurable, default a current Claude on Bedrock; a sub-agent may run a different/cheaper model than its parent. → *config + architecture.*
+- **Provider-agnostic by design, Claude-only in v1 (added 2026-06-14, user direction — refined):** the model boundary is *designed* to reach any Converse-compatible Bedrock provider (Nova/Llama/Mistral…) via a **feature-detected model-capability layer**, but **v1 targets, validates, and ships CLAUDE ONLY**. Non-Claude Bedrock providers = architectural seam, post-v1 (not a tested path). Non-Bedrock providers fully OOS. → `NFR-MODEL-PROVIDER`, OQ-J, **model-provider ADR**. *Tension the capability layer isolates: core loop is provider-agnostic ~free (Converse), but extended-thinking/signatures + prompt-cache minimums + top_k are Claude-specific. Because v1 is Claude-only, the layer can be thin (a seam + a Claude profile) — full multi-provider profiles are post-v1, bounding validation cost now.*
 - **Sub-agents:** nested instance of our loop, isolated context, returns a summary (context isolation). Start with one; config for N; may run in parallel. → *architecture.*
 - **Memory re-read fresh on resume** — live side-channel, not baked into a transcript; a resumed session sees latest learnings. → *architecture.*
 
