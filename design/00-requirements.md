@@ -4,7 +4,7 @@ last_reviewed: 2026-06-14
 phase: resolved
 status: resolved
 review: reviews/2026-06-14-nfrs-1c-r1.md
-approved_in: pending
+approved_in: e03b032
 ---
 
 # Requirements — codingAgent
