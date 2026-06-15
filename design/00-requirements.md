@@ -180,7 +180,7 @@ Decisions pinned so the criteria below are concrete and testable. Carried into `
 | **RD-8** | Compaction preserves original | The original conversation is **never deleted** on compaction — archived and linked (`derived-from`). |
 | **RD-9** | Memory store form | Human-readable **markdown per entry + index**, two tiers (global, project), hand-editable/deletable, **re-read fresh** on each load. |
 | **RD-10** | Verification success signal | **Zero exit** from the configured **test** command = success for the unit of work. |
-| **RD-11** | Bedrock credential resolution | **Three-tier precedence (user-directed):** (1) **bearer token** — if `AWS_BEARER_TOKEN_BEDROCK` is set, use it (Bedrock API key; SDK-native; prod-friendly per AWS guidance); else (2) **named profile** — resolve from the configured AWS profile (`~/.aws/{config,credentials}`); else (3) **AWS default credential provider chain** (env vars → SSO/SDK cache → instance/container role). Only if **all three** fail does the agent exit `4`. The first-party `software.amazon.bedrock:aws-bedrock-token-generator` may be used to mint/refresh short-term bearer tokens. *(Extended 2026-06-14 after reading the Bedrock user guide; see `design-progress.md` § 6.A.2 + the credential ADR.)* |
+| **RD-11** | Bedrock credential resolution | **Two-tier SigV4 precedence (user-directed):** (1) **named profile** — if an AWS profile is configured, resolve from it (`~/.aws/{config,credentials}`); else (2) **AWS default credential provider chain** (env vars → SSO/SDK cache → instance/container role). If both fail, exit `4`. **Bedrock API-key / bearer-token auth (`AWS_BEARER_TOKEN_BEDROCK`) is deliberately NOT used and is explicitly ignored even when present** — to prevent a stray bearer token from another account silently authenticating this tool against the wrong AWS account (a footgun + a production-safety hazard). *(Set 2026-06-14 as bearer-first; revised 2026-06-15 to SigV4-only-ignore-bearer per user direction. See `design-progress.md` § 6.A.2 + ADR-0011.)* |
 
 ### CLI exit-code / failure-category contract (seed)
 
@@ -274,10 +274,10 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 | **AC-8.3** | Ev | When no model is configured, the agent shall use `NFR-MODEL-DEFAULT`. | NFR-MODEL-DEFAULT |
 | **AC-8.4** | Ev | When no permission mode is configured, the agent shall default to `NFR-PERMISSION-DEFAULT`. | RD-3 |
 | **AC-8.5** | Un | If a configured value is malformed (unknown mode, unparseable command), then the agent shall exit `2` identifying the offending key. | exit-code 2 |
-| **AC-8.6** | St | While the `AWS_BEARER_TOKEN_BEDROCK` environment variable is set, the agent shall authenticate Bedrock with that bearer token in preference to SigV4 credentials. | RD-11, NFR-AWS-CREDENTIALS |
-| **AC-8.7** | Op | Where no bearer token is set and an AWS profile name is configured, the agent shall resolve Bedrock credentials from that named profile (`~/.aws/config` / `~/.aws/credentials`). | RD-11, NFR-AWS-CREDENTIALS |
-| **AC-8.8** | Un | If the configured AWS profile is not found, then the agent shall fall back to the AWS default credential provider chain rather than failing. | RD-11, NFR-AWS-CREDENTIALS |
-| **AC-8.9** | Un | If no usable Bedrock credentials are resolved by any path (bearer token, profile, default chain), then the agent shall exit `4` (model-backend) with a message naming the paths attempted. | RD-11, exit-code 4 |
+| **AC-8.6** | Op | Where an AWS profile name is configured, the agent shall resolve Bedrock credentials from that named profile (`~/.aws/config` / `~/.aws/credentials`). | RD-11, NFR-AWS-CREDENTIALS |
+| **AC-8.7** | Un | If no AWS profile is configured (or the configured profile is not found), then the agent shall fall back to the AWS default credential provider chain rather than failing. | RD-11, NFR-AWS-CREDENTIALS |
+| **AC-8.8** | U | The agent shall authenticate Bedrock with SigV4 credentials (profile or default chain) only, and shall not authenticate using a `AWS_BEARER_TOKEN_BEDROCK` bearer token even when that environment variable is present. | RD-11, NFR-AWS-CREDENTIALS |
+| **AC-8.9** | Un | If no usable SigV4 credentials are resolved by either path (profile, default chain), then the agent shall exit `4` (model-backend) with a message naming the paths attempted. | RD-11, exit-code 4 |
 
 #### US-9 — Choose permission mode
 
@@ -442,7 +442,7 @@ Every NFR has a numeric value, version, or platform name. Symbolic NFRs introduc
 | **NFR-BEDROCK-REGION** | `us-east-1`, configurable | AWS region for Bedrock calls. |
 | **NFR-BEDROCK-MAX-RETRIES** | 3, exponential backoff + jitter | On a retryable Bedrock error. Exhaustion → exit `4` (model-backend). |
 | **NFR-BEDROCK-CALL-TIMEOUT** | connect 10 s; overall response 300 s; configurable | Covers streaming responses incl. extended thinking. Timeout counts toward retry budget. |
-| **NFR-AWS-CREDENTIALS** | bearer token → named profile → default chain (RD-11) | Resolution precedence: (1) `AWS_BEARER_TOKEN_BEDROCK` bearer token if set; (2) configured AWS profile from `~/.aws/{config,credentials}`; (3) AWS SDK v2 default provider chain (env → SSO/SDK cache → instance/container role). No usable credentials by any path → exit `4` (AC-8.6–8.9). The agent issues **read/invoke** Bedrock calls only (`bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream`, inference-profile reads) — never AWS write/create/delete verbs. |
+| **NFR-AWS-CREDENTIALS** | named profile → default chain; SigV4 only, bearer ignored (RD-11) | Resolution precedence: (1) configured AWS profile from `~/.aws/{config,credentials}`; (2) AWS SDK v2 default provider chain (env → SSO/SDK cache → instance/container role). **SigV4 only — `AWS_BEARER_TOKEN_BEDROCK` is explicitly ignored even if set** (prevents wrong-account auth via a stray bearer token). No usable credentials by either path → exit `4` (AC-8.6–8.9). The agent issues **read/invoke** Bedrock calls only (`bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream`, inference-profile reads) — never AWS write/create/delete verbs. |
 
 ### Permission & safety — `NFR-PERMISSION-*` [runtime]
 

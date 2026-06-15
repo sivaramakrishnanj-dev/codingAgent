@@ -3,10 +3,10 @@ doc: design-progress
 last_updated: 2026-06-15
 last_updated_at_commit: 3f048f2
 current_phase: 2
-current_sub_phase: 2-architecture
-current_sub_phase_status: drafting
-next_action: ADR batch 1 (0001-0004 + template) resolved (review 2026-06-15-adr-batch1-r1). Next: draft ADR batch 2 — 0005 persistence/event-sourcing+conversation-tree, 0006 context mgmt (compaction-with-derivation + output disposal; OQ-D, OQ-I), 0007 memory (two-tier md+index; OQ-F), 0008 web delegation (headless claude; Responses alt-considered), 0009 config model+precedence (OQ-G), 0010 sub-agent orchestration+isolation (OQ-C: in-process vs fork), 0011 credential resolution (bearer→profile→chain), 0012 greenfield workflow formality (OQ-B). Present as batch 2 for review. Sub-phase 2-architecture resolves when batch 2 lands.
-next_artifact_to_touch: design/adr/0005-persistence-event-sourcing.md
+current_sub_phase: 2-data-model
+current_sub_phase_status: not-started
+next_action: 2-architecture sub-phase fully RESOLVED (doc + all 12 ADRs; all OQ-A..OQ-J resolved). Next: draft 03-data-model.md — domain types (records/enums/value objects), ER diagram, the Conversation-tree model (ADR-0005), the 13 event types + content blocks, PermissionMode/edge-type/stopReason enums, ModelCapabilityProfile shape (ADR-0002), per-type invariants, lifecycle state machine with numbered INV-* (compaction lifecycle from ADR-0006), wire-format translation boundary (our types <-> Converse blocks).
+next_artifact_to_touch: design/03-data-model.md
 ---
 
 # Design progress — codingAgent
@@ -23,13 +23,14 @@ In **Phase 2 — Design**. `01-overview.md` is **resolved** (review: `reviews/20
 
 `02-architecture.md` (the doc) is **resolved** (review: `reviews/2026-06-15-architecture-r1.md`). 17 components (C1-C17) in a 5-layer monolith, agent-loop sequence (log-before-act, gate-in-the-middle), stopReason→action + error→exit matrices, concurrency/shutdown, `com.srk.codingagent.*` package layout, ADR queue. Three reviewer flags accepted as drafted (keep 17 components, CLI does one-shot+REPL, keep 12 ADRs separate).
 
-The `2-architecture` sub-phase stays OPEN for the **ADRs** (0001-0012, queued in § 9). Drafting in two batches: batch 1 = template + foundational four (0001 engine, 0002 model-provider, 0003 command-spine, 0004 permission); batch 2 = 0005-0012. Per-batch review.
+The **`2-architecture` sub-phase is fully RESOLVED** — `02-architecture.md` doc + all 12 ADRs (batch 1: 0001-0004; batch 2: 0005-0012), reviews `architecture-r1` / `adr-batch1-r1` / `adr-batch2-r1`. **All open questions OQ-A..OQ-J are resolved.** Key decisions of record: owned Converse loop (0001) · capability-profile provider seam, Claude-only-v1 (0002) · command spine (0003) · 4-mode permission + RD-1 match + RD-2 denylist (0004) · event-sourced JSONL + conversation-tree (0005) · compaction-derives-new-session + head/tail disposal + cache placement (0006) · two-tier curated markdown memory (0007) · headless-claude web delegate, Responses rejected (0008) · YAML two-tier config (0009) · in-process sub-agents N=1 (0010) · SigV4-only credentials, bearer ignored (0011) · full-spec-driven greenfield (0012).
 
-Per-unit progress for 2-architecture:
-- 02-architecture.md doc: **resolved** (`2f5a25b`)
-- adr/0000-template.md: **resolved**
-- ADRs 0001-0004 (batch 1 — engine, model-provider, command-spine, permission): **resolved** (review: `adr-batch1-r1`, `3f048f2`)
-- ADRs 0005-0012 (batch 2): **not started** (next)
+Now entering **`2-data-model`** (`03-data-model.md`). The ADRs named many types (events, edges, enums, capability profile, command result, memory entry) — data-model formalizes them with an ER diagram, per-type invariants, and numbered INV-* (incl. the compaction lifecycle state machine).
+
+Per-unit progress for 2-architecture (all resolved):
+- 02-architecture.md doc — `2f5a25b`
+- ADRs 0001-0004 (batch 1) — `3f048f2`
+- ADRs 0005-0012 (batch 2) — `<SHA-pending>`
 
 ADR batch 1 notes: 0001 pins AWS SDK v2 `bedrockruntime:2.46.10` (confirm at impl) + owned Converse loop + Opus 4.8 default; 0002 = `ModelCapabilityProfile` registry (feature-detect, Claude-only-v1, thin seam); 0003 = command executor contract (two-layer, structured result, tree-kill timeout, output→disposal); 0004 = permission model resolving OQ-E (RD-1 normalized-prefix match algorithm: tool+exe+subcommand for high-blast tools, tool+subtree for writes; RD-2 destructive denylist table).
 
@@ -51,7 +52,7 @@ Cross-phase scope facts established during brainstorming that later phases must 
 - Permission model: 4 modes + Class R/X taxonomy (RD-4), default `ASK_EVERY_TIME` (RD-3, `NFR-PERMISSION-DEFAULT`), `ASK_ONCE_THEN_REMEMBER` = tool+prefix (RD-1), destructive-denylist always-prompt/never-remember/READ_ONLY-denied (RD-2), grants not persisted cross-session nor inherited by sub-agents (RD-5, AC-10.6).
 - Verification contract: zero exit from configured test command = success (RD-10, AC-20.4); agent stops & surfaces after `NFR-VERIFY-MAX-ITERATIONS` (AC-3.4, AC-20.5).
 - Web-lookup denied in `READ_ONLY` (RD-6, AC-11.2).
-- AWS credentials: named-profile-first, fall back to AWS default credential provider chain, fail (exit 4) only if neither resolves (RD-11, AC-8.6–8.8, NFR-AWS-CREDENTIALS). Read/invoke-only Bedrock — no AWS write verbs. **→ needs a Phase 2 ADR for SDK v2 provider wiring** (`ProfileCredentialsProvider` → `DefaultCredentialsProvider`).
+- AWS credentials (RD-11 final): **SigV4 only — named profile → AWS default credential chain**; fail (exit 4) only if neither resolves. **`AWS_BEARER_TOKEN_BEDROCK` explicitly ignored even if set** (wrong-account footgun; AC-8.8 makes the ignore testable; warn if present). Read/invoke-only Bedrock — no AWS write verbs. → ADR-0011 (`ProfileCredentialsProvider` → `DefaultCredentialsProvider`, explicit SigV4 client construction).
 - Base Java package = `com.srk.codingagent.*` (user-directed 2026-06-15; set in `02-architecture.md` § 6). Seeds Maven groupId/artifactId at Phase 4/5.
 - All NFR numeric values pinned in 1c: Opus 4.x default (`NFR-MODEL-DEFAULT`, exact id Phase 2), 5 verify retries (`NFR-VERIFY-MAX-ITERATIONS`), 1 sub-agent (`NFR-SUBAGENT-MAX`), 0.85 compaction (`NFR-CONTEXT-COMPACT-THRESHOLD`), 16 KB output cap (`NFR-OUTPUT-MAX-INLINE`), 3 Bedrock retries (`NFR-BEDROCK-MAX-RETRIES`), Java 21 (`NFR-PLAT-JAVA`), 80% coverage gate (`NFR-TEST-COVERAGE`).
 
@@ -67,6 +68,7 @@ _(none yet)_
 - 2-overview — resolved (review: `reviews/2026-06-14-overview-r1.md`) — `7c458ef`
 - 2-architecture (doc) — resolved (review: `reviews/2026-06-15-architecture-r1.md`) — `2f5a25b`
 - 2-architecture ADRs batch 1 (0001-0004 + template) — resolved (review: `reviews/2026-06-15-adr-batch1-r1.md`) — `3f048f2`
+- 2-architecture ADRs batch 2 (0005-0012) — resolved, **2-architecture sub-phase complete** (review: `reviews/2026-06-15-adr-batch2-r1.md`) — `<SHA-pending>`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
@@ -98,7 +100,7 @@ The brainstorm pre-explored a lot of **Phase 2 (architecture/ADR)** ground. None
 - **⚠ Responses API alternative (note in engine ADR as alternative-considered):** `bedrock-mantle` Responses API offers *server-side stateful conversations* + *built-in search/code-interpreter*. We deliberately DON'T use it: (a) server-side state is the opposite of our client-owned event-log/resume/observability design; (b) OpenAI-compat format, not the unified Converse interface; (c) ties to specific models. But its built-in search is a real counterpoint to our "delegate web search to headless claude" — record the tradeoff. v1 stays Converse + delegate.
 - **100+ models, 6+ providers** (Amazon Nova, Anthropic Claude, DeepSeek, Kimi/Moonshot, MiniMax, OpenAI GPT). Confirms the provider-agnostic-by-design / Claude-only-v1 stance has real runway.
 - **⚠ MODEL ID UPDATE:** newest GA Opus is **Claude Opus 4.7** (`anthropic.claude-opus-4-7`), GA ~2026-04 — *newer* than the Opus 4.6 I pinned earlier from the prompt-caching table (docs there lag). Quickstart code uses `anthropic.claude-opus-4-7`. Inference-profile form `us.anthropic.claude-…`. → **engine ADR pins exact id at impl time** (availability moves fast; 4.8 may appear). NFR-MODEL-DEFAULT note updated to 4.7.
-- **THIRD CREDENTIAL PATH — API keys / bearer token (RESOLVED into RD-11, user-approved 2026-06-14):** Bedrock supports bearer-token auth via `AWS_BEARER_TOKEN_BEDROCK` env var (or `Authorization: Bearer` header), in addition to SigV4 (profile/default-chain). Two kinds: **short-term** (≤12h, inherits IAM principal perms, recommended for prod) and **long-term** (IAM-user-backed, exploration only). **Java token generator exists:** `software.amazon.bedrock:aws-bedrock-token-generator:1.1.0` (`BedrockTokenGenerator.builder().build().getToken()`), with cache/auto-refresh. → **RD-11 now 3-tier: bearer → profile → default chain.** AC-8.6–8.9 updated. → credential ADR.
+- **CREDENTIAL PATHS — API keys / bearer token exist but are DELIBERATELY UNUSED (RD-11 final, user-directed 2026-06-15):** Bedrock supports bearer-token auth via `AWS_BEARER_TOKEN_BEDROCK` (short-term ≤12h / long-term), plus a Java token generator (`software.amazon.bedrock:aws-bedrock-token-generator:1.1.0`). **Decision history:** 2026-06-14 set RD-11 = bearer→profile→chain (3-tier); **2026-06-15 REVERSED to SigV4-only: profile → default chain, bearer explicitly IGNORED even if `AWS_BEARER_TOKEN_BEDROCK` is set.** Rationale: a stray bearer token from another account would silently auth this tool against the wrong AWS account — a footgun + production-safety hazard. **Implementation must explicitly prevent SDK-native bearer pickup** (testable; AC-8.8) and warn if the env var is present. → ADR-0011 (rewritten).
 - **IAM actions for read/invoke-only (grounds the operations/IAM ADR + AWS-safety):** Converse needs `bedrock:InvokeModel`; ConverseStream needs `bedrock:InvokeModelWithResponseStream`; inference profiles need `bedrock:GetInferenceProfile` + `bedrock:ListInferenceProfiles`. Managed policy `AmazonBedrockFullAccess` covers it (broad); least-privilege = just the Invoke + inference-profile reads. NO create/delete/update verbs — confirms our read/invoke-only posture (AWS-safety rule).
 - **Reasoning (extended thinking) is model-gated** and adds latency + output tokens; "not all models allow configuring reasoning output-token budget." → capability-layer feature-detects it (OQ-J); Claude supports it.
 - **Platform features confirmed OOS v1 (note + defer):** model customization/fine-tuning, Provisioned Throughput, imported/custom models, Prompt Management, Guardrails, Knowledge Bases, Agents/Flows, batch inference, evaluation, CloudTrail logging (note: all API calls logged in CloudTrail; bearer keys not logged).

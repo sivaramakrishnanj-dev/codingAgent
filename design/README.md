@@ -14,7 +14,7 @@ Spec-driven design baseline for **codingAgent**, an LLM-based coding agent (loca
 | 2 — Design | overview | `01-overview.md` | ✅ resolved |
 | 2 — Design | architecture (doc) | `02-architecture.md` | ✅ resolved |
 | 2 — Design | architecture ADRs (batch 1: 0001–0004) | `adr/` | ✅ resolved |
-| 2 — Design | architecture ADRs (batch 2: 0005–0012) | `adr/` | ⬜ not started |
+| 2 — Design | architecture ADRs (batch 2: 0005–0012) | `adr/` | ✅ resolved |
 | 2 — Design | data model | `03-data-model.md` | ⬜ not started |
 | 2 — Design | apis | `04-apis.md` | ⬜ not started |
 | 2 — Design | operations | `05-operations.md` | ⬜ not started |
