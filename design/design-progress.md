@@ -5,8 +5,8 @@ last_updated_at_commit: 2f5a25b
 current_phase: 2
 current_sub_phase: 2-architecture
 current_sub_phase_status: drafting
-next_action: 02-architecture.md DOC is resolved (review 2026-06-15-architecture-r1). Sub-phase stays open for the ADRs. Next: draft adr/0000-template.md + foundational four — 0001 engine (AWS SDK v2 + Converse, owned loop), 0002 model-provider+capability layer (OQ-J), 0003 command-execution spine, 0004 permission model (OQ-E: 4 modes, Class R/X, denylist, RD-1 match). Present as batch 1 for review, then batch 2 (0005-0012).
-next_artifact_to_touch: design/adr/0000-template.md
+next_action: ADR batch 1 (0001-0004 + template) resolved (review 2026-06-15-adr-batch1-r1). Next: draft ADR batch 2 — 0005 persistence/event-sourcing+conversation-tree, 0006 context mgmt (compaction-with-derivation + output disposal; OQ-D, OQ-I), 0007 memory (two-tier md+index; OQ-F), 0008 web delegation (headless claude; Responses alt-considered), 0009 config model+precedence (OQ-G), 0010 sub-agent orchestration+isolation (OQ-C: in-process vs fork), 0011 credential resolution (bearer→profile→chain), 0012 greenfield workflow formality (OQ-B). Present as batch 2 for review. Sub-phase 2-architecture resolves when batch 2 lands.
+next_artifact_to_touch: design/adr/0005-persistence-event-sourcing.md
 ---
 
 # Design progress — codingAgent
@@ -26,9 +26,12 @@ In **Phase 2 — Design**. `01-overview.md` is **resolved** (review: `reviews/20
 The `2-architecture` sub-phase stays OPEN for the **ADRs** (0001-0012, queued in § 9). Drafting in two batches: batch 1 = template + foundational four (0001 engine, 0002 model-provider, 0003 command-spine, 0004 permission); batch 2 = 0005-0012. Per-batch review.
 
 Per-unit progress for 2-architecture:
-- 02-architecture.md doc: **resolved** (`<SHA-pending>`)
-- ADRs 0001-0004 (batch 1): **not started** (next)
-- ADRs 0005-0012 (batch 2): **not started**
+- 02-architecture.md doc: **resolved** (`2f5a25b`)
+- adr/0000-template.md: **resolved**
+- ADRs 0001-0004 (batch 1 — engine, model-provider, command-spine, permission): **resolved** (review: `adr-batch1-r1`, `<SHA-pending>`)
+- ADRs 0005-0012 (batch 2): **not started** (next)
+
+ADR batch 1 notes: 0001 pins AWS SDK v2 `bedrockruntime:2.46.10` (confirm at impl) + owned Converse loop + Opus 4.8 default; 0002 = `ModelCapabilityProfile` registry (feature-detect, Claude-only-v1, thin seam); 0003 = command executor contract (two-layer, structured result, tree-kill timeout, output→disposal); 0004 = permission model resolving OQ-E (RD-1 normalized-prefix match algorithm: tool+exe+subcommand for high-blast tools, tool+subtree for writes; RD-2 destructive denylist table).
 
 ## 2. Deferred decisions
 
@@ -63,6 +66,7 @@ _(none yet)_
 - 1c-nfrs — resolved, **Phase 1 closed** (review: `reviews/2026-06-14-nfrs-1c-r1.md`) — `e03b032`
 - 2-overview — resolved (review: `reviews/2026-06-14-overview-r1.md`) — `7c458ef`
 - 2-architecture (doc) — resolved (review: `reviews/2026-06-15-architecture-r1.md`) — `2f5a25b`
+- 2-architecture ADRs batch 1 (0001-0004 + template) — resolved (review: `reviews/2026-06-15-adr-batch1-r1.md`) — `<SHA-pending>`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 

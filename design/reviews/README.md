@@ -15,3 +15,4 @@ The approval artifacts for the design baseline. **"Silence made explicit"** — 
 | 2026-06-14 | `2026-06-14-nfrs-1c-r1.md` | `00-requirements.md` § 1c | r1 | ✅ approved (Phase 1 closed) |
 | 2026-06-14 | `2026-06-14-overview-r1.md` | `01-overview.md` | r1 | ✅ approved |
 | 2026-06-15 | `2026-06-15-architecture-r1.md` | `02-architecture.md` (doc) | r1 | ✅ approved (ADRs pending) |
+| 2026-06-15 | `2026-06-15-adr-batch1-r1.md` | `adr/0001–0004` (+ 0000-template) | r1 | ✅ approved |
