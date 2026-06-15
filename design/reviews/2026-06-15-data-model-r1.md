@@ -6,7 +6,7 @@ round: 1
 reviewed_on: 2026-06-15
 reviewer: user
 status: approved
-approved_in: pending
+approved_in: f864cef
 ---
 
 # Review — 03-data-model.md (Phase 2 — data model) r1

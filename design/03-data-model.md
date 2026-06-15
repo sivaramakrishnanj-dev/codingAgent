@@ -4,7 +4,7 @@ last_reviewed: 2026-06-15
 phase: 2-design
 status: resolved
 review: reviews/2026-06-15-data-model-r1.md
-approved_in: pending
+approved_in: f864cef
 ---
 
 # Data Model — codingAgent
