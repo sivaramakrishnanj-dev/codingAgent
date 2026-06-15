@@ -4,9 +4,9 @@ last_updated: 2026-06-14
 last_updated_at_commit: 7c458ef
 current_phase: 2
 current_sub_phase: 2-architecture
-current_sub_phase_status: not-started
-next_action: Draft 02-architecture.md — component decomposition + Mermaid component diagram, the agent-loop sequence diagram (Converse client-side tool-use cycle from § 6.A.1), failure-handling matrix (stopReason + error taxonomy → exit codes), concurrency/shutdown, module boundaries. ADRs emerge here — write each as its own design/adr/NNNN-*.md: engine/SDK, model-provider+capability-layer (OQ-J), command-execution spine, permission model (OQ-E), persistence/event-sourcing, conversation-tree+compaction (OQ-D), memory, delegation, prompt-caching (OQ-I), sub-agents (OQ-C). Also seed adr/0000-template.md.
-next_artifact_to_touch: design/02-architecture.md
+current_sub_phase_status: drafting
+next_action: 02-architecture.md DOC is resolved (review 2026-06-15-architecture-r1). Sub-phase stays open for the ADRs. Next: draft adr/0000-template.md + foundational four — 0001 engine (AWS SDK v2 + Converse, owned loop), 0002 model-provider+capability layer (OQ-J), 0003 command-execution spine, 0004 permission model (OQ-E: 4 modes, Class R/X, denylist, RD-1 match). Present as batch 1 for review, then batch 2 (0005-0012).
+next_artifact_to_touch: design/adr/0000-template.md
 ---
 
 # Design progress — codingAgent
@@ -21,7 +21,14 @@ Phase 1b (EARS acceptance criteria) is **resolved** — approved by user ("good 
 
 In **Phase 2 — Design**. `01-overview.md` is **resolved** (review: `reviews/2026-06-14-overview-r1.md`). Approval folded in a user-directed scope refinement: **provider-agnostic by design, Claude-only validated/shipped in v1** (`NFR-MODEL-PROVIDER`, OQ-J). Converse API verified facts live in § 6.A.1; raw docs in `research/`.
 
-Next move is **`02-architecture.md`** — the big one. Components + Mermaid diagram, the agent-loop sequence (Converse client-side tool-use cycle), failure-handling matrix, concurrency/shutdown, module boundaries, and the **ADRs** (each its own file under `adr/`). OQ-A..OQ-J get resolved here. Per-file review continues.
+`02-architecture.md` (the doc) is **resolved** (review: `reviews/2026-06-15-architecture-r1.md`). 17 components (C1-C17) in a 5-layer monolith, agent-loop sequence (log-before-act, gate-in-the-middle), stopReason→action + error→exit matrices, concurrency/shutdown, `com.srk.codingagent.*` package layout, ADR queue. Three reviewer flags accepted as drafted (keep 17 components, CLI does one-shot+REPL, keep 12 ADRs separate).
+
+The `2-architecture` sub-phase stays OPEN for the **ADRs** (0001-0012, queued in § 9). Drafting in two batches: batch 1 = template + foundational four (0001 engine, 0002 model-provider, 0003 command-spine, 0004 permission); batch 2 = 0005-0012. Per-batch review.
+
+Per-unit progress for 2-architecture:
+- 02-architecture.md doc: **resolved** (`<SHA-pending>`)
+- ADRs 0001-0004 (batch 1): **not started** (next)
+- ADRs 0005-0012 (batch 2): **not started**
 
 ## 2. Deferred decisions
 
@@ -42,6 +49,7 @@ Cross-phase scope facts established during brainstorming that later phases must 
 - Verification contract: zero exit from configured test command = success (RD-10, AC-20.4); agent stops & surfaces after `NFR-VERIFY-MAX-ITERATIONS` (AC-3.4, AC-20.5).
 - Web-lookup denied in `READ_ONLY` (RD-6, AC-11.2).
 - AWS credentials: named-profile-first, fall back to AWS default credential provider chain, fail (exit 4) only if neither resolves (RD-11, AC-8.6–8.8, NFR-AWS-CREDENTIALS). Read/invoke-only Bedrock — no AWS write verbs. **→ needs a Phase 2 ADR for SDK v2 provider wiring** (`ProfileCredentialsProvider` → `DefaultCredentialsProvider`).
+- Base Java package = `com.srk.codingagent.*` (user-directed 2026-06-15; set in `02-architecture.md` § 6). Seeds Maven groupId/artifactId at Phase 4/5.
 - All NFR numeric values pinned in 1c: Opus 4.x default (`NFR-MODEL-DEFAULT`, exact id Phase 2), 5 verify retries (`NFR-VERIFY-MAX-ITERATIONS`), 1 sub-agent (`NFR-SUBAGENT-MAX`), 0.85 compaction (`NFR-CONTEXT-COMPACT-THRESHOLD`), 16 KB output cap (`NFR-OUTPUT-MAX-INLINE`), 3 Bedrock retries (`NFR-BEDROCK-MAX-RETRIES`), Java 21 (`NFR-PLAT-JAVA`), 80% coverage gate (`NFR-TEST-COVERAGE`).
 
 ## 4. Recovery notes
@@ -54,6 +62,7 @@ _(none yet)_
 - 1b-acceptance-criteria — resolved (review: `reviews/2026-06-14-acceptance-criteria-1b-r1.md`) — `96f754b`
 - 1c-nfrs — resolved, **Phase 1 closed** (review: `reviews/2026-06-14-nfrs-1c-r1.md`) — `e03b032`
 - 2-overview — resolved (review: `reviews/2026-06-14-overview-r1.md`) — `7c458ef`
+- 2-architecture (doc) — resolved (review: `reviews/2026-06-15-architecture-r1.md`) — `<SHA-pending>`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
