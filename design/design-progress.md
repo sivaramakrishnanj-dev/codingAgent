@@ -1,7 +1,7 @@
 ---
 doc: design-progress
 last_updated: 2026-06-15
-last_updated_at_commit: 3f048f2
+last_updated_at_commit: 9bf5060
 current_phase: 2
 current_sub_phase: 2-data-model
 current_sub_phase_status: not-started
@@ -30,7 +30,7 @@ Now entering **`2-data-model`** (`03-data-model.md`). The ADRs named many types 
 Per-unit progress for 2-architecture (all resolved):
 - 02-architecture.md doc — `2f5a25b`
 - ADRs 0001-0004 (batch 1) — `3f048f2`
-- ADRs 0005-0012 (batch 2) — `<SHA-pending>`
+- ADRs 0005-0012 (batch 2) — `9bf5060`
 
 ADR batch 1 notes: 0001 pins AWS SDK v2 `bedrockruntime:2.46.10` (confirm at impl) + owned Converse loop + Opus 4.8 default; 0002 = `ModelCapabilityProfile` registry (feature-detect, Claude-only-v1, thin seam); 0003 = command executor contract (two-layer, structured result, tree-kill timeout, output→disposal); 0004 = permission model resolving OQ-E (RD-1 normalized-prefix match algorithm: tool+exe+subcommand for high-blast tools, tool+subtree for writes; RD-2 destructive denylist table).
 
@@ -68,7 +68,7 @@ _(none yet)_
 - 2-overview — resolved (review: `reviews/2026-06-14-overview-r1.md`) — `7c458ef`
 - 2-architecture (doc) — resolved (review: `reviews/2026-06-15-architecture-r1.md`) — `2f5a25b`
 - 2-architecture ADRs batch 1 (0001-0004 + template) — resolved (review: `reviews/2026-06-15-adr-batch1-r1.md`) — `3f048f2`
-- 2-architecture ADRs batch 2 (0005-0012) — resolved, **2-architecture sub-phase complete** (review: `reviews/2026-06-15-adr-batch2-r1.md`) — `<SHA-pending>`
+- 2-architecture ADRs batch 2 (0005-0012) — resolved, **2-architecture sub-phase complete** (review: `reviews/2026-06-15-adr-batch2-r1.md`) — `9bf5060`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
