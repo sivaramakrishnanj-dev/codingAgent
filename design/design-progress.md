@@ -3,10 +3,10 @@ doc: design-progress
 last_updated: 2026-06-15
 last_updated_at_commit: 9bf5060
 current_phase: 2
-current_sub_phase: 2-data-model
+current_sub_phase: 2-apis
 current_sub_phase_status: not-started
-next_action: 2-architecture sub-phase fully RESOLVED (doc + all 12 ADRs; all OQ-A..OQ-J resolved). Next: draft 03-data-model.md — domain types (records/enums/value objects), ER diagram, the Conversation-tree model (ADR-0005), the 13 event types + content blocks, PermissionMode/edge-type/stopReason enums, ModelCapabilityProfile shape (ADR-0002), per-type invariants, lifecycle state machine with numbered INV-* (compaction lifecycle from ADR-0006), wire-format translation boundary (our types <-> Converse blocks).
-next_artifact_to_touch: design/03-data-model.md
+next_action: Draft 04-apis.md — the contract reference. (1) CLI contract: commands/subcommands, flags, the REPL vs one-shot model (C1, OQ-H resolved both), how multimodal attachments are passed (file paths → image/document blocks), exit codes surfaced. (2) Bedrock Converse boundary in prose (request/response fields we use, streaming, credential note — point to ADR-0001/0011, not re-spec). (3) Tool contracts: each built-in tool's name + input schema shape + Class R/X (file read/search/write/edit, run_command, web_search/web_fetch, spawn_subagent, read_memory/write_memory). (4) Web-delegate contract (claude -p invocation surface, ADR-0008). Prose + signatures; JSON schemas are Phase 3.
+next_artifact_to_touch: design/04-apis.md
 ---
 
 # Design progress — codingAgent
@@ -25,7 +25,9 @@ In **Phase 2 — Design**. `01-overview.md` is **resolved** (review: `reviews/20
 
 The **`2-architecture` sub-phase is fully RESOLVED** — `02-architecture.md` doc + all 12 ADRs (batch 1: 0001-0004; batch 2: 0005-0012), reviews `architecture-r1` / `adr-batch1-r1` / `adr-batch2-r1`. **All open questions OQ-A..OQ-J are resolved.** Key decisions of record: owned Converse loop (0001) · capability-profile provider seam, Claude-only-v1 (0002) · command spine (0003) · 4-mode permission + RD-1 match + RD-2 denylist (0004) · event-sourced JSONL + conversation-tree (0005) · compaction-derives-new-session + head/tail disposal + cache placement (0006) · two-tier curated markdown memory (0007) · headless-claude web delegate, Responses rejected (0008) · YAML two-tier config (0009) · in-process sub-agents N=1 (0010) · SigV4-only credentials, bearer ignored (0011) · full-spec-driven greenfield (0012).
 
-Now entering **`2-data-model`** (`03-data-model.md`). The ADRs named many types (events, edges, enums, capability profile, command result, memory entry) — data-model formalizes them with an ER diagram, per-type invariants, and numbered INV-* (incl. the compaction lifecycle state machine).
+`03-data-model.md` is **resolved** (review: `data-model-r1`). 8 core entities, 13 EventTypes, 10 enums, **19 numbered INV-*** (added INV-18 doc-name-sanitization, INV-19 capability-gated-attachments with the multimodal addition), compaction state machine, wire-format boundary. **Multimodal input (image + document) added to v1 scope** — verified Converse formats (Word/Excel native); propagated to `00`/`01`/`design-progress §6.A.1`.
+
+Now in **`2-apis`** (`04-apis.md`, not started) — the contract reference: CLI commands/flags/REPL + multimodal attachment passing, Converse boundary in prose, per-tool contracts (name/schema/class), web-delegate invocation. Then `05-operations.md` closes Phase 2.
 
 Per-unit progress for 2-architecture (all resolved):
 - 02-architecture.md doc — `2f5a25b`
@@ -69,6 +71,7 @@ _(none yet)_
 - 2-architecture (doc) — resolved (review: `reviews/2026-06-15-architecture-r1.md`) — `2f5a25b`
 - 2-architecture ADRs batch 1 (0001-0004 + template) — resolved (review: `reviews/2026-06-15-adr-batch1-r1.md`) — `3f048f2`
 - 2-architecture ADRs batch 2 (0005-0012) — resolved, **2-architecture sub-phase complete** (review: `reviews/2026-06-15-adr-batch2-r1.md`) — `9bf5060`
+- 2-data-model — resolved, multimodal input added (review: `reviews/2026-06-15-data-model-r1.md`) — `<SHA-pending>`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
@@ -80,7 +83,8 @@ The brainstorm pre-explored a lot of **Phase 2 (architecture/ADR)** ground. None
 #### A.1 Bedrock Converse — VERIFIED facts (read 2026-06-14 from docs.aws.amazon.com via ReadInternalWebsites; ground the architecture in these, not memory)
 - **Stateless API.** "Bedrock doesn't store any text… maintain context by including all messages in subsequent requests." → this is the *justification* for our persistence/event-log/resume design. Resume = replay events → rebuild `messages[]`.
 - **Request shape:** `modelId`, `messages[]` (role + typed `content[]` blocks), `system[]` (separate from messages), `inferenceConfig` (maxTokens/temperature/topP/stopSequences), `additionalModelRequestFields` (model-specific: Claude extended-thinking budget, top_k), `toolConfig` (tools[] + toolChoice). Response: `output.message.content[]`, `stopReason`, `usage`, `metrics.latencyMs`.
-- **ContentBlock types:** text, toolUse, toolResult, reasoningContent, cachePoint, (image/document/video = multimodal, OOS v1).
+- **ContentBlock types:** text, toolUse, toolResult, reasoningContent, cachePoint, image, document, (video = OOS v1).
+- **Multimodal INPUT in scope v1 (user-directed 2026-06-15):** image + document input — load-bearing for greenfield/spec-driven (design diagrams US-1, PDF/Word use-case docs). **VERIFIED formats** (read 2026-06-15, DocumentBlock/ImageBlock API refs): `ImageBlock` = png|jpeg|gif|webp; `DocumentBlock` = pdf|csv|doc|docx|xls|xlsx|html|txt|md (**Word/Excel attach natively, no conversion**). Raw-bytes source (SDK base64-encodes; S3-source OOS for local CLI). Capability-gated via ModelCapabilityProfile (added supportsImageInput/supportsDocumentInput). `DocumentBlock.name` is a prompt-injection surface → must be neutral/sanitized (INV-18). Still OOS: image/video *generation* (output) + *video input* (VideoBlock). → 03-data-model § 2.3, INV-18/19; reflected in 00-requirements OOS + 01-overview scope.
 - **Client-side tool-use loop (OUR LOOP):** send toolConfig → model returns `stopReason: tool_use` + `toolUse {toolUseId,name,input}` → **permission gate here** → execute → append `toolResult {toolUseId,content,status?}` as user-role msg → re-call → until `stopReason: end_turn`. Each tool = `toolSpec {name, description, inputSchema:<JSON Schema>}`.
 - **stopReason values:** `end_turn | tool_use | max_tokens | stop_sequence | guardrail_intervened | content_filtered | malformed_model_output | malformed_tool_use | model_context_window_exceeded`. → drives loop state machine (Phase 3). `model_context_window_exceeded` → triggers compaction.
 - **usage returned every call:** inputTokens, outputTokens, totalTokens, cacheReadInputTokens, cacheWriteInputTokens, cacheDetails. → `NFR-CONTEXT-COMPACT-THRESHOLD` is MEASURED not estimated.

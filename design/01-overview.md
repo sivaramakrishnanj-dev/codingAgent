@@ -41,6 +41,7 @@ A developer using a raw LLM for coding hits five walls. codingAgent exists to kn
 - A **terminal CLI**, single-user, one repository per invocation.
 - **AWS Bedrock Converse** as the sole model backend; **Claude as the only validated/shipped model family in v1**, model id configurable. The model boundary is built behind a **provider-agnostic abstraction** (Converse already normalizes across families; provider-specific capabilities — extended thinking, prompt-cache token minimums, model-specific inference params — sit behind a **model-capability layer**), so swapping to another Bedrock provider later is a config + capability-profile change, not a rewrite. **Validating non-Claude providers is explicitly post-v1.**
 - **Greenfield** and **brownfield** modes.
+- **Multimodal input** (image + document): developers can share design diagrams and PDF/Word use-case docs — directly supporting greenfield/spec-driven. Input only (no generation), capability-gated.
 - The coding toolkit as **the agent's own tools**: read, search (grep/glob), write/edit files, run commands.
 - **Build-tool verification** as ground truth (Java/Maven first; the command set is configured, not hard-coded).
 - **Sub-agents** (one by default, configurable to N).

@@ -154,6 +154,7 @@ flowchart TB
 | Container / Docker sandboxing | **Future-work**. v1 safety surface = permission gate. |
 | Streaming / background execution of long-running commands | **Future-work**. v1 = synchronous capture with timeout. |
 | Brazil packaging | **Future-work**. v1 = Maven + open-source GitHub. |
+| Image/video **generation** (model output) and **video input** | **Future-work**. v1 supports image + document **input** only (diagrams, PDF/Word use-case docs — for greenfield/spec-driven), capability-gated; see `03-data-model.md` § 2.3. |
 
 ---
 
