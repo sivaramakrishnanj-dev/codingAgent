@@ -6,7 +6,7 @@ round: 1
 reviewed_on: 2026-06-15
 reviewer: user
 status: approved
-approved_in: pending
+approved_in: 2f5a25b
 ---
 
 # Review — 02-architecture.md (Phase 2 — architecture, doc only) r1

@@ -4,7 +4,7 @@ last_reviewed: 2026-06-15
 phase: 2-design
 status: resolved
 review: reviews/2026-06-15-architecture-r1.md
-approved_in: pending
+approved_in: 2f5a25b
 ---
 
 # Architecture — codingAgent
