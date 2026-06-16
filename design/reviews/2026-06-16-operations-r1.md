@@ -6,7 +6,7 @@ round: 1
 reviewed_on: 2026-06-16
 reviewer: user
 status: approved
-approved_in: pending
+approved_in: 4cfb111
 ---
 
 # Review — 05-operations.md (Phase 2 — operations) r1

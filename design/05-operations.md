@@ -4,7 +4,7 @@ last_reviewed: 2026-06-16
 phase: 2-design
 status: resolved
 review: reviews/2026-06-16-operations-r1.md
-approved_in: pending
+approved_in: 4cfb111
 ---
 
 # Operations — codingAgent
