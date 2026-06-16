@@ -3,10 +3,10 @@ doc: design-progress
 last_updated: 2026-06-15
 last_updated_at_commit: f864cef
 current_phase: 2
-current_sub_phase: 2-apis
+current_sub_phase: 2-operations
 current_sub_phase_status: not-started
-next_action: Draft 04-apis.md — the contract reference. (1) CLI contract: commands/subcommands, flags, the REPL vs one-shot model (C1, OQ-H resolved both), how multimodal attachments are passed (file paths → image/document blocks), exit codes surfaced. (2) Bedrock Converse boundary in prose (request/response fields we use, streaming, credential note — point to ADR-0001/0011, not re-spec). (3) Tool contracts: each built-in tool's name + input schema shape + Class R/X (file read/search/write/edit, run_command, web_search/web_fetch, spawn_subagent, read_memory/write_memory). (4) Web-delegate contract (claude -p invocation surface, ADR-0008). Prose + signatures; JSON schemas are Phase 3.
-next_artifact_to_touch: design/04-apis.md
+next_action: Draft 05-operations.md (final Phase 2 artifact) — build (Maven, Java 21, fat-jar/CLI packaging), run (install, first-run config, AWS profile setup, headless-claude prereq for web delegate), observability (event-log location/inspection, log levels INFO/WARN/ERROR/DEBUG, outcome signals), failure remediation matrix + "it doesn't work" decision tree (maps exit codes 1-5/130 → causes → fixes), distribution (GitHub release), known limits. On approval, Phase 2 closes → Phase 3 (06-formal/).
+next_artifact_to_touch: design/05-operations.md
 ---
 
 # Design progress — codingAgent
@@ -27,7 +27,9 @@ The **`2-architecture` sub-phase is fully RESOLVED** — `02-architecture.md` do
 
 `03-data-model.md` is **resolved** (review: `data-model-r1`). 8 core entities, 13 EventTypes, 10 enums, **19 numbered INV-*** (added INV-18 doc-name-sanitization, INV-19 capability-gated-attachments with the multimodal addition), compaction state machine, wire-format boundary. **Multimodal input (image + document) added to v1 scope** — verified Converse formats (Word/Excel native); propagated to `00`/`01`/`design-progress §6.A.1`.
 
-Now in **`2-apis`** (`04-apis.md`, not started) — the contract reference: CLI commands/flags/REPL + multimodal attachment passing, Converse boundary in prose, per-tool contracts (name/schema/class), web-delegate invocation. Then `05-operations.md` closes Phase 2.
+`04-apis.md` is **resolved** (review: `apis-r1`). CLI command names accepted as proposed (binary `codingagent`; subcommands resume/sessions/memory/config; `-p` one-shot; slash-commands). 12 tool contracts (Class R/X), Converse boundary prose, web-delegate + on-disk contracts. Two minor flags: named-command exposure deferred to Phase 4; memory subcommands kept.
+
+Now in **`2-operations`** (`05-operations.md`, not started) — the **final Phase 2 artifact**: build/run/observability/failure-remediation/packaging. On approval, **Phase 2 closes** → Phase 3 (`06-formal/` — schemas, state machine, exit codes, contract tests, fixtures).
 
 Per-unit progress for 2-architecture (all resolved):
 - 02-architecture.md doc — `2f5a25b`
@@ -72,6 +74,7 @@ _(none yet)_
 - 2-architecture ADRs batch 1 (0001-0004 + template) — resolved (review: `reviews/2026-06-15-adr-batch1-r1.md`) — `3f048f2`
 - 2-architecture ADRs batch 2 (0005-0012) — resolved, **2-architecture sub-phase complete** (review: `reviews/2026-06-15-adr-batch2-r1.md`) — `9bf5060`
 - 2-data-model — resolved, multimodal input added (review: `reviews/2026-06-15-data-model-r1.md`) — `f864cef`
+- 2-apis — resolved (review: `reviews/2026-06-16-apis-r1.md`) — `<SHA-pending>`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
