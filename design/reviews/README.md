@@ -19,3 +19,4 @@ The approval artifacts for the design baseline. **"Silence made explicit"** — 
 | 2026-06-15 | `2026-06-15-adr-batch2-r1.md` | `adr/0005–0012` | r1 | ✅ approved (2-architecture resolved) |
 | 2026-06-15 | `2026-06-15-data-model-r1.md` | `03-data-model.md` | r1 | ✅ approved |
 | 2026-06-16 | `2026-06-16-apis-r1.md` | `04-apis.md` | r1 | ✅ approved |
+| 2026-06-16 | `2026-06-16-operations-r1.md` | `05-operations.md` | r1 | ✅ approved (Phase 2 closed) |

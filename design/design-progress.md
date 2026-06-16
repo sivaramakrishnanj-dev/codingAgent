@@ -2,11 +2,11 @@
 doc: design-progress
 last_updated: 2026-06-16
 last_updated_at_commit: da02464
-current_phase: 2
-current_sub_phase: 2-operations
+current_phase: 3
+current_sub_phase: 3-formal
 current_sub_phase_status: not-started
-next_action: Draft 05-operations.md (final Phase 2 artifact) — build (Maven, Java 21, fat-jar/CLI packaging), run (install, first-run config, AWS profile setup, headless-claude prereq for web delegate), observability (event-log location/inspection, log levels INFO/WARN/ERROR/DEBUG, outcome signals), failure remediation matrix + "it doesn't work" decision tree (maps exit codes 1-5/130 → causes → fixes), distribution (GitHub release), known limits. On approval, Phase 2 closes → Phase 3 (06-formal/).
-next_artifact_to_touch: design/05-operations.md
+next_action: PHASE 2 COMPLETE. Begin Phase 3 — Formal Contracts under design/06-formal/. Drafting order: (1) cli-exit-codes.md (authoritative; from 1b seed + 02 §3.2 + 05 §4 — must stay consistent), (2) state-machine.md (promote 03 §6 compaction lifecycle + the agent-loop stopReason states), (3) JSON Schemas (Draft 2020-12) for persisted shapes — Event + ContentBlock(incl Image/Document) + CommandResult + MemoryEntry + ResolvedConfig + ModelCapabilityProfile, (4) contract-tests.md (index; positive/negative per schema + per INV-*; each traceable to an AC), (5) fixtures/ (sample event-log JSONL, config YAML, memory entry, a tool-use cycle; validate each against its schema). Review combined or per-artifact (ask user).
+next_artifact_to_touch: design/06-formal/cli-exit-codes.md
 ---
 
 # Design progress — codingAgent
@@ -29,7 +29,9 @@ The **`2-architecture` sub-phase is fully RESOLVED** — `02-architecture.md` do
 
 `04-apis.md` is **resolved** (review: `apis-r1`). CLI command names accepted as proposed (binary `codingagent`; subcommands resume/sessions/memory/config; `-p` one-shot; slash-commands). 12 tool contracts (Class R/X), Converse boundary prose, web-delegate + on-disk contracts. Two minor flags: named-command exposure deferred to Phase 4; memory subcommands kept.
 
-Now in **`2-operations`** (`05-operations.md`, not started) — the **final Phase 2 artifact**: build/run/observability/failure-remediation/packaging. On approval, **Phase 2 closes** → Phase 3 (`06-formal/` — schemas, state machine, exit codes, contract tests, fixtures).
+**PHASE 2 (Design) is COMPLETE** — all six artifacts resolved: `01-overview`, `02-architecture` (doc + 12 ADRs), `03-data-model`, `04-apis`, `05-operations`. All OQ-A..OQ-J resolved. The system is fully designed: a layered-monolith Java/Maven CLI on Bedrock Converse with an owned agent loop, 4-mode permission gate + command spine, event-sourced JSONL persistence + conversation-tree + compaction-with-derivation, two-tier curated memory, in-process sub-agents (N=1), headless-claude web delegate, SigV4-only creds, full-spec-driven greenfield, multimodal (image+document) input.
+
+Now entering **Phase 3 — Formal Contracts** (`06-formal/`). Turns the prose contracts + data model into machine-checkable artifacts: exit codes, the formal state machine, JSON Schemas (Draft 2020-12), a contract-test index, and validated fixtures. Drafting order in next_action. This is the last design phase before Phase 4 (tasks → `.kiro/spec-driven.yaml` → coordinator handoff).
 
 Per-unit progress for 2-architecture (all resolved):
 - 02-architecture.md doc — `2f5a25b`
@@ -75,6 +77,7 @@ _(none yet)_
 - 2-architecture ADRs batch 2 (0005-0012) — resolved, **2-architecture sub-phase complete** (review: `reviews/2026-06-15-adr-batch2-r1.md`) — `9bf5060`
 - 2-data-model — resolved, multimodal input added (review: `reviews/2026-06-15-data-model-r1.md`) — `f864cef`
 - 2-apis — resolved (review: `reviews/2026-06-16-apis-r1.md`) — `da02464`
+- 2-operations — resolved, **PHASE 2 COMPLETE** (review: `reviews/2026-06-16-operations-r1.md`) — `<SHA-pending>`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
