@@ -1,7 +1,7 @@
 ---
 doc: design-progress
-last_updated: 2026-06-15
-last_updated_at_commit: f864cef
+last_updated: 2026-06-16
+last_updated_at_commit: da02464
 current_phase: 2
 current_sub_phase: 2-operations
 current_sub_phase_status: not-started
@@ -74,7 +74,7 @@ _(none yet)_
 - 2-architecture ADRs batch 1 (0001-0004 + template) — resolved (review: `reviews/2026-06-15-adr-batch1-r1.md`) — `3f048f2`
 - 2-architecture ADRs batch 2 (0005-0012) — resolved, **2-architecture sub-phase complete** (review: `reviews/2026-06-15-adr-batch2-r1.md`) — `9bf5060`
 - 2-data-model — resolved, multimodal input added (review: `reviews/2026-06-15-data-model-r1.md`) — `f864cef`
-- 2-apis — resolved (review: `reviews/2026-06-16-apis-r1.md`) — `<SHA-pending>`
+- 2-apis — resolved (review: `reviews/2026-06-16-apis-r1.md`) — `da02464`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
