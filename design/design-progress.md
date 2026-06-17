@@ -2,11 +2,11 @@
 doc: design-progress
 last_updated: 2026-06-17
 last_updated_at_commit: 2518fee
-current_phase: 4
-current_sub_phase: 4-tasks
-current_sub_phase_status: not-started
-next_action: PHASE 3 COMPLETE. Begin Phase 4 — draft 07-tasks.md: milestones M0..MN (goal + gate criteria + size) following the staging from §6.G (Stage 0 walking skeleton → 1 search/verify loop → 2 compaction+subagent+memory → 3 greenfield → 4 delegation), Mermaid milestone-dependency diagram, per-milestone task table (T-<m>.<n> ids, component C1-C17, AC/INV/ADR refs, size S/M/L, deps), per-milestone verification gate (which CTs go green), cross-milestone gates G0..GN, risk register, OOS-for-Phase-5 list, task→US mapping. Address the two contract-test coverage gaps (greenfield phase-gating, sub-agent summary-only) as tasks. THEN config-generation questionnaire → write .kiro/spec-driven.yaml (build_system=none, maven, java 21, base pkg com.srk.codingagent, language_reviewer_skill=code-reviewer; ask AWS profile). Single Phase 4 review.
-next_artifact_to_touch: design/07-tasks.md
+current_phase: 5
+current_sub_phase: handed-off-to-coordinator
+current_sub_phase_status: resolved
+next_action: spec-driven-coordinator runs Phase 5; design-progress.md is frozen until amendment or Phase 5 ends. First task T-0.1 (project skeleton). Coordinator runs single-agent topology, autonomous, stops at milestone gates G0-G4.
+next_artifact_to_touch: design/07-tasks-progress.md
 ---
 
 # Design progress — codingAgent
@@ -35,7 +35,9 @@ In **Phase 3 — Formal Contracts** (`06-formal/`), reviewed in **two batches** 
 
 **PHASE 3 (Formal Contracts) COMPLETE** — batch 1 (`formal-batch1-r1`: cli-exit-codes + state-machine) + batch 2 (`formal-batch2-r1`: 6 JSON schemas + contract-tests.md + 3 validated fixtures). All schemas pass Draft 2020-12; all fixtures validated (jsonschema 4.26 + pyyaml); validation caught + fixed a YAML datetime fixture bug.
 
-**Phases 1–3 are DONE.** The design baseline is complete bar the task plan. Now entering the final design phase, **Phase 4 — Tasks** (`07-tasks.md` + `.kiro/spec-driven.yaml`). On its approval, the designer hands off to the Phase 5 coordinator for implementation.
+**DESIGN COMPLETE — Phases 1–4 all resolved. Handed off to the Phase 5 coordinator.** This file is now FROZEN until an amendment (coordinator-routed) or Phase 5 ends. Phase 5 task state lives in `design/07-tasks-progress.md` (coordinator-owned, created on first task).
+
+The baseline: `00-requirements` (3 personas, 21 US, 80 EARS ACs, all NFRs) · `01-overview` · `02-architecture` (17 components + 12 ADRs) · `03-data-model` (19 INV + state machine) · `04-apis` · `05-operations` · `06-formal` (exit codes, 2 state machines, 6 validated schemas, 44 contract tests, 3 fixtures) · `07-tasks` (5 milestones, ~28 tasks, gates G0-G4) · `.kiro/spec-driven.yaml`. Resume protocol for Phase 5: see `07-tasks-progress.md` once the coordinator creates it.
 
 Per-unit progress for 2-architecture (all resolved):
 - 02-architecture.md doc — `2f5a25b`
@@ -46,7 +48,7 @@ ADR batch 1 notes: 0001 pins AWS SDK v2 `bedrockruntime:2.46.10` (confirm at imp
 
 ## 2. Deferred decisions
 
-- **Project name** — working name is `codingAgent` (the directory). Not yet decided as the product name. Resolve before/at Phase 4 config-generation (`project_name` in `.kiro/spec-driven.yaml`).
+- ~~**Project name**~~ — **RESOLVED**: `project_name: codingAgent` written to `.kiro/spec-driven.yaml` at Phase 4 close.
 - **Parallel sub-agent execution detail** — v1 starts with one sub-agent, config for N; whether N>1 run concurrently vs sequentially-with-isolation is a Phase 2 architecture detail. Capability captured in US-17, bound by `NFR-SUBAGENT-MAX` (1c).
 - ~~**`ASK_ONCE_THEN_REMEMBER` matching semantics**~~ — **RESOLVED in 1b as RD-1** (tool + normalized command prefix; file-writes per subtree) with RD-2 destructive-denylist carve-out.
 - ~~**Compaction trigger threshold value**~~ — moved to 1c as `NFR-CONTEXT-COMPACT-THRESHOLD`.
@@ -84,6 +86,7 @@ _(none yet)_
 - 2-operations — resolved, **PHASE 2 COMPLETE** (review: `reviews/2026-06-16-operations-r1.md`) — `4cfb111`
 - 3-formal batch 1 (cli-exit-codes + state-machine) — resolved (review: `reviews/2026-06-17-formal-batch1-r1.md`) — `296e3e2`
 - 3-formal batch 2 (schemas + contract-tests + fixtures) — resolved, **PHASE 3 COMPLETE** (review: `reviews/2026-06-17-formal-batch2-r1.md`) — `2518fee`
+- 4-tasks (07-tasks.md + .kiro/spec-driven.yaml) — resolved, **PHASE 4 COMPLETE — DESIGN BASELINE DONE, handed off to coordinator** (review: `reviews/2026-06-17-tasks-r1.md`) — `<SHA-pending>`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 

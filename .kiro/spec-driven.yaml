@@ -1,0 +1,82 @@
+# Spec-driven project config for codingAgent. Read by spec-driven-coordinator at Phase 5.
+# Schema: see the spec-driven skill references/shared.md § 1.
+
+# Identity
+project_name: codingAgent
+project_root: /Users/sivarj/my/workspace/utilWorkspace/codingAgent
+language: java
+language_version: "21"
+build_system: none                                # native Maven, not Brazil
+build_tool: maven
+build_tool_dsl: null
+build_command: "mvn clean verify"                 # full verify before push
+test_command: "mvn test"
+integration_test_command: "mvn verify -P integration"
+build_check_command: "mvn -q -DskipTests compile" # fast pre-handoff verify
+
+# Base Java package (per 02-architecture.md § 6)
+base_package: com.srk.codingagent
+
+# Context mode — narrow is the default operating mode (see shared.md § 11)
+context_mode: narrow
+
+# AWS — agents MAY make read-only AWS/Bedrock calls (every call still prompts).
+aws:
+  profile: awsBedRockProfile
+  default_region: us-east-1
+  scope: read-only
+  # notes: IAM is the real enforcement; the user's allowlist does not include
+  # Bash(aws *) by default, so every aws call prompts. Agents never use AWS write verbs.
+
+# Design artifact locations (relative to project_root)
+design_dir: design/
+requirements_file: design/00-requirements.md
+overview_file: design/01-overview.md
+architecture_file: design/02-architecture.md
+data_model_file: design/03-data-model.md
+apis_file: design/04-apis.md
+operations_file: design/05-operations.md
+tasks_file: design/07-tasks.md
+formal_dir: design/06-formal/
+adr_dir: design/adr/
+reviews_dir: design/reviews/
+code_reviews_dir: design/reviews/code/
+
+# Source code layout (Maven)
+source_dirs: ["src/main/**"]
+build_files: ["pom.xml"]
+test_dirs: ["src/test/**"]
+test_fixtures_dir: "src/test/resources/fixtures"
+integration_test_tag: "integration"
+
+# Skills — reviewer rulebook + overlays
+language_reviewer_skill: code-reviewer
+reviewer_overlays: []                             # native Maven; no brazil/sqs overlays
+
+# Progress tracking
+design_progress_file: design/design-progress.md
+progress_file: design/07-tasks-progress.md
+open_questions_file: design/open-questions.md
+
+# Git
+git_host: github
+git_remote: origin
+git_branch: main
+code_review_tool: github-pr
+commit_message_prefix: ""
+push_on_task_resolution: true
+
+# Coordinator behaviour
+autonomy_mode: autonomous                         # run continuously, stop at milestone gates
+agent_topology: single-agent                      # one task-builder per task (user choice;
+                                                  # switchable to three-agent mid-project, no migration)
+max_test_loop_iterations: 3                        # (three-agent only; inert under single-agent)
+max_review_loop_iterations: 3                      # (three-agent only; inert under single-agent)
+max_total_iterations_per_task: 10                  # single-agent retry budget
+stop_at_milestone_gates: true                      # stop at G0..G4 for user review
+
+# Design-change amendment budgets
+max_design_changes_per_task: 3
+max_design_changes_per_milestone: 10
+design_change_warn_at_task: 3
+design_change_warn_at_milestone: 8

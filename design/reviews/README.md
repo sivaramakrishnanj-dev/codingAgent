@@ -22,3 +22,4 @@ The approval artifacts for the design baseline. **"Silence made explicit"** — 
 | 2026-06-16 | `2026-06-16-operations-r1.md` | `05-operations.md` | r1 | ✅ approved (Phase 2 closed) |
 | 2026-06-17 | `2026-06-17-formal-batch1-r1.md` | `06-formal/cli-exit-codes.md` + `state-machine.md` | r1 | ✅ approved |
 | 2026-06-17 | `2026-06-17-formal-batch2-r1.md` | `06-formal/*.schema.json` + `contract-tests.md` + `fixtures/` | r1 | ✅ approved (Phase 3 closed) |
+| 2026-06-17 | `2026-06-17-tasks-r1.md` | `07-tasks.md` + `.kiro/spec-driven.yaml` | r1 | ✅ approved (Phase 4 closed — design baseline complete) |
