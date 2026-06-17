@@ -6,8 +6,8 @@ Phase 3 artifacts: the machine-checkable contracts that the prose design (Phases
 
 | Artifact | What | Status |
 |---|---|---|
-| `cli-exit-codes.md` | Authoritative exit-code contract (0–5, 130) | ✅ resolved (batch 1) |
-| `state-machine.md` | Agent-loop (`stopReason`) + compaction lifecycle state machines, numbered states + transitions | ✅ resolved (batch 1) |
+| `cli-exit-codes.md` | Authoritative exit-code contract (0–5, 130) | ✅ resolved (batch 1, `formal-batch1-r1`) |
+| `state-machine.md` | Agent-loop (`stopReason`) + compaction lifecycle state machines, numbered states + transitions | ✅ resolved (batch 1, `formal-batch1-r1`) |
 | `*.schema.json` | JSON Schemas (Draft 2020-12) for persisted shapes (Event, ContentBlock, CommandResult, MemoryEntry, ResolvedConfig, ModelCapabilityProfile) | ⬜ batch 2 |
 | `contract-tests.md` | Index of positive/negative contract tests per schema + per INV-*, each traceable to an AC | ⬜ batch 2 |
 | `fixtures/` | Sample artifacts (session JSONL, config YAML, memory entry, tool-use cycle), each validated against its schema | ⬜ batch 2 |

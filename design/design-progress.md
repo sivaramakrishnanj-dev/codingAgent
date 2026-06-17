@@ -5,8 +5,8 @@ last_updated_at_commit: 4cfb111
 current_phase: 3
 current_sub_phase: 3-formal
 current_sub_phase_status: drafting
-next_action: Phase 3 review cadence = TWO BATCHES (user choice). Batch 1 (behavioral contracts) = cli-exit-codes.md + state-machine.md — DRAFTED, pending review. On approval, draft batch 2 (data contracts) = JSON Schemas (Event, ContentBlock incl Image/Document, CommandResult, MemoryEntry, ResolvedConfig, ModelCapabilityProfile) + contract-tests.md + fixtures/. 3-formal resolves when batch 2 lands.
-next_artifact_to_touch: design/06-formal/cli-exit-codes.md
+next_action: Batch 1 (cli-exit-codes + state-machine) RESOLVED (review formal-batch1-r1). Next: draft batch 2 (data contracts) under 06-formal/ — JSON Schemas Draft 2020-12 for: event.schema.json (+ the 13 event types), content-block.schema.json (incl Image/Document), command-result.schema.json, memory-entry.schema.json, resolved-config.schema.json, model-capability-profile.schema.json; contract-tests.md (positive/negative per schema + per INV-*, referencing S*/T*/L*/LT* + exit-code ids, each traceable to an AC); fixtures/ (session JSONL, config YAML, memory entry md, a tool-use cycle) validated against schemas. Present as batch 2; 3-formal resolves on approval.
+next_artifact_to_touch: design/06-formal/event.schema.json
 ---
 
 # Design progress — codingAgent
@@ -34,8 +34,8 @@ The **`2-architecture` sub-phase is fully RESOLVED** — `02-architecture.md` do
 In **Phase 3 — Formal Contracts** (`06-formal/`), reviewed in **two batches** (user choice). **Batch 1 (behavioral contracts) is DRAFTED, pending review:** `cli-exit-codes.md` (authoritative exit-code contract 0–5/130, precedence rules, G1–G4 guarantees, traceability) + `state-machine.md` (two formal machines — A: agent loop S0–S8 / T1–T19 driven by stopReason; B: conversation/compaction lifecycle L0–L5 / LT1–LT7 promoted from 03 §6 — with INV refs + Mermaid). Plus `06-formal/README.md`. Batch 2 (schemas + contract-tests + fixtures) follows on approval.
 
 Per-unit progress for 3-formal:
-- README + cli-exit-codes.md + state-machine.md (batch 1): **drafted, pending review**
-- schemas + contract-tests.md + fixtures/ (batch 2): **not started**
+- README + cli-exit-codes.md + state-machine.md (batch 1): **resolved** (review: `formal-batch1-r1`, `<SHA-pending>`)
+- schemas + contract-tests.md + fixtures/ (batch 2): **not started** (next)
 
 Per-unit progress for 2-architecture (all resolved):
 - 02-architecture.md doc — `2f5a25b`
@@ -82,6 +82,7 @@ _(none yet)_
 - 2-data-model — resolved, multimodal input added (review: `reviews/2026-06-15-data-model-r1.md`) — `f864cef`
 - 2-apis — resolved (review: `reviews/2026-06-16-apis-r1.md`) — `da02464`
 - 2-operations — resolved, **PHASE 2 COMPLETE** (review: `reviews/2026-06-16-operations-r1.md`) — `4cfb111`
+- 3-formal batch 1 (cli-exit-codes + state-machine) — resolved (review: `reviews/2026-06-17-formal-batch1-r1.md`) — `<SHA-pending>`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
