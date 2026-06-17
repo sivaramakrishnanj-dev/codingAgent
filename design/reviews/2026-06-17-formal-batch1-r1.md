@@ -6,7 +6,7 @@ round: 1
 reviewed_on: 2026-06-17
 reviewer: user
 status: approved
-approved_in: pending
+approved_in: 296e3e2
 ---
 
 # Review — Phase 3 batch 1 (behavioral contracts) r1

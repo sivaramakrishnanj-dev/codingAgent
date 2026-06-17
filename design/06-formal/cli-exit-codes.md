@@ -4,7 +4,7 @@ last_reviewed: 2026-06-17
 phase: 3-formal
 status: resolved
 review: ../reviews/2026-06-17-formal-batch1-r1.md
-approved_in: pending
+approved_in: 296e3e2
 ---
 
 # CLI Exit Codes — Authoritative Contract
