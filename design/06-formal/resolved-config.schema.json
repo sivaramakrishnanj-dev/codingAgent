@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codingagent.srk/schemas/resolved-config.schema.json",
+  "title": "ResolvedConfig",
+  "description": "The immutable config after layered merge (flags > project > global > defaults) (ADR-0009, 03-data-model.md § 2.8). This is the resolved runtime view, not the on-disk YAML file shape.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["modelId", "permissionMode", "region", "subAgentMax"],
+  "properties": {
+    "modelId": { "type": "string", "minLength": 1 },
+    "permissionMode": { "enum": ["UNRESTRICTED", "READ_ONLY", "ASK_EVERY_TIME", "ASK_ONCE_THEN_REMEMBER"] },
+    "region": { "type": "string", "description": "AWS region for Bedrock (default us-east-1)." },
+    "awsProfile": { "type": ["string", "null"], "description": "Named profile; null = default credential chain. Bearer token is never used (ADR-0011, INV-16)." },
+    "subAgentMax": { "type": "integer", "minimum": 1, "default": 1, "description": "NFR-SUBAGENT-MAX." },
+    "summarizerModelId": { "type": ["string", "null"], "description": "Optional cheaper model for compaction summaries (ADR-0006)." },
+    "commands": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Named project commands (ADR-0003).",
+      "properties": {
+        "build": { "type": "string" },
+        "test": { "type": "string" },
+        "lint": { "type": "string" }
+      }
+    },
+    "contextCompactThreshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.85 },
+    "outputMaxInlineBytes": { "type": "integer", "minimum": 1, "default": 16384 },
+    "verifyMaxIterations": { "type": "integer", "minimum": 1, "default": 5 },
+    "commandTimeoutSeconds": { "type": "integer", "minimum": 1, "default": 300 }
+  }
+}

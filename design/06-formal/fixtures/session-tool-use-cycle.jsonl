@@ -1,0 +1,10 @@
+{"seq":0,"ts":"2026-06-17T09:00:00Z","type":"SESSION_START","payload":{"mode":"BROWNFIELD","repoKey":"github.com/example/widget","modelId":"anthropic.claude-opus-4-8","permissionMode":"ASK_EVERY_TIME"}}
+{"seq":1,"ts":"2026-06-17T09:00:05Z","type":"USER_MESSAGE","payload":{"content":[{"kind":"text","text":"Run the unit tests and tell me if they pass."}]}}
+{"seq":2,"ts":"2026-06-17T09:00:06Z","type":"MODEL_RESPONSE","payload":{"stopReason":"TOOL_USE","content":[{"kind":"text","text":"I'll run the test suite."},{"kind":"toolUse","toolUseId":"tu_01","name":"run_command","input":{"command":"mvn -q test"}}]}}
+{"seq":3,"ts":"2026-06-17T09:00:06Z","type":"MODEL_USAGE","payload":{"inputTokens":1820,"outputTokens":47}}
+{"seq":4,"ts":"2026-06-17T09:00:06Z","type":"TOOL_USE","payload":{"toolUseId":"tu_01","name":"run_command","input":{"command":"mvn -q test"}}}
+{"seq":5,"ts":"2026-06-17T09:00:09Z","type":"PERMISSION_DECISION","payload":{"toolUseId":"tu_01","operationClass":"SIDE_EFFECTING","mode":"ASK_EVERY_TIME","decision":"approve"}}
+{"seq":6,"ts":"2026-06-17T09:01:14Z","type":"TOOL_RESULT","payload":{"toolUseId":"tu_01","status":"ok","result":{"command":"mvn -q test","exitCode":0,"stdout":"BUILD SUCCESS\nTests run: 42, Failures: 0","stderr":"","durationMs":65000,"timedOut":false,"truncated":false}}}
+{"seq":7,"ts":"2026-06-17T09:01:16Z","type":"MODEL_RESPONSE","payload":{"stopReason":"END_TURN","content":[{"kind":"text","text":"All 42 unit tests pass (exit 0)."}]}}
+{"seq":8,"ts":"2026-06-17T09:01:16Z","type":"MODEL_USAGE","payload":{"inputTokens":1990,"outputTokens":18}}
+{"seq":9,"ts":"2026-06-17T09:01:16Z","type":"OUTCOME","payload":{"taskRef":"adhoc-run-tests","success":true,"iterations":1}}

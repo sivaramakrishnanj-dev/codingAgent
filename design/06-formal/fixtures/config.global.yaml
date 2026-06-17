@@ -1,0 +1,12 @@
+# Sample global config — ~/.codingagent/config.yaml (ADR-0009).
+# On-disk YAML; merges (flags > project > global > defaults) into ResolvedConfig.
+modelId: anthropic.claude-opus-4-8
+permissionMode: ASK_EVERY_TIME
+region: us-east-1
+awsProfile: my-bedrock-profile        # null/omit → default credential chain (bearer token never used — ADR-0011)
+subAgentMax: 1
+summarizerModelId: anthropic.claude-haiku-4-5-20251001-v1:0   # optional cheaper compaction summarizer
+contextCompactThreshold: 0.85
+outputMaxInlineBytes: 16384
+verifyMaxIterations: 5
+commandTimeoutSeconds: 300

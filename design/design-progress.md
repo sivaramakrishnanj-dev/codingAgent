@@ -2,11 +2,11 @@
 doc: design-progress
 last_updated: 2026-06-17
 last_updated_at_commit: 296e3e2
-current_phase: 3
-current_sub_phase: 3-formal
-current_sub_phase_status: drafting
-next_action: Batch 1 (cli-exit-codes + state-machine) RESOLVED (review formal-batch1-r1). Next: draft batch 2 (data contracts) under 06-formal/ — JSON Schemas Draft 2020-12 for: event.schema.json (+ the 13 event types), content-block.schema.json (incl Image/Document), command-result.schema.json, memory-entry.schema.json, resolved-config.schema.json, model-capability-profile.schema.json; contract-tests.md (positive/negative per schema + per INV-*, referencing S*/T*/L*/LT* + exit-code ids, each traceable to an AC); fixtures/ (session JSONL, config YAML, memory entry md, a tool-use cycle) validated against schemas. Present as batch 2; 3-formal resolves on approval.
-next_artifact_to_touch: design/06-formal/event.schema.json
+current_phase: 4
+current_sub_phase: 4-tasks
+current_sub_phase_status: not-started
+next_action: PHASE 3 COMPLETE. Begin Phase 4 — draft 07-tasks.md: milestones M0..MN (goal + gate criteria + size) following the staging from §6.G (Stage 0 walking skeleton → 1 search/verify loop → 2 compaction+subagent+memory → 3 greenfield → 4 delegation), Mermaid milestone-dependency diagram, per-milestone task table (T-<m>.<n> ids, component C1-C17, AC/INV/ADR refs, size S/M/L, deps), per-milestone verification gate (which CTs go green), cross-milestone gates G0..GN, risk register, OOS-for-Phase-5 list, task→US mapping. Address the two contract-test coverage gaps (greenfield phase-gating, sub-agent summary-only) as tasks. THEN config-generation questionnaire → write .kiro/spec-driven.yaml (build_system=none, maven, java 21, base pkg com.srk.codingagent, language_reviewer_skill=code-reviewer; ask AWS profile). Single Phase 4 review.
+next_artifact_to_touch: design/07-tasks.md
 ---
 
 # Design progress — codingAgent
@@ -33,9 +33,9 @@ The **`2-architecture` sub-phase is fully RESOLVED** — `02-architecture.md` do
 
 In **Phase 3 — Formal Contracts** (`06-formal/`), reviewed in **two batches** (user choice). **Batch 1 (behavioral contracts) is DRAFTED, pending review:** `cli-exit-codes.md` (authoritative exit-code contract 0–5/130, precedence rules, G1–G4 guarantees, traceability) + `state-machine.md` (two formal machines — A: agent loop S0–S8 / T1–T19 driven by stopReason; B: conversation/compaction lifecycle L0–L5 / LT1–LT7 promoted from 03 §6 — with INV refs + Mermaid). Plus `06-formal/README.md`. Batch 2 (schemas + contract-tests + fixtures) follows on approval.
 
-Per-unit progress for 3-formal:
-- README + cli-exit-codes.md + state-machine.md (batch 1): **resolved** (review: `formal-batch1-r1`, `296e3e2`)
-- schemas + contract-tests.md + fixtures/ (batch 2): **not started** (next)
+**PHASE 3 (Formal Contracts) COMPLETE** — batch 1 (`formal-batch1-r1`: cli-exit-codes + state-machine) + batch 2 (`formal-batch2-r1`: 6 JSON schemas + contract-tests.md + 3 validated fixtures). All schemas pass Draft 2020-12; all fixtures validated (jsonschema 4.26 + pyyaml); validation caught + fixed a YAML datetime fixture bug.
+
+**Phases 1–3 are DONE.** The design baseline is complete bar the task plan. Now entering the final design phase, **Phase 4 — Tasks** (`07-tasks.md` + `.kiro/spec-driven.yaml`). On its approval, the designer hands off to the Phase 5 coordinator for implementation.
 
 Per-unit progress for 2-architecture (all resolved):
 - 02-architecture.md doc — `2f5a25b`
@@ -83,6 +83,7 @@ _(none yet)_
 - 2-apis — resolved (review: `reviews/2026-06-16-apis-r1.md`) — `da02464`
 - 2-operations — resolved, **PHASE 2 COMPLETE** (review: `reviews/2026-06-16-operations-r1.md`) — `4cfb111`
 - 3-formal batch 1 (cli-exit-codes + state-machine) — resolved (review: `reviews/2026-06-17-formal-batch1-r1.md`) — `296e3e2`
+- 3-formal batch 2 (schemas + contract-tests + fixtures) — resolved, **PHASE 3 COMPLETE** (review: `reviews/2026-06-17-formal-batch2-r1.md`) — `<SHA-pending>`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 

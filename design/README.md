@@ -18,7 +18,7 @@ Spec-driven design baseline for **codingAgent**, an LLM-based coding agent (loca
 | 2 — Design | data model | `03-data-model.md` | ✅ resolved |
 | 2 — Design | apis | `04-apis.md` | ✅ resolved |
 | 2 — Design | operations | `05-operations.md` | ✅ resolved |
-| 3 — Formal | schemas, state machine, exit codes, contract tests, fixtures | `06-formal/` | ⬜ not started |
+| 3 — Formal | schemas, state machine, exit codes, contract tests, fixtures | `06-formal/` | ✅ resolved |
 | 4 — Tasks | milestones + task breakdown | `07-tasks.md` | ⬜ not started |
 
 ## Map

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codingagent.srk/schemas/command-result.schema.json",
+  "title": "CommandResult",
+  "description": "Structured result of a command execution (ADR-0003, 03-data-model.md § 2.4). exitCode is the verification signal (RD-10, INV-17).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["command", "exitCode", "stdout", "stderr", "durationMs", "timedOut", "truncated"],
+  "properties": {
+    "command": { "type": "string", "description": "The command as executed." },
+    "exitCode": { "type": "integer", "description": "Process exit code; 0 = success for the unit of work (RD-10)." },
+    "stdout": { "type": "string", "description": "May be truncated when `truncated` is true (ADR-0006)." },
+    "stderr": { "type": "string" },
+    "durationMs": { "type": "integer", "minimum": 0 },
+    "timedOut": { "type": "boolean", "description": "True if tree-killed on NFR-CMD-TIMEOUT." },
+    "truncated": { "type": "boolean", "description": "True if output exceeded NFR-OUTPUT-MAX-INLINE; full output in the event log." },
+    "fullRef": { "type": "string", "description": "Pointer to full output in the log when truncated (AC-19.2/19.3)." }
+  }
+}
