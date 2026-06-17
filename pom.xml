@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.srk.codingagent</groupId>
+    <artifactId>codingagent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>codingagent</name>
+    <description>
+        Coding agent CLI. Walking-skeleton scaffold (T-0.1): Maven, Java 21,
+        com.srk.codingagent packages, JUnit 5, shaded executable jar.
+    </description>
+
+    <properties>
+        <!-- NFR-PLAT-JAVA: the agent runs on a Java 21 (LTS) JVM. -->
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+        <!-- CLI entry point. Shaded jar's Main-Class manifest points here. -->
+        <main.class>com.srk.codingagent.cli.Main</main.class>
+
+        <!-- Dependency / plugin versions (single source of truth). -->
+        <junit.bom.version>5.14.4</junit.bom.version>
+        <slf4j.version>2.0.17</slf4j.version>
+        <surefire.version>3.5.5</surefire.version>
+        <shade.plugin.version>3.6.0</shade.plugin.version>
+        <jacoco.plugin.version>0.8.14</jacoco.plugin.version>
+
+        <!--
+          NFR-TEST-COVERAGE is "line coverage >= 80% on business logic", enforced
+          in the Phase 5 build. JaCoCo is wired below so the gate INFRASTRUCTURE
+          exists now (report + check bound to verify), but the minimum ratio is
+          held at 0.00 at this milestone: T-0.1 is a walking skeleton with no
+          business logic yet (only a bootstrap entry point). Later tasks that
+          introduce business logic raise this to 0.80. See rationale in the
+          task-builder handoff. Bootstrap entry point is excluded from the check.
+        -->
+        <jacoco.line.coverage.min>0.00</jacoco.line.coverage.min>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- JUnit 5 (Jupiter) platform BOM aligns all junit-* versions. NFR-TEST-FRAMEWORK. -->
+            <dependency>
+                <groupId>org.junit</groupId>
+                <artifactId>junit-bom</artifactId>
+                <version>${junit.bom.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!--
+          SLF4J API + a simple binding. shared.md s3: SLF4J is the house logging
+          standard; library code never writes to System.out/err directly. Wiring
+          the API plus a runtime binding now keeps later tasks from retrofitting
+          logging into the skeleton.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- JUnit 5 (Jupiter) for unit tests. NFR-TEST-FRAMEWORK. -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>codingagent</finalName>
+        <plugins>
+            <!--
+              Surefire runs the JUnit 5 platform. Integration tests are tagged
+              @Tag("integration") and EXCLUDED from the default profile per
+              05-operations.md s1 / shared.md s4; they run via the 'integration'
+              profile below (mvn verify -P integration).
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>${surefire.version}</version>
+                <configuration>
+                    <excludedGroups>integration</excludedGroups>
+                </configuration>
+            </plugin>
+
+            <!--
+              Shade plugin: single self-contained executable jar with a Main-Class
+              manifest, producing the 'codingagent' CLI entry point.
+              05-operations.md s1 (Packaging).
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>${shade.plugin.version}</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <transformers>
+                                <transformer
+                                    implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>${main.class}</mainClass>
+                                </transformer>
+                                <!-- Merge service files so the SLF4J binding survives shading. -->
+                                <transformer
+                                    implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+                            <filters>
+                                <filter>
+                                    <!-- Drop signature files that break a shaded uber-jar. -->
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+              JaCoCo: prepare agent (test instrumentation), produce the report,
+              and bind a coverage 'check' to verify so the gate infrastructure is
+              live now. Minimum ratio is 0.00 at T-0.1 (see properties comment);
+              later tasks raise it to NFR-TEST-COVERAGE (>= 0.80 on business logic).
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>jacoco-prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>${jacoco.line.coverage.min}</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                            <excludes>
+                                <!--
+                                  Bootstrap entry point: the System.exit() arg-dispatch
+                                  shell is not meaningfully unit-coverable. Its launchable
+                                  delegate (run()) IS tested. Excluded from the coverage
+                                  gate; later tasks may narrow this exclude as logic moves
+                                  out of the bootstrap shell.
+                                -->
+                                <exclude>com/srk/codingagent/cli/Main.class</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!--
+          Integration profile: runs only the @Tag("integration") tests via
+          Failsafe (*IT.java). Excluded from the default build; invoked with
+          'mvn verify -P integration' (config.integration_test_command).
+          No integration tests exist yet at T-0.1; the profile is wired so later
+          tasks can drop *IT.java files in without build-config churn.
+        -->
+        <profile>
+            <id>integration</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <version>${surefire.version}</version>
+                        <configuration>
+                            <groups>integration</groups>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>
