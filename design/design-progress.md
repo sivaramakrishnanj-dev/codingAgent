@@ -1,7 +1,7 @@
 ---
 doc: design-progress
 last_updated: 2026-06-17
-last_updated_at_commit: 2518fee
+last_updated_at_commit: 6e1d54f
 current_phase: 5
 current_sub_phase: handed-off-to-coordinator
 current_sub_phase_status: resolved
@@ -86,7 +86,7 @@ _(none yet)_
 - 2-operations — resolved, **PHASE 2 COMPLETE** (review: `reviews/2026-06-16-operations-r1.md`) — `4cfb111`
 - 3-formal batch 1 (cli-exit-codes + state-machine) — resolved (review: `reviews/2026-06-17-formal-batch1-r1.md`) — `296e3e2`
 - 3-formal batch 2 (schemas + contract-tests + fixtures) — resolved, **PHASE 3 COMPLETE** (review: `reviews/2026-06-17-formal-batch2-r1.md`) — `2518fee`
-- 4-tasks (07-tasks.md + .kiro/spec-driven.yaml) — resolved, **PHASE 4 COMPLETE — DESIGN BASELINE DONE, handed off to coordinator** (review: `reviews/2026-06-17-tasks-r1.md`) — `<SHA-pending>`
+- 4-tasks (07-tasks.md + .kiro/spec-driven.yaml) — resolved, **PHASE 4 COMPLETE — DESIGN BASELINE DONE, handed off to coordinator** (review: `reviews/2026-06-17-tasks-r1.md`) — `6e1d54f`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
