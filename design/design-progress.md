@@ -1,7 +1,7 @@
 ---
 doc: design-progress
 last_updated: 2026-06-17
-last_updated_at_commit: 296e3e2
+last_updated_at_commit: 2518fee
 current_phase: 4
 current_sub_phase: 4-tasks
 current_sub_phase_status: not-started
@@ -83,7 +83,7 @@ _(none yet)_
 - 2-apis — resolved (review: `reviews/2026-06-16-apis-r1.md`) — `da02464`
 - 2-operations — resolved, **PHASE 2 COMPLETE** (review: `reviews/2026-06-16-operations-r1.md`) — `4cfb111`
 - 3-formal batch 1 (cli-exit-codes + state-machine) — resolved (review: `reviews/2026-06-17-formal-batch1-r1.md`) — `296e3e2`
-- 3-formal batch 2 (schemas + contract-tests + fixtures) — resolved, **PHASE 3 COMPLETE** (review: `reviews/2026-06-17-formal-batch2-r1.md`) — `<SHA-pending>`
+- 3-formal batch 2 (schemas + contract-tests + fixtures) — resolved, **PHASE 3 COMPLETE** (review: `reviews/2026-06-17-formal-batch2-r1.md`) — `2518fee`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
