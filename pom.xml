@@ -28,6 +28,16 @@
         <junit.bom.version>5.14.4</junit.bom.version>
         <slf4j.version>2.0.17</slf4j.version>
         <snakeyaml.version>2.6</snakeyaml.version>
+        <!--
+          AWS SDK for Java v2 (ADR-0001). The BOM aligns the bedrockruntime artifact
+          with the auth/regions modules it pulls transitively
+          (ProfileCredentialsProvider, DefaultCredentialsProvider,
+          AwsCredentialsProvider, Region). ADR-0001 noted 2.46.10 as the candidate at
+          design time; that version no longer resolves on Maven Central — 2.46.7 is the
+          latest stable available (confirmed via mvn dependency:get, 2026-06-18), so the
+          pin is 2.46.7.
+        -->
+        <aws.sdk.version>2.46.7</aws.sdk.version>
         <surefire.version>3.5.5</surefire.version>
         <shade.plugin.version>3.6.0</shade.plugin.version>
         <jacoco.plugin.version>0.8.14</jacoco.plugin.version>
@@ -52,6 +62,17 @@
                 <groupId>org.junit</groupId>
                 <artifactId>junit-bom</artifactId>
                 <version>${junit.bom.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!--
+              AWS SDK v2 BOM (ADR-0001). Imported so the bedrockruntime artifact and
+              its transitive auth/regions modules share one aligned version.
+            -->
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${aws.sdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -88,6 +109,20 @@
             <groupId>org.yaml</groupId>
             <artifactId>snakeyaml</artifactId>
             <version>${snakeyaml.version}</version>
+        </dependency>
+
+        <!--
+          AWS SDK v2 Bedrock Runtime (ADR-0001, ADR-0011, component C4). Provides the
+          BedrockRuntimeClient/builder and transitively the auth + regions modules
+          (ProfileCredentialsProvider, DefaultCredentialsProvider,
+          AwsCredentialsProvider, Region) used to resolve SigV4 credentials and
+          construct the client. Version is managed by the AWS SDK BOM above. The
+          aws-bedrock-token-generator dependency is intentionally NOT added — ADR-0011
+          ignores bearer-token auth.
+        -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>bedrockruntime</artifactId>
         </dependency>
 
         <!-- JUnit 5 (Jupiter) for unit tests. NFR-TEST-FRAMEWORK. -->
