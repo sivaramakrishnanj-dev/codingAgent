@@ -2,43 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-18
 last_updated_at_commit: pending
-total_resolved_count: 4
+total_resolved_count: 5
 
 last_resolved:
-  task: T-0.4
-  title: "Event log + session store (JSONL append, flush-per-event, ids/ts at boundary)"
+  task: T-0.5
+  title: "Model Client: Converse request/response + wire-format mapping (text/toolUse/toolResult blocks)"
   resolved_at: 2026-06-18
-  commit: 50713e5
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-0.5
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-18T15:40:00+05:30
-  last_updated_at: 2026-06-18T15:40:00+05:30
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-0.5
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  open_action_items_for_implementer: []
-  open_action_items_for_tester: []
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-18T15:40:00+05:30
-  last_updated_at: 2026-06-18T15:40:00+05:30
 
 ## Resolved tasks
 
@@ -77,3 +52,12 @@ in_flight:
 - iterations: { task_builder: 1 }
 - dcrs_consumed: []
 - notes: ADR-0005 event-sourced persistence under com.srk.codingagent.persistence (C14 EventLog + C15 SessionStore). Append-only JSONL writer assigns monotonic gap-free seq (INV-1; no update/delete API), flushes per event before returning (INV-2), surfaces persist failures (AC-13.4); ids/ts captured at the boundary (no in-process clock/UUID). Jackson for JSON; sealed Event/EventPayload/ContentBlock hierarchy (minimal text/toolUse/toolResult blocks — full Converse round-trip deferred to T-0.5). networknt json-schema-validator (test-only) validates CTs against the formal event.schema.json. 181 tests green under mvn clean verify (94.28% bundle, 93.4% persistence). CT-SCH-1/2/3/4, CT-INV-1 satisfied. Self-checks: oracle-traceability=passed, reuse=passed. 2 Minor, 1 Nit (non-blocking). 2 Discussion items (D1: future shared validation/path utility; D2: streaming read for T-1.2 replay).
+
+## T-0.5 — Model Client: Converse request/response + wire-format mapping (text/toolUse/toolResult blocks)
+- commit: pending
+- review: design/reviews/code/T-0.5-r1.md
+- resolved: 2026-06-18
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- notes: ADR-0001 Model Client (C4) under com.srk.codingagent.model.converse — non-streaming Converse request-build + response-parse (03 §7 wire-format boundary, §6.A.1 facts). Maps our ContentBlock (text/toolUse/toolResult) <-> SDK ContentBlock, StopReason wire<->domain, usage->ModelUsagePayload. INV-6 toolUse<->toolResult pairing enforced via order-preserving scan (rejects orphan/out-of-order toolResult before any backend call); CT-INV-5 negative + INV-6 positive covered. Injected BedrockRuntimeClient seam -> request/parse fully unit-tested (hand-rolled stub, no Mockito, no live AWS call); reuses T-0.3 BedrockClientFactory + T-0.4 persistence types (no duplication). Typed ModelBackendException -> exit 4, ToolProtocolException for INV-6 faults. Streaming + reasoning/image/document/cachePoint mapping deferred to owning tasks (T-1.1/T-2.x/T-4.2). 229 tests green under mvn clean verify (95.24% bundle, 98.01% converse pkg). CT-INV-5 satisfied. Self-checks: oracle-traceability=passed, reuse=passed. 1 Minor, 1 Nit (non-blocking). 1 Discussion item (D1: ConverseMessage/Role placement).
