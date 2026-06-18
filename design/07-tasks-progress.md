@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-18
-last_updated_at_commit: pending
+last_updated_at_commit: b63349c
 total_resolved_count: 3
 
 last_resolved:
   task: T-0.3
   title: "Credential resolution (profile → default chain; ignore bearer; SigV4 client)"
   resolved_at: 2026-06-18
-  commit: pending
+  commit: b63349c
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -36,7 +36,7 @@ in_flight: null
 - notes: ADR-0009 layered first-wins precedence (flags>project>global>defaults) into immutable ResolvedConfig; fail-fast exit 2 naming the offending key; SnakeYAML SafeConstructor loader; JaCoCo gate raised to 0.80 (first business-logic task). 90 tests green under mvn clean verify (~97.9% config coverage). CT-SCH-13/14, CT-EX-1 satisfied. Self-checks: oracle-traceability=passed, reuse=passed. 2 Minor, 1 Nit (non-blocking). 2 Discussion items (D1: finalize exact Opus id at T-0.5; D2: IDE artifacts not staged).
 
 ## T-0.3 — Credential resolution (profile → default chain; ignore bearer; SigV4 client)
-- commit: pending
+- commit: b63349c
 - review: design/reviews/code/T-0.3-r1.md
 - resolved: 2026-06-18
 - context_mode: narrow
