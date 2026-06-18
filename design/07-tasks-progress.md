@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-18
-last_updated_at_commit: pending
+last_updated_at_commit: ff1f93c
 total_resolved_count: 5
 
 last_resolved:
   task: T-0.5
   title: "Model Client: Converse request/response + wire-format mapping (text/toolUse/toolResult blocks)"
   resolved_at: 2026-06-18
-  commit: pending
+  commit: ff1f93c
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -54,7 +54,7 @@ in_flight: null
 - notes: ADR-0005 event-sourced persistence under com.srk.codingagent.persistence (C14 EventLog + C15 SessionStore). Append-only JSONL writer assigns monotonic gap-free seq (INV-1; no update/delete API), flushes per event before returning (INV-2), surfaces persist failures (AC-13.4); ids/ts captured at the boundary (no in-process clock/UUID). Jackson for JSON; sealed Event/EventPayload/ContentBlock hierarchy (minimal text/toolUse/toolResult blocks — full Converse round-trip deferred to T-0.5). networknt json-schema-validator (test-only) validates CTs against the formal event.schema.json. 181 tests green under mvn clean verify (94.28% bundle, 93.4% persistence). CT-SCH-1/2/3/4, CT-INV-1 satisfied. Self-checks: oracle-traceability=passed, reuse=passed. 2 Minor, 1 Nit (non-blocking). 2 Discussion items (D1: future shared validation/path utility; D2: streaming read for T-1.2 replay).
 
 ## T-0.5 — Model Client: Converse request/response + wire-format mapping (text/toolUse/toolResult blocks)
-- commit: pending
+- commit: ff1f93c
 - review: design/reviews/code/T-0.5-r1.md
 - resolved: 2026-06-18
 - context_mode: narrow
