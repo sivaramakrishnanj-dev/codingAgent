@@ -27,20 +27,22 @@
         <!-- Dependency / plugin versions (single source of truth). -->
         <junit.bom.version>5.14.4</junit.bom.version>
         <slf4j.version>2.0.17</slf4j.version>
+        <snakeyaml.version>2.6</snakeyaml.version>
         <surefire.version>3.5.5</surefire.version>
         <shade.plugin.version>3.6.0</shade.plugin.version>
         <jacoco.plugin.version>0.8.14</jacoco.plugin.version>
 
         <!--
           NFR-TEST-COVERAGE is "line coverage >= 80% on business logic", enforced
-          in the Phase 5 build. JaCoCo is wired below so the gate INFRASTRUCTURE
-          exists now (report + check bound to verify), but the minimum ratio is
-          held at 0.00 at this milestone: T-0.1 is a walking skeleton with no
-          business logic yet (only a bootstrap entry point). Later tasks that
-          introduce business logic raise this to 0.80. See rationale in the
-          task-builder handoff. Bootstrap entry point is excluded from the check.
+          in the Phase 5 build. JaCoCo is wired below (report + check bound to
+          verify). T-0.1 held the minimum at 0.00 because the skeleton had no
+          business logic (only a bootstrap entry point). T-0.2 introduces the first
+          business logic (the config model + resolver, component C17), so the gate
+          is now ACTIVE at the NFR-TEST-COVERAGE floor of 0.80. The bootstrap entry
+          point (Main, the System.exit arg-dispatch shell) stays excluded from the
+          check; its launchable delegate run() IS tested.
         -->
-        <jacoco.line.coverage.min>0.00</jacoco.line.coverage.min>
+        <jacoco.line.coverage.min>0.80</jacoco.line.coverage.min>
     </properties>
 
     <dependencyManagement>
@@ -73,6 +75,19 @@
             <artifactId>slf4j-simple</artifactId>
             <version>${slf4j.version}</version>
             <scope>runtime</scope>
+        </dependency>
+
+        <!--
+          SnakeYAML: parses the on-disk YAML config files (global + project) into
+          raw maps for the layered resolver (ADR-0009, config resolver C17). 2.x
+          loads via SafeConstructor by default (no arbitrary-type instantiation;
+          addresses CVE-2022-1471). Compile-scope: the config resolver is runtime
+          business logic, not a test-only dependency.
+        -->
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <version>${snakeyaml.version}</version>
         </dependency>
 
         <!-- JUnit 5 (Jupiter) for unit tests. NFR-TEST-FRAMEWORK. -->
