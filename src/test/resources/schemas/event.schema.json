@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codingagent.srk/schemas/event.schema.json",
+  "title": "Event",
+  "description": "One line of a session JSONL event log (ADR-0005, 03-data-model.md § 2.2/§ 3). Append-only; flushed per event (INV-1, INV-2). Common envelope + a type-specific payload discriminated by `type`.",
+  "type": "object",
+  "required": ["seq", "ts", "type", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "seq": { "type": "integer", "minimum": 0, "description": "Monotonic, gap-free per session (INV-1)." },
+    "ts": { "type": "string", "format": "date-time", "description": "ISO-8601; captured at the I/O boundary." },
+    "type": {
+      "enum": [
+        "SESSION_START", "USER_MESSAGE", "MODEL_REQUEST", "MODEL_RESPONSE", "MODEL_USAGE",
+        "TOOL_USE", "PERMISSION_DECISION", "TOOL_RESULT", "SUBAGENT_SPAWN", "SUBAGENT_RESULT",
+        "COMPACTION", "MEMORY_WRITE", "OUTCOME", "ERROR"
+      ]
+    },
+    "payload": { "type": "object", "description": "Shape determined by `type`; see $defs for per-type payloads." }
+  },
+  "allOf": [
+    { "if": { "properties": { "type": { "const": "SESSION_START" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/sessionStart" } } } },
+    { "if": { "properties": { "type": { "const": "USER_MESSAGE" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/userMessage" } } } },
+    { "if": { "properties": { "type": { "const": "MODEL_RESPONSE" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/modelResponse" } } } },
+    { "if": { "properties": { "type": { "const": "MODEL_USAGE" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/modelUsage" } } } },
+    { "if": { "properties": { "type": { "const": "TOOL_USE" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/toolUse" } } } },
+    { "if": { "properties": { "type": { "const": "PERMISSION_DECISION" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/permissionDecision" } } } },
+    { "if": { "properties": { "type": { "const": "TOOL_RESULT" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/toolResult" } } } },
+    { "if": { "properties": { "type": { "const": "COMPACTION" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/compaction" } } } },
+    { "if": { "properties": { "type": { "const": "OUTCOME" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/outcome" } } } }
+  ],
+  "$defs": {
+    "sessionStart": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "repoKey", "modelId", "permissionMode"],
+      "properties": {
+        "mode": { "enum": ["GREENFIELD", "BROWNFIELD"] },
+        "repoKey": { "type": "string" },
+        "modelId": { "type": "string" },
+        "permissionMode": { "enum": ["UNRESTRICTED", "READ_ONLY", "ASK_EVERY_TIME", "ASK_ONCE_THEN_REMEMBER"] }
+      }
+    },
+    "userMessage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["content"],
+      "properties": { "content": { "type": "array", "items": { "$ref": "content-block.schema.json" } } }
+    },
+    "modelResponse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["stopReason", "content"],
+      "properties": {
+        "stopReason": { "enum": ["END_TURN", "TOOL_USE", "MAX_TOKENS", "STOP_SEQUENCE", "GUARDRAIL_INTERVENED", "CONTENT_FILTERED", "MALFORMED_TOOL_USE", "MALFORMED_MODEL_OUTPUT", "MODEL_CONTEXT_WINDOW_EXCEEDED"] },
+        "content": { "type": "array", "items": { "$ref": "content-block.schema.json" } }
+      }
+    },
+    "modelUsage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["inputTokens", "outputTokens"],
+      "properties": {
+        "inputTokens": { "type": "integer", "minimum": 0 },
+        "outputTokens": { "type": "integer", "minimum": 0 },
+        "cacheReadInputTokens": { "type": "integer", "minimum": 0 },
+        "cacheWriteInputTokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "toolUse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["toolUseId", "name", "input"],
+      "properties": {
+        "toolUseId": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "input": { "type": "object" }
+      }
+    },
+    "permissionDecision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["toolUseId", "operationClass", "mode", "decision"],
+      "properties": {
+        "toolUseId": { "type": "string", "minLength": 1 },
+        "operationClass": { "enum": ["READ", "SIDE_EFFECTING"] },
+        "mode": { "enum": ["UNRESTRICTED", "READ_ONLY", "ASK_EVERY_TIME", "ASK_ONCE_THEN_REMEMBER"] },
+        "decision": { "enum": ["approve", "deny"] },
+        "matchedGrant": { "type": "string", "description": "The grant matchKey that auto-approved, if any (INV-9: never set for denylisted)." }
+      }
+    },
+    "toolResult": {
+      "type": "object", "additionalProperties": false,
+      "required": ["toolUseId", "status"],
+      "properties": {
+        "toolUseId": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["ok", "error", "denied"] },
+        "result": { "description": "Text or a structured result (e.g. CommandResult)." },
+        "truncated": { "type": "boolean", "default": false },
+        "fullRef": { "type": "string" }
+      }
+    },
+    "compaction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fromSessionId", "toSessionId", "triggerReason"],
+      "properties": {
+        "fromSessionId": { "type": "string" },
+        "toSessionId": { "type": "string" },
+        "summaryRef": { "type": "string" },
+        "triggerReason": { "enum": ["threshold", "manual", "context_window_exceeded"] }
+      }
+    },
+    "outcome": {
+      "type": "object", "additionalProperties": false,
+      "required": ["taskRef", "success", "iterations"],
+      "properties": {
+        "taskRef": { "type": "string" },
+        "success": { "type": "boolean", "description": "Derived from the configured test command's zero exit (RD-10, INV-17)." },
+        "iterations": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

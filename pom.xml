@@ -38,6 +38,23 @@
           pin is 2.46.7.
         -->
         <aws.sdk.version>2.46.7</aws.sdk.version>
+        <!--
+          Jackson (ADR-0005, C14 Event Log). The session JSONL log needs a JSON
+          serializer/deserializer for the per-event line; Jackson Databind is the
+          conventional Java choice. The BOM aligns databind with core/annotations.
+          2.18.2 is the latest stable in the 2.18.x line (the line networknt
+          json-schema-validator 1.5.4 is built against), confirmed resolvable on
+          Maven Central 2026-06-18.
+        -->
+        <jackson.version>2.18.2</jackson.version>
+        <!--
+          networknt json-schema-validator (test scope): drives the CT-SCH-1/2/3/4
+          contract tests by validating event lines against the formal
+          06-formal/event.schema.json. Using the real schema as the oracle (rather
+          than this code's incidental deserializer rejection) keeps the contract
+          tests traced to the spec artifact, not to the implementation.
+        -->
+        <json.schema.validator.version>1.5.4</json.schema.validator.version>
         <surefire.version>3.5.5</surefire.version>
         <shade.plugin.version>3.6.0</shade.plugin.version>
         <jacoco.plugin.version>0.8.14</jacoco.plugin.version>
@@ -73,6 +90,17 @@
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
                 <version>${aws.sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!--
+              Jackson BOM (ADR-0005). Aligns jackson-databind with jackson-core and
+              jackson-annotations at one version.
+            -->
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -125,10 +153,33 @@
             <artifactId>bedrockruntime</artifactId>
         </dependency>
 
+        <!--
+          Jackson Databind (ADR-0005, C14 Event Log). Serializes each Event to one
+          JSONL line and reads lines back in seq order. Compile scope: the event log
+          is runtime business logic. Version managed by the Jackson BOM above.
+        -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
         <!-- JUnit 5 (Jupiter) for unit tests. NFR-TEST-FRAMEWORK. -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          networknt json-schema-validator (test scope, ADR-0005 / contract tests).
+          Validates serialized event lines against the formal event.schema.json so
+          CT-SCH-1/2/3/4 trace to the schema artifact rather than to this code's own
+          deserializer. Test-only: the runtime writer does not schema-validate.
+        -->
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>${json.schema.validator.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codingagent.srk/schemas/content-block.schema.json",
+  "title": "ContentBlock",
+  "description": "Our domain mirror of a Bedrock Converse ContentBlock (03-data-model.md § 2.3). A discriminated union over `kind`. Persisted in events and replayed to Converse messages[]. Shapes we own are strict; the verbatim ToolUse.input and Reasoning fields are permissive because they round-trip to the model.",
+  "type": "object",
+  "required": ["kind"],
+  "oneOf": [
+    {
+      "title": "TextBlock",
+      "additionalProperties": false,
+      "required": ["kind", "text"],
+      "properties": {
+        "kind": { "const": "text" },
+        "text": { "type": "string" }
+      }
+    },
+    {
+      "title": "ToolUseBlock",
+      "additionalProperties": false,
+      "required": ["kind", "toolUseId", "name", "input"],
+      "properties": {
+        "kind": { "const": "toolUse" },
+        "toolUseId": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "input": { "type": "object", "description": "JSON matching the tool's inputSchema; permissive (model-produced)." }
+      }
+    },
+    {
+      "title": "ToolResultBlock",
+      "additionalProperties": false,
+      "required": ["kind", "toolUseId", "status"],
+      "properties": {
+        "kind": { "const": "toolResult" },
+        "toolUseId": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["ok", "error"] },
+        "content": { "description": "Result payload: text, or a structured object (e.g. CommandResult)." },
+        "truncated": { "type": "boolean", "default": false },
+        "fullRef": { "type": "string", "description": "Pointer to the full output in the event log when truncated (AC-19.2/19.3)." }
+      }
+    },
+    {
+      "title": "ReasoningBlock",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "reasoning" },
+        "text": { "type": "string" },
+        "signature": { "type": "string", "description": "Tamper-check hash; MUST be replayed verbatim (INV-7)." },
+        "redactedContent": { "type": "string", "description": "Base64 redacted reasoning, when present." }
+      },
+      "description": "At least one of text/redactedContent present in practice; signature accompanies text when the provider returns it."
+    },
+    {
+      "title": "ImageBlock",
+      "additionalProperties": false,
+      "required": ["kind", "format", "bytesRef"],
+      "properties": {
+        "kind": { "const": "image" },
+        "format": { "enum": ["png", "jpeg", "gif", "webp"], "description": "Converse ImageBlock formats (verified § 6.A; multimodal INPUT)." },
+        "bytesRef": { "type": "string", "description": "Reference/path to the raw bytes; SDK base64-encodes at send. Bytes are not inlined into the JSONL log." }
+      }
+    },
+    {
+      "title": "DocumentBlock",
+      "additionalProperties": false,
+      "required": ["kind", "name", "format", "bytesRef"],
+      "properties": {
+        "kind": { "const": "document" },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9]([A-Za-z0-9 ()\\[\\]-]*[A-Za-z0-9()\\[\\]])?$",
+          "description": "Neutral, sanitized name (INV-18 — prompt-injection surface). Alphanumeric/space/hyphen/parens/brackets; no double spaces enforced in code."
+        },
+        "format": { "enum": ["pdf", "csv", "doc", "docx", "xls", "xlsx", "html", "txt", "md"], "description": "Converse DocumentBlock formats (verified § 6.A; Word/Excel native)." },
+        "bytesRef": { "type": "string", "description": "Reference/path to the raw bytes; SDK base64-encodes at send." }
+      }
+    },
+    {
+      "title": "CachePointBlock",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "cachePoint" },
+        "ttl": { "enum": ["5m", "1h"], "description": "Optional; capability-gated (ADR-0006). Default 5m when omitted." }
+      }
+    }
+  ]
+}

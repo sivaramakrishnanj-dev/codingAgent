@@ -2,43 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-18
 last_updated_at_commit: pending
-total_resolved_count: 3
+total_resolved_count: 4
 
 last_resolved:
-  task: T-0.3
-  title: "Credential resolution (profile → default chain; ignore bearer; SigV4 client)"
+  task: T-0.4
+  title: "Event log + session store (JSONL append, flush-per-event, ids/ts at boundary)"
   resolved_at: 2026-06-18
-  commit: b63349c
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-0.4
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-18T15:05:00+05:30
-  last_updated_at: 2026-06-18T15:05:00+05:30
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-0.4
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  open_action_items_for_implementer: []
-  open_action_items_for_tester: []
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-18T15:05:00+05:30
-  last_updated_at: 2026-06-18T15:05:00+05:30
 
 ## Resolved tasks
 
@@ -68,3 +43,12 @@ in_flight:
 - iterations: { task_builder: 1 }
 - dcrs_consumed: []
 - notes: ADR-0011 SigV4-only two-tier resolution (named profile -> default chain) under com.srk.codingagent.model.credentials; explicit bearer-ignore+warn (AC-8.8/INV-16); typed CredentialResolutionException -> exit 4 (MODEL_BACKEND) naming paths attempted (AC-8.9); inspectable SigV4 client seam (BedrockClientFactory) for T-0.5. AWS SDK v2 bedrockruntime pinned 2.46.7 (2.46.10 no longer resolves; ADR-0001 directed latest-stable). 114 tests green under mvn clean verify (~95.3% bundle coverage); no live AWS calls (injected SDK seams). CT-INV-13, CT-EX-2 satisfied. Self-checks: oracle-traceability=passed, reuse=passed. 1 Minor, 1 Nit (non-blocking). 2 Discussion items (D1: SDK pin 2.46.7; D2: exit-4 CLI dispatch deferred to loop task).
+
+## T-0.4 — Event log + session store (JSONL append, flush-per-event, ids/ts at boundary)
+- commit: pending
+- review: design/reviews/code/T-0.4-r1.md
+- resolved: 2026-06-18
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- notes: ADR-0005 event-sourced persistence under com.srk.codingagent.persistence (C14 EventLog + C15 SessionStore). Append-only JSONL writer assigns monotonic gap-free seq (INV-1; no update/delete API), flushes per event before returning (INV-2), surfaces persist failures (AC-13.4); ids/ts captured at the boundary (no in-process clock/UUID). Jackson for JSON; sealed Event/EventPayload/ContentBlock hierarchy (minimal text/toolUse/toolResult blocks — full Converse round-trip deferred to T-0.5). networknt json-schema-validator (test-only) validates CTs against the formal event.schema.json. 181 tests green under mvn clean verify (94.28% bundle, 93.4% persistence). CT-SCH-1/2/3/4, CT-INV-1 satisfied. Self-checks: oracle-traceability=passed, reuse=passed. 2 Minor, 1 Nit (non-blocking). 2 Discussion items (D1: future shared validation/path utility; D2: streaming read for T-1.2 replay).
