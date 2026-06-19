@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-19
-last_updated_at_commit: pending
+last_updated_at_commit: 870a938
 total_resolved_count: 7
 
 last_resolved:
   task: T-0.7
   title: "Permission gate: 4 modes, Class R/X, destructive denylist, grant matching (RD-1)"
   resolved_at: 2026-06-19
-  commit: pending
+  commit: 870a938
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -72,7 +72,7 @@ in_flight: null
 - notes: ADR-0001/0003 under com.srk.codingagent.tool. C7 ToolRegistry (name/description/JSON inputSchema + Class R/X marker, renders SDK ToolConfiguration that T-0.5's ConverseWireMapper consumes, dispatches ContentBlock.ToolUse->ContentBlock.ToolResult, unknown tool->structured error). C9 read_file (R; path+offset/limit, workspace-confined) + write_file (X; path+content, ok/diff summary). C10 run_command (X) via ProcessBuilder(sh -c) with SEPARATE stdout/stderr redirect, concurrent drain (no pipe deadlock), Process.waitFor(timeout)+ProcessHandle.descendants() tree-kill on NFR-CMD-TIMEOUT (timedOut=true, exit 124). CommandResult matches command-result.schema.json; exitCode captured faithfully (INV-17/CT-INV-14). Reuses persistence.OperationClass for R/X marker (no parallel enum). Permission gate (T-0.7), disposal (T-1.5), verify loop (T-1.4), other tools deferred. 270 tests green under mvn clean verify (90.93% bundle, 77.91% tool pkg). CT-SCH-9/10, CT-INV-14 satisfied. Self-checks: oracle-traceability=passed, reuse=passed. 3 Minor, 1 Nit (non-blocking). 1 Discussion item (D1: ToolInputs vs Payloads non-blank checks).
 
 ## T-0.7 — Permission gate: 4 modes, Class R/X, destructive denylist, grant matching (RD-1)
-- commit: pending
+- commit: 870a938
 - review: design/reviews/code/T-0.7-r1.md
 - resolved: 2026-06-19
 - context_mode: narrow
