@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-19
-last_updated_at_commit: pending
+last_updated_at_commit: 4c19987
 total_resolved_count: 6
 
 last_resolved:
   task: T-0.6
   title: "Tool registry + 3 tools: read_file, write_file, run_command (+ CommandResult, tree-kill timeout)"
   resolved_at: 2026-06-19
-  commit: pending
+  commit: 4c19987
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -63,7 +63,7 @@ in_flight: null
 - notes: ADR-0001 Model Client (C4) under com.srk.codingagent.model.converse — non-streaming Converse request-build + response-parse (03 §7 wire-format boundary, §6.A.1 facts). Maps our ContentBlock (text/toolUse/toolResult) <-> SDK ContentBlock, StopReason wire<->domain, usage->ModelUsagePayload. INV-6 toolUse<->toolResult pairing enforced via order-preserving scan (rejects orphan/out-of-order toolResult before any backend call); CT-INV-5 negative + INV-6 positive covered. Injected BedrockRuntimeClient seam -> request/parse fully unit-tested (hand-rolled stub, no Mockito, no live AWS call); reuses T-0.3 BedrockClientFactory + T-0.4 persistence types (no duplication). Typed ModelBackendException -> exit 4, ToolProtocolException for INV-6 faults. Streaming + reasoning/image/document/cachePoint mapping deferred to owning tasks (T-1.1/T-2.x/T-4.2). 229 tests green under mvn clean verify (95.24% bundle, 98.01% converse pkg). CT-INV-5 satisfied. Self-checks: oracle-traceability=passed, reuse=passed. 1 Minor, 1 Nit (non-blocking). 1 Discussion item (D1: ConverseMessage/Role placement).
 
 ## T-0.6 — Tool registry + 3 tools: read_file, write_file, run_command (+ CommandResult, tree-kill timeout)
-- commit: pending
+- commit: 4c19987
 - review: design/reviews/code/T-0.6-r1.md
 - resolved: 2026-06-19
 - context_mode: narrow
