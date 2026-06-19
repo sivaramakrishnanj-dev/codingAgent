@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-19
-last_updated_at_commit: 4c19987
+last_updated_at_commit: pending
 total_resolved_count: 6
 
 last_resolved:
@@ -12,8 +12,33 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-0.7
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-19T09:30:00+05:30
+  last_updated_at: 2026-06-19T09:30:00+05:30
 ---
+
+## In-flight
+
+- task: T-0.7
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  open_action_items_for_implementer: []
+  open_action_items_for_tester: []
+  files_in_working_tree: []
+  dcrs_consumed: []
+  started_at: 2026-06-19T09:30:00+05:30
+  last_updated_at: 2026-06-19T09:30:00+05:30
 
 ## Resolved tasks
 
