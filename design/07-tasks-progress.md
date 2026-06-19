@@ -2,43 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-19
 last_updated_at_commit: pending
-total_resolved_count: 6
+total_resolved_count: 7
 
 last_resolved:
-  task: T-0.6
-  title: "Tool registry + 3 tools: read_file, write_file, run_command (+ CommandResult, tree-kill timeout)"
+  task: T-0.7
+  title: "Permission gate: 4 modes, Class R/X, destructive denylist, grant matching (RD-1)"
   resolved_at: 2026-06-19
-  commit: 4c19987
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-0.7
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-19T09:30:00+05:30
-  last_updated_at: 2026-06-19T09:30:00+05:30
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-0.7
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  open_action_items_for_implementer: []
-  open_action_items_for_tester: []
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-19T09:30:00+05:30
-  last_updated_at: 2026-06-19T09:30:00+05:30
 
 ## Resolved tasks
 
@@ -95,3 +70,12 @@ in_flight:
 - iterations: { task_builder: 1 }
 - dcrs_consumed: []
 - notes: ADR-0001/0003 under com.srk.codingagent.tool. C7 ToolRegistry (name/description/JSON inputSchema + Class R/X marker, renders SDK ToolConfiguration that T-0.5's ConverseWireMapper consumes, dispatches ContentBlock.ToolUse->ContentBlock.ToolResult, unknown tool->structured error). C9 read_file (R; path+offset/limit, workspace-confined) + write_file (X; path+content, ok/diff summary). C10 run_command (X) via ProcessBuilder(sh -c) with SEPARATE stdout/stderr redirect, concurrent drain (no pipe deadlock), Process.waitFor(timeout)+ProcessHandle.descendants() tree-kill on NFR-CMD-TIMEOUT (timedOut=true, exit 124). CommandResult matches command-result.schema.json; exitCode captured faithfully (INV-17/CT-INV-14). Reuses persistence.OperationClass for R/X marker (no parallel enum). Permission gate (T-0.7), disposal (T-1.5), verify loop (T-1.4), other tools deferred. 270 tests green under mvn clean verify (90.93% bundle, 77.91% tool pkg). CT-SCH-9/10, CT-INV-14 satisfied. Self-checks: oracle-traceability=passed, reuse=passed. 3 Minor, 1 Nit (non-blocking). 1 Discussion item (D1: ToolInputs vs Payloads non-blank checks).
+
+## T-0.7 — Permission gate: 4 modes, Class R/X, destructive denylist, grant matching (RD-1)
+- commit: pending
+- review: design/reviews/code/T-0.7-r1.md
+- resolved: 2026-06-19
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- notes: ADR-0004 Permission Gate (C8) under com.srk.codingagent.permission — standalone PermissionGate the loop consults BEFORE ToolRegistry.dispatch. Eval order: Class R auto (AC-9.6) -> denylist test for run_command (AC-10.4) -> 4-mode table (AC-9.1-9.5). RD-1 grant matching: quote-honoring ShellTokenizer -> executable basename + known-subcommand-set normalization -> MatchKey (run_command:<exe>[ <subcmd>] | write:<subtree> | <tool>); ASK_ONCE_THEN_REMEMBER auto-approves matches. RD-2 conservative denylist (denylist-first, basename+case-fold, per-segment chaining; rm-noempty/mv-cp-dest realized as FS-state-independent pattern proxies). INV-9 enforced structurally in GateDecision ctor (denylisted => no matchedGrant). Lineage-scoped GrantStore; forSubAgent mints fresh empty store (INV-10/AC-10.6). Injected Approver seam (REPL UI is T-1.1). Loop S3->S4 wiring + PERMISSION_DECISION/TOOL_RESULT(denied) event emission deferred to T-0.8. Adversarial tokenizer+denylist tests (quoting, ;/&&/| chains, rm -rf $HOME, casing, /usr/bin/rm, redirect, curl|sh, sudo, fork-bomb, kill -9). 353 tests green under mvn clean verify (92.54% bundle, 97.58% permission pkg). CT-INV-7/8/9, CT-SM-2 satisfied (gate-level; loop wiring T-0.8). Reuses persistence.OperationClass/PermissionDecisionPayload + config.PermissionMode (no duplication). Self-checks: oracle-traceability=passed, reuse=passed. 2 Minor, 1 Nit (non-blocking). 2 Discussion items (D1: ADR denylist rows 1/5 vs FS-state-independent pattern proxy — logged in open-questions; D2: fork-bomb regex-shape vs tokenizer).
