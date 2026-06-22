@@ -31,6 +31,9 @@ final class ToolSchemas {
     /** JSON Schema {@code type: "integer"} discriminator value. */
     private static final String TYPE_INTEGER = "integer";
 
+    /** JSON Schema {@code type: "boolean"} discriminator value. */
+    private static final String TYPE_BOOLEAN = "boolean";
+
     /**
      * The {@code read_file} input schema: required {@code path}, optional {@code offset}
      * and {@code limit} (04-apis § 3).
@@ -72,6 +75,70 @@ final class ToolSchemas {
                 List.of("command"));
     }
 
+    /**
+     * The {@code grep} input schema: required {@code pattern} (a regular expression),
+     * optional {@code path} (a workspace-relative directory or file to scope the search;
+     * defaults to the whole workspace), optional {@code glob} (a path-glob filter for the
+     * files searched), and optional {@code ignoreCase} flag (04-apis § 3).
+     *
+     * @return the input-schema document for {@code grep}.
+     */
+    static Document grep() {
+        return objectSchema(
+                Map.of(
+                        "pattern", stringProperty("A regular expression to match against each file line."),
+                        "path", stringProperty(
+                                "Optional workspace-relative file or directory to search (default: the whole workspace)."),
+                        "glob", stringProperty(
+                                "Optional glob filtering which files are searched, e.g. '*.java'."),
+                        "ignoreCase", booleanProperty("Optional case-insensitive matching (default false).")),
+                List.of("pattern"));
+    }
+
+    /**
+     * The {@code glob} input schema: required {@code pattern} (a path glob) and optional
+     * {@code path} (a workspace-relative directory to root the walk; defaults to the whole
+     * workspace) (04-apis § 3).
+     *
+     * @return the input-schema document for {@code glob}.
+     */
+    static Document glob() {
+        return objectSchema(
+                Map.of(
+                        "pattern", stringProperty("A path glob to match, e.g. '**/*.java' or 'src/*.txt'."),
+                        "path", stringProperty(
+                                "Optional workspace-relative directory to search under (default: the whole workspace).")),
+                List.of("pattern"));
+    }
+
+    /**
+     * The {@code list} input schema: required {@code path} (a workspace-relative directory
+     * whose entries are listed) (04-apis § 3).
+     *
+     * @return the input-schema document for {@code list}.
+     */
+    static Document list() {
+        return objectSchema(
+                Map.of("path", stringProperty("Workspace-relative directory whose entries to list.")),
+                List.of("path"));
+    }
+
+    /**
+     * The {@code edit_file} input schema: required {@code path}, {@code old} (the exact
+     * existing text to replace), and {@code new} (the replacement) (04-apis § 3).
+     *
+     * @return the input-schema document for {@code edit_file}.
+     */
+    static Document editFile() {
+        return objectSchema(
+                Map.of(
+                        "path", stringProperty("Workspace-relative path of the file to edit."),
+                        "old", stringProperty(
+                                "The exact existing text to replace; must occur exactly once in the file."),
+                        "new", stringProperty("The replacement text.")),
+                List.of("path", "old", "new"));
+    }
+
     private static Document objectSchema(Map<String, Document> properties, List<String> required) {
         return Document.mapBuilder()
                 .putString("type", TYPE_OBJECT)
@@ -91,6 +158,13 @@ final class ToolSchemas {
     private static Document integerProperty(String description) {
         return Document.mapBuilder()
                 .putString("type", TYPE_INTEGER)
+                .putString("description", description)
+                .build();
+    }
+
+    private static Document booleanProperty(String description) {
+        return Document.mapBuilder()
+                .putString("type", TYPE_BOOLEAN)
                 .putString("description", description)
                 .build();
     }

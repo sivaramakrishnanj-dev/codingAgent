@@ -64,6 +64,50 @@ final class ToolInputs {
         return parsed;
     }
 
+    /**
+     * Reads an optional boolean field, returning {@code defaultValue} when absent.
+     *
+     * @param input        the input map.
+     * @param field        the field name.
+     * @param defaultValue the value to return when the field is absent.
+     * @return the boolean value, or {@code defaultValue} when the field is absent.
+     * @throws ToolInvocationException if present but not a boolean.
+     */
+    static boolean optionalBoolean(Map<String, Object> input, String field, boolean defaultValue) {
+        Object value = input.get(field);
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Boolean b) {
+            return b;
+        }
+        throw new ToolInvocationException(
+                "input '" + field + "' must be a boolean but was " + value.getClass().getSimpleName());
+    }
+
+    /**
+     * Reads an optional string field that, when present, must be a non-blank string.
+     *
+     * @param input the input map.
+     * @param field the field name.
+     * @return the string value, or {@code null} when the field is absent.
+     * @throws ToolInvocationException if present but not a string or blank.
+     */
+    static String optionalString(Map<String, Object> input, String field) {
+        Object value = input.get(field);
+        if (value == null) {
+            return null;
+        }
+        if (!(value instanceof String s)) {
+            throw new ToolInvocationException(
+                    "input '" + field + "' must be a string but was " + value.getClass().getSimpleName());
+        }
+        if (s.isBlank()) {
+            throw new ToolInvocationException("input '" + field + "' must be non-blank when present");
+        }
+        return s;
+    }
+
     private static int toInt(Object value, String field) {
         if (value instanceof Integer i) {
             return i;

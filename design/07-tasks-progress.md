@@ -2,43 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-22
 last_updated_at_commit: pending
-total_resolved_count: 13
+total_resolved_count: 14
 
 last_resolved:
-  task: T-1.2
-  title: "Resume: list sessions, replay events -> messages[], latest-continuation default"
+  task: T-1.3
+  title: "Search tools: grep, glob, list, edit_file"
   resolved_at: 2026-06-22
-  commit: 534f3b3
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-1.3
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-22T00:00:00+00:00
-  last_updated_at: 2026-06-22T00:00:00+00:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-1.3
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  open_action_items_for_implementer: []
-  open_action_items_for_tester: []
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-22T00:00:00+00:00
-  last_updated_at: 2026-06-22T00:00:00+00:00
 
 ## Milestone gates
 
@@ -170,3 +145,13 @@ in_flight:
 - dcrs_consumed: []
 - milestone: M1
 - notes: Three resume behaviors over C15/C1, offline JSONL replay throughout (no live model call). New SessionReplay.replay(List<Event>) -> List<ConverseMessage> maps the USER_MESSAGE + MODEL_RESPONSE events in seq order to user/assistant turns (audit events TOOL_USE/PERMISSION_DECISION/TOOL_RESULT/MODEL_USAGE/SESSION_START/OUTCOME excluded), reversing 03-data-model § 7; replay preserves INV-1 seq order and INV-6 toolUse<->toolResult pairing so the reconstructed messages[] is wire-valid for a continued Converse call. New SessionStore.listSessions(repoKey) (the AC-7.1 gap — there was no enumerate op) orders most-recent-first by log mtime desc (tie-broken by id desc) — chosen over reverse-lexical id sort because the M0 "one-shot" id is not timestamp-prefixed. New SessionLineage.latestContinuation walks DERIVED_FROM edges (not SPAWNED_BY), cycle-safe via visited-set (INV-3), built+tested with synthetic metas; goes live when M2 compaction writes DERIVED_FROM. New ResumeCommand (list()/resume(), 98% line) + CliArguments RESUME/SESSIONS kinds + sessionId() (95% line); Main dispatches resume/sessions before the config gate (pure persistence/replay; no config or model call). Listing scoped to repoKey "one-shot" (the key the system writes under today; real git-remote repo-key derivation is a deferred session task). Continuation-wiring (feeding the replayed messages[] into a live continued loop) NOT built — it needs the production Bedrock composition (AgentLoopFactory); left as the documented next-task seam, no C2 structural change forced. 492 tests green under mvn clean verify (+42; JaCoCo 0.80 gate met; new classes 98-100% line). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 1 Minor, 1 Nit, 1 Discussion. Discussion D1 (suggested_amendment_kind=contract-test-update): the task row's Verify cell cites CT-INV-3, but CT-INV-3 pins INV-4 compaction byte-identity (US-18) = M2/T-2.2's lane, not T-1.2; the binding replay-fidelity contract is AC-7.2 + INV-1 (+ INV-6 wire-validity). Suggest correcting the Verify cell and moving CT-INV-3 to T-2.2 — user's call (logged to open-questions).
+
+## T-1.3 — Search tools: grep, glob, list, edit_file
+- commit: pending
+- review: design/reviews/code/T-1.3-r1.md
+- resolved: 2026-06-22
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M1
+- notes: Four C9 file tools in com.srk.codingagent.tool, wired into AgentLoopFactory's production registry so a live codingagent/-p run exposes them. grep = java.util.regex over file lines (AC-4.2 textual, no AST), result rows "relativePath:lineNumber:lineText" (1-based, newline-joined; no match -> empty). glob = FileSystems PathMatcher over workspace-relative paths (sorted, newline-joined). list = Files.newDirectoryStream non-recursive entry names (sorted, trailing "/" on dirs). All three OperationClass.READ -> AC-4.4 non-gated for free via AgentLoop.gateRequestFor's generic forTool path (gate auto-approves READ). edit_file = literal UNIQUE-substring splice (not whole-file replace, that is write_file): exactly-one match applies + "ok:" summary (write_file style); 0 match -> error "no match"; >1 -> error "ambiguous" (AC-5.4 spirit, no silent guess); missing file -> error (AC-4.3). edit_file SIDE_EFFECTING -> AC-5.2 gated for free. All paths confined via the reused WorkspacePaths; inputs via ToolInputs (added optionalBoolean/optionalString); schemas authored in ToolSchemas (added grep/glob/list/editFile + booleanProperty) — reuse targets reused, not reimplemented (reuse_self_check passed). No gate change. 527 tests green under mvn clean verify (+35; JaCoCo 0.80 gate met; new-class line 77-100%, EditFileTool 77% gap = IO-failure catch branches like ReadFileTool/WriteFileTool). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 1 Minor, 0 Nit, 1 Discussion. Discussion D1 (suggested_amendment_kind=none): edit_file uses the generic forTool gate presentation (tool-name) not write_file-style path presentation; AC-10.1 is not a T-1.3 cited ref, left as a v1 choice for a later task to revisit.

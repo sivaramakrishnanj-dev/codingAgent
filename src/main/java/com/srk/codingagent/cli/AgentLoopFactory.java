@@ -12,6 +12,10 @@ import com.srk.codingagent.permission.GrantStore;
 import com.srk.codingagent.permission.PermissionGate;
 import com.srk.codingagent.persistence.EventLog;
 import com.srk.codingagent.tool.CommandExecutor;
+import com.srk.codingagent.tool.EditFileTool;
+import com.srk.codingagent.tool.GlobTool;
+import com.srk.codingagent.tool.GrepTool;
+import com.srk.codingagent.tool.ListTool;
 import com.srk.codingagent.tool.ReadFileTool;
 import com.srk.codingagent.tool.RunCommandTool;
 import com.srk.codingagent.tool.ToolHandler;
@@ -26,7 +30,8 @@ import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 /**
  * Assembles the production {@link AgentLoop} for a one-shot run from a resolved
  * configuration: it resolves SigV4 credentials (ADR-0011), builds the Bedrock client
- * (C4), composes the read/write/run tools (C7) into a registry, wires the permission gate
+ * (C4), composes the file/search/run tools (read/grep/glob/list/write/edit/run, C7/C9/C10)
+ * into a registry, wires the permission gate
  * (C8) over the configured mode with the supplied one-shot {@link Approver}, opens the
  * session event log (C14/C15), and hands the four collaborators to the {@link AgentLoop}
  * (C2).
@@ -112,7 +117,11 @@ public final class AgentLoopFactory {
     private static ToolRegistry toolRegistry(ResolvedConfig config, Path workspaceRoot) {
         List<ToolHandler> handlers = List.of(
                 new ReadFileTool(workspaceRoot),
+                new GrepTool(workspaceRoot),
+                new GlobTool(workspaceRoot),
+                new ListTool(workspaceRoot),
                 new WriteFileTool(workspaceRoot),
+                new EditFileTool(workspaceRoot),
                 new RunCommandTool(new CommandExecutor(workspaceRoot), config));
         return ToolRegistry.of(handlers);
     }
