@@ -75,6 +75,46 @@ class ContentBlockTest {
     }
 
     @Test
+    @DisplayName("the reasoning factory sets kind=reasoning and carries text/signature verbatim (schema ReasoningBlock)")
+    void reasoning_setsFieldsVerbatim() {
+        // Oracle: content-block.schema.json ReasoningBlock — kind const "reasoning"; optional
+        // text/signature/redactedContent. The signature is the tamper-check hash MUST be
+        // replayed verbatim (INV-7), so the factory must carry it through unchanged.
+        ContentBlock.Reasoning block =
+                ContentBlock.reasoning("thinking...", "sig-abc123==", null);
+
+        assertEquals(ContentBlock.KIND_REASONING, block.kind(),
+                "a reasoning block's kind must be 'reasoning'");
+        assertEquals("thinking...", block.text());
+        assertEquals("sig-abc123==", block.signature(),
+                "INV-7: the signature is carried verbatim");
+        assertEquals(null, block.redactedContent());
+    }
+
+    @Test
+    @DisplayName("a reasoning block may carry only kind + redactedContent (schema: only kind required)")
+    void reasoning_redactedOnly() {
+        // Oracle: content-block.schema.json ReasoningBlock — only kind is required; a redacted
+        // block carries redactedContent with no text/signature.
+        ContentBlock.Reasoning block = ContentBlock.reasoning(null, null, "base64redacted");
+
+        assertEquals(ContentBlock.KIND_REASONING, block.kind());
+        assertEquals("base64redacted", block.redactedContent());
+        assertEquals(null, block.text(), "a redacted-only reasoning block has no text");
+        assertEquals(null, block.signature(), "a redacted-only reasoning block has no signature");
+    }
+
+    @Test
+    @DisplayName("a reasoning block tagged with a wrong kind discriminator is rejected (schema const)")
+    void reasoning_mismatchedKind_rejected() {
+        // Oracle: content-block.schema.json ReasoningBlock — kind const is fixed "reasoning"; a
+        // block tagged with the wrong discriminator is invalid.
+        assertThrows(IllegalArgumentException.class,
+                () -> new ContentBlock.Reasoning("text", "t", "s", null),
+                "a Reasoning block must reject a kind other than 'reasoning'");
+    }
+
+    @Test
     @DisplayName("constructing a variant with a mismatched kind discriminator is rejected")
     void mismatchedKind_rejected() {
         // Oracle: content-block.schema.json — each variant's kind const is fixed; a

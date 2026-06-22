@@ -14,10 +14,11 @@ import java.util.Objects;
  * ({@link EventLog}) and reader ({@link SessionStore}) share identical encoding. The
  * envelope's {@code type} discriminator lives a level above the {@code payload}, so
  * decoding reads {@code type} from the envelope and routes the {@code payload}
- * sub-tree to the matching {@link EventPayload} record. Only the payload kinds T-0.4
- * models (the contract-fixture kinds) decode to a typed payload; an event of any
- * other taxonomy kind is reported via {@link UnsupportedPayloadException} rather than
- * silently mis-parsed.
+ * sub-tree to the matching {@link EventPayload} record. Only the kinds with a modelled
+ * payload (the contract-fixture kinds from T-0.4, plus {@code COMPACTION}/{@code ERROR}
+ * from T-2.2) decode to a typed payload; an event of any other taxonomy kind
+ * ({@code MODEL_REQUEST}, the sub-agent edges, {@code MEMORY_WRITE}) is reported via
+ * {@link UnsupportedPayloadException} rather than silently mis-parsed.
  *
  * <p>A single line never contains a literal newline: Jackson's default writer emits
  * no internal line breaks, so each encoded event is exactly one line of the log.
@@ -115,7 +116,9 @@ public final class EventCodec {
             case PERMISSION_DECISION -> PermissionDecisionPayload.class;
             case TOOL_RESULT -> ToolResultPayload.class;
             case OUTCOME -> OutcomePayload.class;
-            case MODEL_REQUEST, SUBAGENT_SPAWN, SUBAGENT_RESULT, COMPACTION, MEMORY_WRITE, ERROR ->
+            case COMPACTION -> CompactionPayload.class;
+            case ERROR -> ErrorPayload.class;
+            case MODEL_REQUEST, SUBAGENT_SPAWN, SUBAGENT_RESULT, MEMORY_WRITE ->
                 throw new UnsupportedPayloadException(type);
         };
     }

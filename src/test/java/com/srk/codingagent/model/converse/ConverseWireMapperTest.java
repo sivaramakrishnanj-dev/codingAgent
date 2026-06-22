@@ -23,6 +23,8 @@ import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
+import software.amazon.awssdk.services.bedrockruntime.model.ReasoningContentBlock;
+import software.amazon.awssdk.services.bedrockruntime.model.ReasoningTextBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.ToolConfiguration;
 import software.amazon.awssdk.services.bedrockruntime.model.ToolResultBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.ToolResultContentBlock;
@@ -623,6 +625,117 @@ class ConverseWireMapperTest {
             assertTrue(block instanceof ContentBlock.Text,
                     "expected a domain Text block but was " + block.getClass().getSimpleName());
             return (ContentBlock.Text) block;
+        }
+    }
+
+    @Nested
+    @DisplayName("INV-7 / CT-INV-6 — reasoning signature round-trip (response → us → request)")
+    class ReasoningSignatureRoundTrip {
+
+        private static final String SIGNATURE = "EqQBCkYIAR...verbatim-tamper-check-hash==";
+
+        private static ConverseResponse reasoningResponse(String text, String signature) {
+            software.amazon.awssdk.services.bedrockruntime.model.ContentBlock reasoningBlock =
+                    software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.fromReasoningContent(
+                            ReasoningContentBlock.fromReasoningText(
+                                    ReasoningTextBlock.builder().text(text).signature(signature).build()));
+            software.amazon.awssdk.services.bedrockruntime.model.ContentBlock textBlock =
+                    software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.fromText("the answer");
+            Message message = Message.builder()
+                    .role(ConversationRole.ASSISTANT)
+                    .content(List.of(reasoningBlock, textBlock))
+                    .build();
+            return responseWith(message, "end_turn");
+        }
+
+        @Test
+        @DisplayName("§ 6.A.1: a wire reasoningContent block parses to a domain Reasoning with its signature verbatim")
+        void parsesReasoningBlockKeepingSignature() {
+            // Oracle: § 6.A.1 / content-block.schema.json ReasoningBlock — the signature is a
+            // tamper-check hash the response carries; parsing must read it back verbatim (INV-7).
+            List<ContentBlock> blocks =
+                    mapper.toContentBlocks(reasoningResponse("deep thought", SIGNATURE));
+
+            ContentBlock.Reasoning reasoning = (ContentBlock.Reasoning) blocks.get(0);
+            assertEquals("deep thought", reasoning.text(),
+                    "§ 6.A.1: the reasoning text parses back verbatim");
+            assertEquals(SIGNATURE, reasoning.signature(),
+                    "INV-7: the reasoning signature parses back byte-identical");
+        }
+
+        @Test
+        @DisplayName("INV-7: a domain Reasoning block maps to a wire reasoningContent carrying the signature verbatim")
+        void mapsReasoningBlockKeepingSignature() {
+            // Oracle: INV-7 — a ReasoningBlock MUST be replayed verbatim with its signature, or
+            // the live Converse call errors. Mapping our Reasoning block to the wire must put the
+            // signature into reasoningContent.reasoningText.signature unchanged.
+            ContentBlock reasoning = ContentBlock.reasoning("thinking", SIGNATURE, null);
+
+            ConverseRequest request = mapper.toRequest(
+                    MODEL_ID,
+                    List.of(ConverseMessage.assistant(List.of(reasoning))),
+                    null,
+                    null);
+
+            var wireBlock = request.messages().get(0).content().get(0);
+            ReasoningTextBlock wireReasoning = wireBlock.reasoningContent().reasoningText();
+            assertEquals(SIGNATURE, wireReasoning.signature(),
+                    "INV-7: the signature is carried into the wire reasoningContent verbatim");
+            assertEquals("thinking", wireReasoning.text(),
+                    "§ 6.A.1: the reasoning text is carried verbatim");
+        }
+
+        @Test
+        @DisplayName("CT-INV-6: a reasoning signature survives response → ContentBlock → request byte-identical")
+        void ctInv6_signatureSurvivesFullRoundTrip() {
+            // Oracle: CT-INV-6 (positive) — "a replayed ReasoningBlock keeps its signature". The
+            // full path a derived session exercises: a model response carries a reasoning block;
+            // we parse it (response → us), then re-send it (us → request). The signature on the
+            // re-sent request must be byte-identical to the one the response carried — not merely
+            // "a signature is present". A mutated/dropped signature would error the live call (INV-7).
+            List<ContentBlock> parsed = mapper.toContentBlocks(reasoningResponse("reasoned", SIGNATURE));
+
+            // Re-send the parsed assistant turn (the verbatim carryover a derived seed performs).
+            ConverseRequest reSent = mapper.toRequest(
+                    MODEL_ID,
+                    List.of(ConverseMessage.assistant(parsed)),
+                    null,
+                    null);
+
+            String reSentSignature = reSent.messages().get(0).content().stream()
+                    .filter(b -> b.reasoningContent() != null)
+                    .map(b -> b.reasoningContent().reasoningText().signature())
+                    .findFirst()
+                    .orElse(null);
+            assertEquals(SIGNATURE, reSentSignature,
+                    "CT-INV-6/INV-7: the reasoning signature is byte-identical after response→us→request");
+        }
+
+        @Test
+        @DisplayName("INV-7: a redacted-only reasoning block round-trips through response → us → request")
+        void redactedReasoningRoundTrips() {
+            // Oracle: content-block.schema.json ReasoningBlock — redactedContent is the base64
+            // redacted reasoning variant; it must survive the round-trip (the provider may return
+            // redacted reasoning, which still must be replayed).
+            software.amazon.awssdk.services.bedrockruntime.model.ContentBlock redacted =
+                    software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.fromReasoningContent(
+                            ReasoningContentBlock.fromRedactedContent(
+                                    software.amazon.awssdk.core.SdkBytes.fromUtf8String("REDACTED")));
+            Message message = Message.builder()
+                    .role(ConversationRole.ASSISTANT)
+                    .content(List.of(redacted))
+                    .build();
+
+            List<ContentBlock> parsed = mapper.toContentBlocks(responseWith(message, "end_turn"));
+            ContentBlock.Reasoning reasoning = (ContentBlock.Reasoning) parsed.get(0);
+            assertEquals("REDACTED", reasoning.redactedContent(),
+                    "the redacted content parses back verbatim");
+
+            ConverseRequest reSent = mapper.toRequest(
+                    MODEL_ID, List.of(ConverseMessage.assistant(parsed)), null, null);
+            var wire = reSent.messages().get(0).content().get(0).reasoningContent();
+            assertEquals("REDACTED", wire.redactedContent().asUtf8String(),
+                    "INV-7: redacted reasoning content survives the round-trip verbatim");
         }
     }
 }

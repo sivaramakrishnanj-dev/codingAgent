@@ -148,15 +148,59 @@ class EventCodecTest {
     @Test
     @DisplayName("decoding a taxonomy kind with no typed payload yet surfaces UnsupportedPayloadException")
     void decode_unmodelledKind_throws() {
-        // Oracle: § 3 taxonomy — ERROR is a valid kind, but T-0.4 models no typed
-        // payload for it; decoding must report that rather than mis-parse.
-        String line = "{\"seq\":0,\"ts\":\"2026-06-17T09:00:00Z\",\"type\":\"ERROR\","
-                + "\"payload\":{\"category\":\"x\",\"message\":\"y\"}}";
+        // Oracle: § 3 taxonomy — MEMORY_WRITE is a valid kind, but no typed payload is
+        // modelled for it yet (T-2.4's lane); decoding must report that rather than
+        // mis-parse. (COMPACTION and ERROR are now modelled by T-2.2, so a still-unmodelled
+        // kind is used here.)
+        String line = "{\"seq\":0,\"ts\":\"2026-06-17T09:00:00Z\",\"type\":\"MEMORY_WRITE\","
+                + "\"payload\":{\"tier\":\"GLOBAL\",\"slug\":\"x\"}}";
 
         UnsupportedPayloadException ex = assertThrows(UnsupportedPayloadException.class,
                 () -> codec.decode(line),
                 "an unmodelled taxonomy kind must surface as UnsupportedPayloadException");
-        assertEquals(EventType.ERROR, ex.eventType());
+        assertEquals(EventType.MEMORY_WRITE, ex.eventType());
+    }
+
+    @Test
+    @DisplayName("a COMPACTION event round-trips through encode then decode (T-2.2, schema $defs.compaction)")
+    void roundTrip_compaction() {
+        // Oracle: event.schema.json $defs.compaction — required fromSessionId/toSessionId/
+        // triggerReason, optional summaryRef. A COMPACTION lineage marker (state-machine B
+        // LT3 side effect) must persist and read back unchanged.
+        Event original = new Event(8, "2026-06-22T09:05:00Z", new CompactionPayload(
+                "sess-original", "sess-derived", "evt:0", CompactionTrigger.THRESHOLD));
+
+        Event decoded = codec.decode(codec.encode(original));
+
+        assertEquals(original, decoded, "a COMPACTION event must round-trip unchanged");
+    }
+
+    @Test
+    @DisplayName("COMPACTION serializes triggerReason as the lowercase wire token (schema enum)")
+    void encode_compactionTriggerReasonWireValue() {
+        // Oracle: event.schema.json $defs.compaction.triggerReason — the enum's wire values are
+        // lowercase/underscore ("threshold","manual","context_window_exceeded").
+        String line = codec.encode(new Event(0, "2026-06-22T09:05:00Z", new CompactionPayload(
+                "from", "to", null, CompactionTrigger.CONTEXT_WINDOW_EXCEEDED)));
+
+        assertTrue(line.contains("\"triggerReason\":\"context_window_exceeded\""),
+                "triggerReason must serialize to its lowercase wire token");
+        assertFalse(line.contains("summaryRef"),
+                "an absent summaryRef must be omitted (schema optional)");
+    }
+
+    @Test
+    @DisplayName("an ERROR event round-trips through encode then decode (T-2.2, LT4 failure marker)")
+    void roundTrip_error() {
+        // Oracle: EventType.ERROR Javadoc / § 3 taxonomy — an ERROR carries category, message,
+        // optional exit code. The LT4 compaction-failure marker must persist and read back
+        // unchanged.
+        Event original = new Event(9, "2026-06-22T09:06:00Z",
+                new ErrorPayload("compaction", "summarizer returned no usable summary text", 5));
+
+        Event decoded = codec.decode(codec.encode(original));
+
+        assertEquals(original, decoded, "an ERROR event must round-trip unchanged");
     }
 
     @Test

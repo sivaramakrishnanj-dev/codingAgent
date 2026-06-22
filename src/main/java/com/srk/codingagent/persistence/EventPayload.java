@@ -7,10 +7,12 @@ package com.srk.codingagent.persistence;
  *
  * <p>This is a closed (sealed) hierarchy: each permitted record corresponds to one
  * payload shape in the formal event schema's {@code $defs}
- * ({@code 06-formal/event.schema.json}). T-0.4 models the payloads carried by the
+ * ({@code 06-formal/event.schema.json}). T-0.4 modelled the payloads carried by the
  * event kinds present in the contract fixture {@code session-tool-use-cycle.jsonl};
- * later tasks add the remaining payload records (model-request digest, sub-agent
- * edges, compaction, memory-write, error) as those events come to be emitted.
+ * T-2.2 adds the compaction and error payloads (the compaction-with-derivation flow
+ * appends a {@code COMPACTION} marker on success and an {@code ERROR} on the
+ * summary/derive-failure path). The remaining payload records (model-request digest,
+ * sub-agent edges, memory-write) are added by the tasks that emit them.
  *
  * <p>Each payload is immutable and self-validating in its canonical constructor, so
  * an invalid payload cannot be appended (the writer never repairs a payload).
@@ -18,7 +20,7 @@ package com.srk.codingagent.persistence;
 public sealed interface EventPayload
         permits SessionStartPayload, UserMessagePayload, ModelResponsePayload,
                 ModelUsagePayload, ToolUsePayload, PermissionDecisionPayload,
-                ToolResultPayload, OutcomePayload {
+                ToolResultPayload, OutcomePayload, CompactionPayload, ErrorPayload {
 
     /**
      * The {@link EventType} this payload is the body of. An {@link Event} pairs a

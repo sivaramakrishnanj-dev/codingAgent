@@ -13,12 +13,13 @@ import java.util.Objects;
  * schema ({@code 06-formal/content-block.schema.json}): a tagged union
  * discriminated by the {@code kind} field.
  *
- * <p><b>Scope (T-0.4).</b> Only the three block kinds present in the contract
- * fixture {@code session-tool-use-cycle.jsonl} are modelled here: {@link Text},
- * {@link ToolUse}, and {@link ToolResult}. The remaining schema variants
- * (reasoning, image, document, cachePoint) are deliberately not modelled — the full
- * Bedrock Converse round-trip mapping is T-0.5's lane. A later task extends this
- * union; the {@code kind} discriminator and sealed hierarchy make that extension
+ * <p><b>Scope.</b> Four block kinds are modelled here: {@link Text}, {@link ToolUse},
+ * and {@link ToolResult} (the three present in the contract fixture
+ * {@code session-tool-use-cycle.jsonl}, T-0.4), plus {@link Reasoning} (T-2.2 — the
+ * reasoning block compaction must replay verbatim so its {@code signature} survives a
+ * live Converse call, INV-7). The remaining schema variants (image, document,
+ * cachePoint) are deliberately not modelled yet — they are realized by the tasks that
+ * need them; the {@code kind} discriminator and sealed hierarchy make each extension
  * additive. See {@code stated_assumptions} in the task handoff.
  *
  * <p>The {@code kind} discriminator is a real field of each block so it both
@@ -34,10 +35,12 @@ import java.util.Objects;
 @JsonSubTypes({
     @JsonSubTypes.Type(value = ContentBlock.Text.class, name = ContentBlock.KIND_TEXT),
     @JsonSubTypes.Type(value = ContentBlock.ToolUse.class, name = ContentBlock.KIND_TOOL_USE),
-    @JsonSubTypes.Type(value = ContentBlock.ToolResult.class, name = ContentBlock.KIND_TOOL_RESULT)
+    @JsonSubTypes.Type(value = ContentBlock.ToolResult.class, name = ContentBlock.KIND_TOOL_RESULT),
+    @JsonSubTypes.Type(value = ContentBlock.Reasoning.class, name = ContentBlock.KIND_REASONING)
 })
 public sealed interface ContentBlock
-        permits ContentBlock.Text, ContentBlock.ToolUse, ContentBlock.ToolResult {
+        permits ContentBlock.Text, ContentBlock.ToolUse, ContentBlock.ToolResult,
+                ContentBlock.Reasoning {
 
     /** The wire tag for a {@link Text} block. */
     String KIND_TEXT = "text";
@@ -48,9 +51,13 @@ public sealed interface ContentBlock
     /** The wire tag for a {@link ToolResult} block. */
     String KIND_TOOL_RESULT = "toolResult";
 
+    /** The wire tag for a {@link Reasoning} block. */
+    String KIND_REASONING = "reasoning";
+
     /**
-     * The wire discriminator for this block ({@code text}, {@code toolUse}, or
-     * {@code toolResult}). Matches the schema's {@code kind} const for the variant.
+     * The wire discriminator for this block ({@code text}, {@code toolUse},
+     * {@code toolResult}, or {@code reasoning}). Matches the schema's {@code kind}
+     * const for the variant.
      *
      * @return the block kind tag; never {@code null}.
      */
@@ -88,6 +95,22 @@ public sealed interface ContentBlock
      */
     static ToolResult toolResult(String toolUseId, String status, Object content) {
         return new ToolResult(KIND_TOOL_RESULT, toolUseId, status, content);
+    }
+
+    /**
+     * Creates a reasoning block. The {@code signature} is a tamper-check hash over the
+     * conversation that MUST be replayed verbatim (INV-7); the factory carries it (and
+     * the {@code text}/{@code redactedContent}) through unchanged.
+     *
+     * @param text            the reasoning text, or {@code null} when only redacted
+     *                        content is present.
+     * @param signature       the tamper-check signature, or {@code null} when the
+     *                        provider returned none.
+     * @param redactedContent base64 redacted reasoning, or {@code null} when absent.
+     * @return a {@link Reasoning} block.
+     */
+    static Reasoning reasoning(String text, String signature, String redactedContent) {
+        return new Reasoning(KIND_REASONING, text, signature, redactedContent);
     }
 
     /**
@@ -170,6 +193,37 @@ public sealed interface ContentBlock
             requireKind(kind, KIND_TOOL_RESULT);
             Payloads.requireNonBlank(toolUseId, "toolUseId");
             Objects.requireNonNull(status, "status");
+        }
+    }
+
+    /**
+     * A reasoning block (the {@code ReasoningBlock} schema variant): the model's
+     * extended-thinking content. The schema marks its fields permissive because they
+     * round-trip to the model verbatim — in particular the {@code signature} is a
+     * tamper-check hash that MUST be replayed unchanged within a live conversation, or
+     * the Converse call errors (INV-7, § 6.A.1). Only {@code kind} is required by the
+     * schema; {@code text}, {@code signature}, and {@code redactedContent} are all
+     * optional and carried through verbatim (no normalization).
+     *
+     * @param kind            the discriminator; must equal {@link #KIND_REASONING}.
+     * @param text            the reasoning text, or {@code null}.
+     * @param signature       the tamper-check signature replayed verbatim (INV-7), or
+     *                        {@code null}.
+     * @param redactedContent base64 redacted reasoning, or {@code null}.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record Reasoning(String kind, String text, String signature, String redactedContent)
+            implements ContentBlock {
+
+        /**
+         * Validates the discriminator. The {@code text}/{@code signature}/
+         * {@code redactedContent} fields are permissive (schema optional; round-tripped
+         * verbatim), so they are not constrained here beyond the {@code kind} const.
+         *
+         * @throws IllegalArgumentException if {@code kind} is not {@link #KIND_REASONING}.
+         */
+        public Reasoning {
+            requireKind(kind, KIND_REASONING);
         }
     }
 

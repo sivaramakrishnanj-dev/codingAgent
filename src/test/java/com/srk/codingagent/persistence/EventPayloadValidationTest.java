@@ -35,6 +35,38 @@ class EventPayloadValidationTest {
         assertEquals(EventType.TOOL_RESULT,
                 ToolResultPayload.of("tu", ToolResultStatus.OK, null).type());
         assertEquals(EventType.OUTCOME, new OutcomePayload("t", true, 0).type());
+        assertEquals(EventType.COMPACTION, new CompactionPayload(
+                "from", "to", null, CompactionTrigger.THRESHOLD).type());
+        assertEquals(EventType.ERROR, ErrorPayload.of("c", "m").type());
+    }
+
+    @Test
+    @DisplayName("COMPACTION rejects a blank from/to session id (schema requires both)")
+    void compaction_blankSessionIds_rejected() {
+        // Oracle: event.schema.json $defs.compaction — fromSessionId/toSessionId/triggerReason
+        // are required; the from/to ids are non-blank session identities.
+        assertThrows(IllegalArgumentException.class,
+                () -> new CompactionPayload(" ", "to", null, CompactionTrigger.THRESHOLD));
+        assertThrows(IllegalArgumentException.class,
+                () -> new CompactionPayload("from", "", null, CompactionTrigger.THRESHOLD));
+    }
+
+    @Test
+    @DisplayName("COMPACTION rejects a null triggerReason (schema required enum)")
+    void compaction_nullTrigger_rejected() {
+        // Oracle: event.schema.json $defs.compaction — triggerReason is required.
+        assertThrows(NullPointerException.class,
+                () -> new CompactionPayload("from", "to", "evt:0", null));
+    }
+
+    @Test
+    @DisplayName("ERROR rejects a blank category/message and a negative exitCode")
+    void error_invalidFields_rejected() {
+        // Oracle: EventType.ERROR Javadoc — category + message + optional exit code; the
+        // category/message are non-blank and an exit code, when present, is non-negative.
+        assertThrows(IllegalArgumentException.class, () -> new ErrorPayload(" ", "m", 5));
+        assertThrows(IllegalArgumentException.class, () -> new ErrorPayload("c", " ", 5));
+        assertThrows(IllegalArgumentException.class, () -> new ErrorPayload("c", "m", -1));
     }
 
     @Test

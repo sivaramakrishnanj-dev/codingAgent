@@ -2,41 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-22
 last_updated_at_commit: pending
-total_resolved_count: 18
+total_resolved_count: 19
 
 last_resolved:
-  task: T-2.1
-  title: "Token budget tracking + compaction trigger (0.85xwindow from capability profile)"
+  task: T-2.2
+  title: "Compaction-with-derivation: summary call, new derived session, original preserved"
   resolved_at: 2026-06-22
-  commit: ff05467
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-2.2
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-22T17:35:00-07:00
-  last_updated_at: 2026-06-22T17:35:00-07:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-2.2
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-22T17:35:00-07:00
-  last_updated_at: 2026-06-22T17:35:00-07:00
 
 ## Milestone gates
 
@@ -227,3 +204,13 @@ in_flight:
 - dcrs_consumed: []
 - milestone: M2 (FIRST task)
 - notes: First M2 task; the real BudgetGuard that swaps in for BudgetGuard.NONE (the T-0.8 seam). Two new classes — ModelCapabilityProfile (C5, in com.srk.codingagent.model) is a thin record carrying ONLY contextWindowTokens, resolved from modelId via a prefix registry (Claude keyed on the "anthropic.claude" infix so both bare and the us. inference-profile default us.anthropic.claude-opus-4-8 resolve to a real Claude window, not the fallback); TokenBudgetGuard (C6 arithmetic, in com.srk.codingagent.loop where the BudgetGuard hook lives) implements BudgetGuard and returns COMPACT when measured usage.inputTokens >= ceil(0.85 x contextWindowTokens), else CONTINUE. Window comes from the profile so the guard never branches on modelId (ADR-0002 feature-detection). AgentLoopFactory wires TokenBudgetGuard.forConfig(config, profile) in place of BudgetGuard.NONE, so a live run now detects the threshold from measured usage (the T-2.1 verify criterion); the loop's existing COMPACT handling (surface) stays — the real S6->machine-B compaction handler is T-2.2. Scope kept tight per ADR-0002 "thin v1" + the minimal-viable-shape mandate: the full capability registry/feature-detection/schema-validation (03-data-model §2.6 fields, CT-SCH-15) is left to T-4.3, which can extend the record without caller rework; NO config key added (resolved-config.schema.json + CT-SCH-13/14 untouched), so ADR-0002's "conservative default window read from config NFR-MODEL-CONTEXT-WINDOW" is deferred to T-4.3 (safe-minimum 100K is a documented compiled-in constant in the JaCoCo-excluded composition root). CT-SM-6's T-2.1 half (threshold 0.85xwindow detection from measured usage) satisfied; the "-> derived session" half is T-2.2. 643 tests green under mvn clean verify (+24; JaCoCo 0.80 gate met; TokenBudgetGuard + ModelCapabilityProfile 100% line+branch). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 1 Minor, 1 Nit, 2 Discussion. D1 (suggested data-model-update): concrete window figures (Claude 200K, safe-minimum 100K) are not pinned by any spec symbol — team may want a per-family table/NFR. D2 (suggested schema-update): ADR-0002's conservative-default window "read from config" deferred to T-4.3 (compiled-in for now) — add the contextWindowTokens config key when the full capability registry lands. Both logged to open-questions; non-blocking.
+
+## T-2.2 — Compaction-with-derivation: summary call, new derived session, original preserved
+- commit: pending
+- review: design/reviews/code/T-2.2-r1.md
+- resolved: 2026-06-22
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M2
+- notes: The compaction-with-derivation flow (C6, ADR-0006, state-machine B). New Compactor (com.srk.codingagent.context, beside OutputDisposer) orchestrates: (1) a dedicated summarizer Converse call through the real ModelClient seam (same model or a configured cheaper summarizerModelId, fixed compaction system prompt asking for task state/decisions/files/open-work/durable-learnings, no toolConfig — OQ-D/AC-18.4); (2) derive a NEW session (boundary-captured id) seeded with the summary + a configurable recent-tail of verbatim turns (recentTailTurns is a Compactor ctor knob, NOT a new config key — avoids touching resolved-config schema/CT-SCH-13/14), reusing SessionReplay for the tail; (3) record lineage on the CHILD .meta.json (edgeType=DERIVED_FROM, parentSessionId=original — the edge SessionStore.deriveMeta deliberately left null) and append COMPACTION(from,to,summaryRef) + (on failure) ERROR to the CHILD log so the parent stays byte-identical; (4) failure path returns CompactionOutcome.failed() carrying CONTEXT_EXHAUSTED_EXIT_CODE=5 (LT4->LT7->machine-A T15). THE LOAD-BEARING WIRE WORK (INV-7): ContentBlock gained a Reasoning permitted variant realizing the EXISTING content-block.schema.json reasoning variant (no schema edit — schema already had it; CT-SCH-5 still green via new ContentBlockSchemaContractTest), and ConverseWireMapper now maps reasoningContent BOTH directions (response->ContentBlock.Reasoning, ContentBlock.Reasoning->request) with the signature preserved VERBATIM — so a reasoning block round-trips response->persist(EventCodec)->replay(SessionReplay)->request unchanged; tests assert the derived session's seeded messages[] round-trip with the signature byte-identical (not field-presence), INV-6 toolUse<->toolResult pairing, parent log byte-identity (CT-INV-3, bytes read before/after), original-log-still-present (CT-INV-4), LT2->LT3 derived-session (CT-SM-6) and LT4->exit5 (CT-SM-7). New payloads: CompactionPayload + ErrorPayload (EventPayload sealed permits extended; EventCodec now maps COMPACTION/ERROR instead of throwing UnsupportedPayloadException), CompactionTrigger {THRESHOLD, MANUAL, CONTEXT_WINDOW_EXCEEDED}. SCOPE SEAMS (deliberate, recorded): AC-18.5 learning-harvest left as a documented seam — the compaction prompt elicits durable learnings as text; T-2.5 reads it and wires the propose call (memory store T-2.4 does not exist yet), so NO memory proposal made here. AgentLoop NOT bound to invoke the Compactor / continue-in-derived (machine A T14) — that is run-driver orchestration (REPL/brownfield), not the loop's single-responsibility cycle; the loop's existing surfaced(COMPACT) stays as the LT2 hand-off and AgentLoop tests stay green. T-2.2's verify (CT-SM-6/7, CT-INV-3/4) is satisfied entirely by the Compactor + persistence/wire path. 681 tests green under mvn clean verify (+38; JaCoCo 0.80 gate met; Compactor 90%, ConverseWireMapper 98%, ContentBlock 100%, payloads/trigger/outcome 100%). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 1 Minor (Compactor.concatText near-dups private AgentLoop.finalText ~9-line joiner across loop<->context boundary; extract deferred to avoid churning the heavily-tested AgentLoop), 0 Nit, 0 Discussion.

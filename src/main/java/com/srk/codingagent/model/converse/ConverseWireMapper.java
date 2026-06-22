@@ -9,10 +9,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
+import software.amazon.awssdk.services.bedrockruntime.model.ReasoningContentBlock;
+import software.amazon.awssdk.services.bedrockruntime.model.ReasoningTextBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.SystemContentBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.ToolConfiguration;
 import software.amazon.awssdk.services.bedrockruntime.model.ToolResultBlock;
@@ -34,7 +37,17 @@ import software.amazon.awssdk.services.bedrockruntime.model.ToolUseBlock;
  *   <li>{@link ContentBlock.Text} &rarr; {@code text}</li>
  *   <li>{@link ContentBlock.ToolUse} &rarr; {@code toolUse{toolUseId,name,input}}</li>
  *   <li>{@link ContentBlock.ToolResult} &rarr; {@code toolResult{toolUseId,content,status}}</li>
+ *   <li>{@link ContentBlock.Reasoning} &rarr; {@code reasoningContent{reasoningText{text,signature}}}
+ *       or {@code reasoningContent{redactedContent}}</li>
  * </ul>
+ *
+ * <p><b>INV-7 reasoning-signature replay.</b> A {@link ContentBlock.Reasoning} block
+ * carries a {@code signature} (a tamper-check hash over the conversation). On the request
+ * path the signature — and the reasoning text it accompanies — is carried into the wire
+ * {@code reasoningContent.reasoningText} <em>verbatim</em>; on the response path it is read
+ * back verbatim. This is load-bearing: a derived conversation that replays a prior
+ * reasoning block with a mutated or dropped signature makes the first live Converse call
+ * error (INV-7, § 6.A.1). The mapper never normalizes the signature.
  *
  * <p><b>toolResult content member (text vs json).</b> The {@code content} of a
  * {@link ContentBlock.ToolResult} is "text, or a structured object" per
@@ -50,21 +63,21 @@ import software.amazon.awssdk.services.bedrockruntime.model.ToolUseBlock;
  * branch.
  *
  * <p>Response direction (response &rarr; us): parse {@code output.message.content[]}
- * into domain {@link ContentBlock}s ({@code text} and {@code toolUse} — the kinds a
- * model turn emits), map the wire {@code stopReason} to our {@link StopReason}, and map
- * the {@code usage} envelope to a {@link ModelUsagePayload}. {@link #toModelResponse}
- * assembles the content + stop reason into the {@link ModelResponsePayload} the event
- * log records.
+ * into domain {@link ContentBlock}s ({@code text}, {@code toolUse}, and
+ * {@code reasoningContent} — the kinds a model turn emits), map the wire
+ * {@code stopReason} to our {@link StopReason}, and map the {@code usage} envelope to a
+ * {@link ModelUsagePayload}. {@link #toModelResponse} assembles the content + stop reason
+ * into the {@link ModelResponsePayload} the event log records.
  *
  * <p><b>INV-6 / CT-INV-5 (toolUse&harr;toolResult pairing).</b> {@link #toRequest}
  * enforces the protocol-correctness property ADR-0001 says the agent owns: every
  * {@code toolResult} block in the transcript must carry a {@code toolUseId} produced by
  * an earlier {@code toolUse} block in the same transcript. A {@code toolResult} with no
  * prior {@code toolUse} is rejected with a {@link ToolProtocolException} before any
- * request leaves the boundary (CT-INV-5, the negative test). Reasoning, image,
- * document, and cachePoint blocks are out of scope for this task (deferred to the tasks
- * that need them — see the handoff's {@code stated_assumptions}); only the text,
- * toolUse, and toolResult kinds the title names are mapped.
+ * request leaves the boundary (CT-INV-5, the negative test). Image, document, and
+ * cachePoint blocks remain out of scope (deferred to the tasks that need them — see the
+ * handoff's {@code stated_assumptions}); the text, toolUse, toolResult, and reasoning
+ * kinds are mapped.
  */
 public final class ConverseWireMapper {
 
@@ -125,8 +138,9 @@ public final class ConverseWireMapper {
 
     /**
      * Parses a {@link ConverseResponse} into the domain content blocks of the model
-     * turn: {@code output.message.content[]} mapped to {@link ContentBlock.Text} and
-     * {@link ContentBlock.ToolUse} (the kinds a model turn emits, § 6.A.1).
+     * turn: {@code output.message.content[]} mapped to {@link ContentBlock.Text},
+     * {@link ContentBlock.ToolUse}, and {@link ContentBlock.Reasoning} (the kinds a model
+     * turn emits, § 6.A.1).
      *
      * @param response the Converse response; must not be {@code null} and must carry an
      *                 {@code output.message}.
@@ -259,7 +273,32 @@ public final class ConverseWireMapper {
             case ContentBlock.ToolResult toolResult ->
                     software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.fromToolResult(
                             toWireToolResult(toolResult));
+            case ContentBlock.Reasoning reasoning ->
+                    software.amazon.awssdk.services.bedrockruntime.model.ContentBlock
+                            .fromReasoningContent(toWireReasoning(reasoning));
         };
+    }
+
+    /**
+     * Maps a domain {@link ContentBlock.Reasoning} to a wire {@link ReasoningContentBlock},
+     * replaying the {@code signature} verbatim (INV-7). When the block carries reasoning text
+     * it maps to {@code reasoningText{text,signature}} (the signature is carried unchanged so a
+     * live Converse call sees the exact tamper-check hash the model issued); when it carries
+     * only base64 {@code redactedContent} it maps to the {@code redactedContent} member. A
+     * block with neither maps to an empty {@code reasoningText} so the structure survives.
+     */
+    private ReasoningContentBlock toWireReasoning(ContentBlock.Reasoning reasoning) {
+        if (reasoning.text() != null || reasoning.signature() != null) {
+            return ReasoningContentBlock.fromReasoningText(ReasoningTextBlock.builder()
+                    .text(reasoning.text())
+                    .signature(reasoning.signature())
+                    .build());
+        }
+        if (reasoning.redactedContent() != null) {
+            return ReasoningContentBlock.fromRedactedContent(
+                    SdkBytes.fromUtf8String(reasoning.redactedContent()));
+        }
+        return ReasoningContentBlock.fromReasoningText(ReasoningTextBlock.builder().build());
     }
 
     private ToolResultBlock toWireToolResult(ContentBlock.ToolResult toolResult) {
@@ -316,8 +355,26 @@ public final class ConverseWireMapper {
                     : java.util.Map.of();
             return ContentBlock.toolUse(toolUse.toolUseId(), toolUse.name(), inputMap);
         }
+        if (wireBlock.reasoningContent() != null) {
+            return toDomainReasoning(wireBlock.reasoningContent());
+        }
         throw new IllegalArgumentException(
                 "unsupported response content block type: " + wireBlock.type()
-                        + " (only text and toolUse are mapped from a model turn)");
+                        + " (only text, toolUse and reasoningContent are mapped from a model turn)");
+    }
+
+    /**
+     * Maps a wire {@link ReasoningContentBlock} back into a domain
+     * {@link ContentBlock.Reasoning}, reading the {@code signature} (and reasoning text)
+     * verbatim so it can later be replayed unchanged (INV-7). A redacted-only block carries
+     * its base64 {@code redactedContent} through unchanged.
+     */
+    private ContentBlock toDomainReasoning(ReasoningContentBlock reasoningContent) {
+        ReasoningTextBlock reasoningText = reasoningContent.reasoningText();
+        String text = reasoningText == null ? null : reasoningText.text();
+        String signature = reasoningText == null ? null : reasoningText.signature();
+        SdkBytes redacted = reasoningContent.redactedContent();
+        String redactedContent = redacted == null ? null : redacted.asUtf8String();
+        return ContentBlock.reasoning(text, signature, redactedContent);
     }
 }
