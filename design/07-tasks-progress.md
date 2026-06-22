@@ -2,41 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-22
 last_updated_at_commit: pending
-total_resolved_count: 19
+total_resolved_count: 20
 
 last_resolved:
-  task: T-2.2
-  title: "Compaction-with-derivation: summary call, new derived session, original preserved"
+  task: T-2.3
+  title: "Sub-agent orchestrator (in-process, N=1, isolated context, budget, no inherited grants)"
   resolved_at: 2026-06-22
-  commit: abb14e2
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-2.3
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-22T17:55:00-07:00
-  last_updated_at: 2026-06-22T17:55:00-07:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-2.3
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-22T17:55:00-07:00
-  last_updated_at: 2026-06-22T17:55:00-07:00
 
 ## Milestone gates
 
@@ -237,3 +214,13 @@ in_flight:
 - dcrs_consumed: []
 - milestone: M2
 - notes: The compaction-with-derivation flow (C6, ADR-0006, state-machine B). New Compactor (com.srk.codingagent.context, beside OutputDisposer) orchestrates: (1) a dedicated summarizer Converse call through the real ModelClient seam (same model or a configured cheaper summarizerModelId, fixed compaction system prompt asking for task state/decisions/files/open-work/durable-learnings, no toolConfig — OQ-D/AC-18.4); (2) derive a NEW session (boundary-captured id) seeded with the summary + a configurable recent-tail of verbatim turns (recentTailTurns is a Compactor ctor knob, NOT a new config key — avoids touching resolved-config schema/CT-SCH-13/14), reusing SessionReplay for the tail; (3) record lineage on the CHILD .meta.json (edgeType=DERIVED_FROM, parentSessionId=original — the edge SessionStore.deriveMeta deliberately left null) and append COMPACTION(from,to,summaryRef) + (on failure) ERROR to the CHILD log so the parent stays byte-identical; (4) failure path returns CompactionOutcome.failed() carrying CONTEXT_EXHAUSTED_EXIT_CODE=5 (LT4->LT7->machine-A T15). THE LOAD-BEARING WIRE WORK (INV-7): ContentBlock gained a Reasoning permitted variant realizing the EXISTING content-block.schema.json reasoning variant (no schema edit — schema already had it; CT-SCH-5 still green via new ContentBlockSchemaContractTest), and ConverseWireMapper now maps reasoningContent BOTH directions (response->ContentBlock.Reasoning, ContentBlock.Reasoning->request) with the signature preserved VERBATIM — so a reasoning block round-trips response->persist(EventCodec)->replay(SessionReplay)->request unchanged; tests assert the derived session's seeded messages[] round-trip with the signature byte-identical (not field-presence), INV-6 toolUse<->toolResult pairing, parent log byte-identity (CT-INV-3, bytes read before/after), original-log-still-present (CT-INV-4), LT2->LT3 derived-session (CT-SM-6) and LT4->exit5 (CT-SM-7). New payloads: CompactionPayload + ErrorPayload (EventPayload sealed permits extended; EventCodec now maps COMPACTION/ERROR instead of throwing UnsupportedPayloadException), CompactionTrigger {THRESHOLD, MANUAL, CONTEXT_WINDOW_EXCEEDED}. SCOPE SEAMS (deliberate, recorded): AC-18.5 learning-harvest left as a documented seam — the compaction prompt elicits durable learnings as text; T-2.5 reads it and wires the propose call (memory store T-2.4 does not exist yet), so NO memory proposal made here. AgentLoop NOT bound to invoke the Compactor / continue-in-derived (machine A T14) — that is run-driver orchestration (REPL/brownfield), not the loop's single-responsibility cycle; the loop's existing surfaced(COMPACT) stays as the LT2 hand-off and AgentLoop tests stay green. T-2.2's verify (CT-SM-6/7, CT-INV-3/4) is satisfied entirely by the Compactor + persistence/wire path. 681 tests green under mvn clean verify (+38; JaCoCo 0.80 gate met; Compactor 90%, ConverseWireMapper 98%, ContentBlock 100%, payloads/trigger/outcome 100%). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 1 Minor (Compactor.concatText near-dups private AgentLoop.finalText ~9-line joiner across loop<->context boundary; extract deferred to avoid churning the heavily-tested AgentLoop), 0 Nit, 0 Discussion.
+
+## T-2.3 — Sub-agent orchestrator (in-process, N=1, isolated context, budget, no inherited grants)
+- commit: pending
+- review: design/reviews/code/T-2.3-r1.md
+- resolved: 2026-06-22
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M2
+- notes: Sub-agent orchestrator (C13, ADR-0010, in-process N=1), new com.srk.codingagent.subagent package. SubAgentOrchestrator.spawn(SubAgentSpec) runs a NESTED instance of the existing C2 AgentLoop (reused, not rewritten) via a ChildAgentLoopFactory/ChildAgentRun seam — so the child's toolResult mapping is the D2-safe Converse text-member path BY CONSTRUCTION (same ModelClient + ConverseWireMapper), while the orchestrator's isolation/budget/bound/lineage logic stays unit-testable (the seam exists because AgentLoop is final). Isolation: child gets its OWN context (own messages[]/system prompt), its OWN session + EventLog (own JSONL), a FRESH no-inherited-grants gate via GrantStore.forSubAgent (CT-INV-9/INV-10/AC-10.6 — a grant remembered in the parent is NOT visible to the child; the child gate prompts for an op the parent remembered). Concurrency bound: Semaphore(subAgentMax) — the bounded-pool seam for N>1; v1 ships subAgentMax=1; an over-the-bound spawn is tryAcquire-REJECTED with a failure result, never queued/run past the bound (CT-INV-10/INV-12/AC-17.3). Budget: Future.get(cap)+cancel(true) on a single-thread daemon executor; cap is an INJECTED Duration (default 600s, NFR-SUBAGENT-BUDGET) so the over-budget path is deterministic in tests (no 600s sleep) — over-budget/failure returns a failure result the parent reacts to, never hangs (AC-17.6). Lineage (AC-17.5): child is its own session linked edgeType=SPAWNED_BY (parentSessionId from the parent GrantStore.sessionLineage()); SUBAGENT_SPAWN + SUBAGENT_RESULT events logged in the PARENT log; child's own JSONL holds its full transcript. Summary-only propagation (INV-11/AC-17.4): the parent receives ONLY the child's summary block, never the child's event stream (asserted: parentReceivesSummaryOnlyNotChildTranscript). New spawn_subagent Class-X tool (SpawnSubAgentTool, gated per ADR-0004) returns a plain-string summary -> text member. New typed payloads SubAgentSpawnPayload/SubAgentResultPayload (EventPayload sealed permits extended; EventCodec now maps SUBAGENT_SPAWN/SUBAGENT_RESULT instead of throwing — no schema change: event.schema.json pins these types' payload only as a generic object, like ERROR per the T-2.2 precedent). N>1 synchronized-append constraint (ADR-0010 Notes) recorded as a future seam in orchestrator/ChildLoopContext Javadoc (N=1 sidesteps it: parent blocks on child, distinct logs). DEFERRED (recorded): the production composition-root wiring of spawn_subagent INTO the parent's live tool registry (AgentLoopFactory, JaCoCo-excluded) was NOT added — kept business logic out of the factory per the directive. >>> COORDINATOR NOTE FOR G2 SMOKE TEST: for the G2 real-Bedrock "a sub-agent returns a summary" criterion to be exercisable via codingagent -p / REPL, the spawn_subagent tool must be registered into the live parent registry (a thin AgentLoopFactory wiring). If absent at G2, the orchestrator+tool are proven by unit tests but a live spawn is not reachable from the CLI — flag at the gate. 718 tests green under mvn clean verify (+37; JaCoCo 0.80 gate met; SubAgentOrchestrator 93%, SpawnSubAgentTool 95%, value types/payloads 100%). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor/Nit, 0 Discussion.

@@ -11,8 +11,10 @@ package com.srk.codingagent.persistence;
  * event kinds present in the contract fixture {@code session-tool-use-cycle.jsonl};
  * T-2.2 adds the compaction and error payloads (the compaction-with-derivation flow
  * appends a {@code COMPACTION} marker on success and an {@code ERROR} on the
- * summary/derive-failure path). The remaining payload records (model-request digest,
- * sub-agent edges, memory-write) are added by the tasks that emit them.
+ * summary/derive-failure path). T-2.3 adds the sub-agent edge payloads (the orchestrator
+ * appends a {@code SUBAGENT_SPAWN} marker and, on completion, a {@code SUBAGENT_RESULT}
+ * carrying only the child's summary, INV-11). The remaining payload records (model-request
+ * digest, memory-write) are added by the tasks that emit them.
  *
  * <p>Each payload is immutable and self-validating in its canonical constructor, so
  * an invalid payload cannot be appended (the writer never repairs a payload).
@@ -20,7 +22,8 @@ package com.srk.codingagent.persistence;
 public sealed interface EventPayload
         permits SessionStartPayload, UserMessagePayload, ModelResponsePayload,
                 ModelUsagePayload, ToolUsePayload, PermissionDecisionPayload,
-                ToolResultPayload, OutcomePayload, CompactionPayload, ErrorPayload {
+                ToolResultPayload, OutcomePayload, CompactionPayload, ErrorPayload,
+                SubAgentSpawnPayload, SubAgentResultPayload {
 
     /**
      * The {@link EventType} this payload is the body of. An {@link Event} pairs a

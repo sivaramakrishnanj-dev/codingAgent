@@ -139,6 +139,27 @@ final class ToolSchemas {
                 List.of("path", "old", "new"));
     }
 
+    /**
+     * The {@code spawn_subagent} input schema: required {@code prompt} (the scoped task the
+     * child performs), optional {@code model} (a cheaper/different model the child runs;
+     * defaults to the parent's), and optional {@code budgetSeconds} (the child's wall-clock
+     * cap; defaults to NFR-SUBAGENT-BUDGET) (ADR-0010, AC-17.1/AC-17.2/AC-17.6).
+     *
+     * @return the input-schema document for {@code spawn_subagent}.
+     */
+    static Document spawnSubagent() {
+        return objectSchema(
+                Map.of(
+                        "prompt", stringProperty(
+                                "The scoped, self-contained task for the sub-agent to perform and summarize."),
+                        "model", stringProperty(
+                                "Optional model id the sub-agent should run (default: the parent's model)."),
+                        "budgetSeconds", integerProperty(
+                                "Optional wall-clock budget in seconds before the sub-agent is stopped "
+                                        + "(default: 600).")),
+                List.of("prompt"));
+    }
+
     private static Document objectSchema(Map<String, Document> properties, List<String> required) {
         return Document.mapBuilder()
                 .putString("type", TYPE_OBJECT)
