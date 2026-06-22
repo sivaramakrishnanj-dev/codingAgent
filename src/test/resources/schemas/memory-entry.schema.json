@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codingagent.srk/schemas/memory-entry.schema.json",
+  "title": "MemoryEntry",
+  "description": "Front-matter of a memory markdown file (ADR-0007, 03-data-model.md § 2.5). The body (the learning prose) is the markdown content below the front-matter, not modeled here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["slug", "tier", "created", "originSession", "why", "status"],
+  "properties": {
+    "slug": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "description": "Kebab-case filename id." },
+    "tier": { "enum": ["GLOBAL", "PROJECT"] },
+    "created": { "type": "string", "format": "date-time", "description": "ISO ts, captured at the boundary." },
+    "originSession": { "type": "string", "description": "Provenance: the session that produced it." },
+    "why": { "type": "string", "minLength": 1, "description": "One-line provenance." },
+    "status": { "enum": ["active", "retired"] }
+  }
+}

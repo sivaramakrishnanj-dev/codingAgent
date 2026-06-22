@@ -16,9 +16,9 @@ import java.util.Objects;
  * decoding reads {@code type} from the envelope and routes the {@code payload}
  * sub-tree to the matching {@link EventPayload} record. Only the kinds with a modelled
  * payload (the contract-fixture kinds from T-0.4, {@code COMPACTION}/{@code ERROR} from
- * T-2.2, and the {@code SUBAGENT_SPAWN}/{@code SUBAGENT_RESULT} sub-agent edges from
- * T-2.3) decode to a typed payload; an event of any other taxonomy kind
- * ({@code MODEL_REQUEST}, {@code MEMORY_WRITE}) is reported via
+ * T-2.2, the {@code SUBAGENT_SPAWN}/{@code SUBAGENT_RESULT} sub-agent edges from
+ * T-2.3, and the {@code MEMORY_WRITE} provenance marker from T-2.4) decode to a typed
+ * payload; an event of any other taxonomy kind ({@code MODEL_REQUEST}) is reported via
  * {@link UnsupportedPayloadException} rather than silently mis-parsed.
  *
  * <p>A single line never contains a literal newline: Jackson's default writer emits
@@ -121,7 +121,8 @@ public final class EventCodec {
             case ERROR -> ErrorPayload.class;
             case SUBAGENT_SPAWN -> SubAgentSpawnPayload.class;
             case SUBAGENT_RESULT -> SubAgentResultPayload.class;
-            case MODEL_REQUEST, MEMORY_WRITE -> throw new UnsupportedPayloadException(type);
+            case MEMORY_WRITE -> MemoryWritePayload.class;
+            case MODEL_REQUEST -> throw new UnsupportedPayloadException(type);
         };
     }
 }

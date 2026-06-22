@@ -148,17 +148,17 @@ class EventCodecTest {
     @Test
     @DisplayName("decoding a taxonomy kind with no typed payload yet surfaces UnsupportedPayloadException")
     void decode_unmodelledKind_throws() {
-        // Oracle: § 3 taxonomy — MEMORY_WRITE is a valid kind, but no typed payload is
-        // modelled for it yet (T-2.4's lane); decoding must report that rather than
-        // mis-parse. (COMPACTION and ERROR are now modelled by T-2.2, so a still-unmodelled
-        // kind is used here.)
-        String line = "{\"seq\":0,\"ts\":\"2026-06-17T09:00:00Z\",\"type\":\"MEMORY_WRITE\","
-                + "\"payload\":{\"tier\":\"GLOBAL\",\"slug\":\"x\"}}";
+        // Oracle: § 3 taxonomy — MODEL_REQUEST is a valid kind, but no typed payload is
+        // modelled for it yet; decoding must report that rather than mis-parse. (COMPACTION
+        // and ERROR are modelled by T-2.2, the sub-agent edges by T-2.3, and MEMORY_WRITE by
+        // T-2.4, so MODEL_REQUEST is the one still-unmodelled kind used here.)
+        String line = "{\"seq\":0,\"ts\":\"2026-06-17T09:00:00Z\",\"type\":\"MODEL_REQUEST\","
+                + "\"payload\":{\"digest\":\"x\"}}";
 
         UnsupportedPayloadException ex = assertThrows(UnsupportedPayloadException.class,
                 () -> codec.decode(line),
                 "an unmodelled taxonomy kind must surface as UnsupportedPayloadException");
-        assertEquals(EventType.MEMORY_WRITE, ex.eventType());
+        assertEquals(EventType.MODEL_REQUEST, ex.eventType());
     }
 
     @Test

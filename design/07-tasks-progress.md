@@ -2,41 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-22
 last_updated_at_commit: pending
-total_resolved_count: 20
+total_resolved_count: 21
 
 last_resolved:
-  task: T-2.3
-  title: "Sub-agent orchestrator (in-process, N=1, isolated context, budget, no inherited grants)"
+  task: T-2.4
+  title: "Memory store: two-tier markdown + index, read/write tools, re-read-fresh"
   resolved_at: 2026-06-22
-  commit: aae305e
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-2.4
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-22T18:20:00-07:00
-  last_updated_at: 2026-06-22T18:20:00-07:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-2.4
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-22T18:20:00-07:00
-  last_updated_at: 2026-06-22T18:20:00-07:00
 
 ## Milestone gates
 
@@ -247,3 +224,13 @@ in_flight:
 - dcrs_consumed: []
 - milestone: M2
 - notes: Sub-agent orchestrator (C13, ADR-0010, in-process N=1), new com.srk.codingagent.subagent package. SubAgentOrchestrator.spawn(SubAgentSpec) runs a NESTED instance of the existing C2 AgentLoop (reused, not rewritten) via a ChildAgentLoopFactory/ChildAgentRun seam — so the child's toolResult mapping is the D2-safe Converse text-member path BY CONSTRUCTION (same ModelClient + ConverseWireMapper), while the orchestrator's isolation/budget/bound/lineage logic stays unit-testable (the seam exists because AgentLoop is final). Isolation: child gets its OWN context (own messages[]/system prompt), its OWN session + EventLog (own JSONL), a FRESH no-inherited-grants gate via GrantStore.forSubAgent (CT-INV-9/INV-10/AC-10.6 — a grant remembered in the parent is NOT visible to the child; the child gate prompts for an op the parent remembered). Concurrency bound: Semaphore(subAgentMax) — the bounded-pool seam for N>1; v1 ships subAgentMax=1; an over-the-bound spawn is tryAcquire-REJECTED with a failure result, never queued/run past the bound (CT-INV-10/INV-12/AC-17.3). Budget: Future.get(cap)+cancel(true) on a single-thread daemon executor; cap is an INJECTED Duration (default 600s, NFR-SUBAGENT-BUDGET) so the over-budget path is deterministic in tests (no 600s sleep) — over-budget/failure returns a failure result the parent reacts to, never hangs (AC-17.6). Lineage (AC-17.5): child is its own session linked edgeType=SPAWNED_BY (parentSessionId from the parent GrantStore.sessionLineage()); SUBAGENT_SPAWN + SUBAGENT_RESULT events logged in the PARENT log; child's own JSONL holds its full transcript. Summary-only propagation (INV-11/AC-17.4): the parent receives ONLY the child's summary block, never the child's event stream (asserted: parentReceivesSummaryOnlyNotChildTranscript). New spawn_subagent Class-X tool (SpawnSubAgentTool, gated per ADR-0004) returns a plain-string summary -> text member. New typed payloads SubAgentSpawnPayload/SubAgentResultPayload (EventPayload sealed permits extended; EventCodec now maps SUBAGENT_SPAWN/SUBAGENT_RESULT instead of throwing — no schema change: event.schema.json pins these types' payload only as a generic object, like ERROR per the T-2.2 precedent). N>1 synchronized-append constraint (ADR-0010 Notes) recorded as a future seam in orchestrator/ChildLoopContext Javadoc (N=1 sidesteps it: parent blocks on child, distinct logs). DEFERRED (recorded): the production composition-root wiring of spawn_subagent INTO the parent's live tool registry (AgentLoopFactory, JaCoCo-excluded) was NOT added — kept business logic out of the factory per the directive. >>> COORDINATOR NOTE FOR G2 SMOKE TEST: for the G2 real-Bedrock "a sub-agent returns a summary" criterion to be exercisable via codingagent -p / REPL, the spawn_subagent tool must be registered into the live parent registry (a thin AgentLoopFactory wiring). If absent at G2, the orchestrator+tool are proven by unit tests but a live spawn is not reachable from the CLI — flag at the gate. 718 tests green under mvn clean verify (+37; JaCoCo 0.80 gate met; SubAgentOrchestrator 93%, SpawnSubAgentTool 95%, value types/payloads 100%). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor/Nit, 0 Discussion.
+
+## T-2.4 — Memory store: two-tier markdown + index, read/write tools, re-read-fresh
+- commit: pending
+- review: design/reviews/code/T-2.4-r1.md
+- resolved: 2026-06-22
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M2
+- notes: Two-tier curated-memory store (C16, com.srk.codingagent.memory) + read/write tools (C12, com.srk.codingagent.tool.memory) per ADR-0007. MemoryStore (root mirrors SessionStore: ~/.codingagent, GLOBAL memory/ + PROJECT projects/<repo-key>/memory/, injectable + forUserHome()) writes one markdown file per learning <slug>.md with the memory-entry.schema.json front-matter (MemoryMarkdown parses/emits via the same SnakeYAML SafeConstructor the config loader uses; created timestamp boundary-captured + emitted QUOTED so YAML keeps it a string) + prose body, maintains a per-tier INDEX.md (one line per entry, AC-14.3), and RE-READS FROM DISK on each load with NO masking cache so a hand-edited/deleted .md is honored on next load (CT-INV-12/INV-14, asserted: write -> external edit/delete -> load reflects change). read_memory (Class R, auto-approved) pulls a full entry on demand; write_memory (Class X, gated per ADR-0004) is the EXPLICIT "remember X" write path (AC-12.1/US-12). Every write logs a MEMORY_WRITE event (new typed MemoryWritePayload {slug,tier,originSession,why}; EventCodec now maps MEMORY_WRITE instead of throwing — only MODEL_REQUEST remains unmodelled; no event.schema.json edit, generic-object payload like ERROR/SUBAGENT) for provenance/audit (AC-12.4). NO auto-extract: an entry persists only via an explicit/approved write (CT-INV-11/INV-13, NoAutoExtractContractTest asserts no auto-write path). Tier classification global-vs-project on write (AC-12.3); human-editable markdown (AC-14.1). CT-SCH-11 (fixture front-matter validates against memory-entry.schema.json via the networknt validator, schema+fixture copied to src/test/resources mirroring the event-schema CT) + CT-SCH-12 (invalid tier rejected) green. CASING resolved toward the AUTHORITATIVE schema: tier UPPERCASE GLOBAL/PROJECT, status lowercase active/retired (MemoryStatus.wireValue) — ADR-0007 prose shows lowercase tier + 03-data-model § 2.5 shows uppercase MemoryStatus, both disagreeing with the schema; resolved to schema, NO schema/fixture edited. T-2.5 SEAM (clean): MemoryStore.write(entry, repoKey) owns file+index ONLY; the CALLER logs the MEMORY_WRITE event, so T-2.5's propose-and-approve flow reuses write() unchanged and adds only its gate + event append + the compaction-harvest hook (the Compactor summary already elicits durable learnings as text per T-2.2). 779 tests green under mvn clean verify (+61; JaCoCo 0.80 gate met; MemoryStore 88%, tools/payload 92-100%, MemoryToolInputs 67%). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 2 Minor (m1/m2: forced cross-package duplication of requireString/schema-builder helpers because tool/ToolInputs + tool/ToolSchemas are package-private and the C12 memory tools live in the tool.memory sub-package — documented; a future visibility-widening refactor could dedupe), 0 Nit, 1 Discussion. D1 (suggested doc/adr-clarification): ADR-0007 prose (lowercase tier) + data-model § 2.5 (uppercase MemoryStatus) disagree with the authoritative schema (uppercase tier, lowercase status); code follows the schema, prose alignment suggested. Logged to open-questions.
