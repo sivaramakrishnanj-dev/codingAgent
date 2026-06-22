@@ -54,3 +54,27 @@ auto-invokes the designer.
   conversation (accumulating turns) rather than independent turns. That is a T-1.2/C2
   design decision, not a T-1.1 defect. No action required to proceed.
 - status: open (informational; no action required to proceed)
+
+## Discussion items from T-1.2 — 2026-06-22
+
+### D1 — task row Verify cell cites CT-INV-3, but CT-INV-3 pins compaction byte-identity (M2), not replay fidelity
+- task: T-1.2
+- spec_refs: CT-INV-3 (07-tasks.md M1 Verify cell), AC-7.2, INV-1, INV-4, INV-6
+- suggested_amendment_kind: contract-test-update
+- finding: The T-1.2 row's Verify column reads "CT-INV-3 (replay fidelity)", but CT-INV-3
+  as indexed in 06-formal/contract-tests.md § 2 pins INV-4 — "compaction creates a new
+  session; the parent's events are byte-identical after" (Traces: US-18). That is the
+  M2 compaction task's contract (T-2.2), not resume. The replay-fidelity contract T-1.2
+  actually realizes is AC-7.2 (reconstruct context by replaying persisted events)
+  preserving INV-1 (gap-free seq order), plus INV-6 (the replayed transcript is wire-valid:
+  every toolResult pairs with a prior toolUse). The task-builder built+tested against
+  AC-7.2 + INV-1 + INV-6 and did NOT pull compaction forward to satisfy the mis-cited id.
+- coordinator note: this is a spec-bookkeeping inconsistency in the task table, not a code
+  defect — T-1.2 resolved cleanly against the correct binding contract. If the user wants
+  the task table corrected (move CT-INV-3 to T-2.2's Verify cell; replace T-1.2's Verify
+  cell with AC-7.2/INV-1/INV-6), that is a `contract-test-update` / tasks-table amendment
+  (DCR) — user's call. Relevant to verify at gate G1: G1's checklist lists "CT-INV-3" as a
+  green criterion after M1, but CT-INV-3 (compaction byte-identity) cannot be green until
+  M2 builds compaction. Flagging so the G1 gate is judged against the contracts M1 actually
+  delivers (replay fidelity), not against an M2 contract.
+- status: open (informational; no action required to proceed)

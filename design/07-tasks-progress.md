@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: pending
+last_updated_at_commit: 534f3b3
 total_resolved_count: 13
 
 last_resolved:
   task: T-1.2
   title: "Resume: list sessions, replay events -> messages[], latest-continuation default"
   resolved_at: 2026-06-22
-  commit: pending
+  commit: 534f3b3
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -137,7 +137,7 @@ in_flight: null
 - notes: Real interactive REPL replacing Main's stub, plus the real SIGINT->130 handler + in-flight cancellation T-0.9 left as a seam. New testable types ReplRunner (read-eval loop; /exit, /mode, /permission show-only, unrecognized-reported; 100% line+branch) and InteractiveApprover (inline approval present-before-decide, AC-10.1, via GateRequest.presentation(); 100% line+branch), split from production-only composition in Main.runInteractive (live Bedrock client + sun.misc.Signal("INT") handler + stdin read; JaCoCo-excluded like AgentLoopFactory). SIGINT mechanism: sun.misc.Signal (jdk.unsupported, no compiler flags; pom has no forbidden-apis/enforcer), isolated in Main; ReplRunner maps both the injected interrupt flag and a caught InterruptedRunException (the existing OneShotRunner seam) to exit 130 by catch order, reconciling the real handler with the modelled seam. Streaming = render the completed LoopOutcome final text per turn (ModelClient is the sync Converse call; no token-stream source to feed). A failed turn keeps the REPL alive (developer chooses next step, AC-10.2 spirit); only SIGINT (->130) and a fatal PersistenceException (->1, AC-13.4) end the session. Stub-era interactive tests in MainTest/MainConfigTest/MainOneShotTest repointed to the INFO path (the no-arg shape now enters real REPL composition, not unit-reproducible); config fail-fast->exit-2 coverage retained. 450 tests green under mvn clean verify (+26 net: -4 stub-era, +30 new; JaCoCo 0.80 gate met). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 1 Minor, 0 Nit, 1 Discussion. Discussion D1 (suggested_amendment_kind=none): REPL drives each prompt as an independent AgentLoop.run turn; cross-turn model-context continuation is C15/T-1.2's replay->messages[] job, not pinned by T-1.1's ACs — surfaced as an explicit seam (the ReplLoop seam accepts a continued driver when T-1.2 lands).
 
 ## T-1.2 — Resume: list sessions, replay events -> messages[], latest-continuation default
-- commit: pending
+- commit: 534f3b3
 - review: design/reviews/code/T-1.2-r1.md
 - resolved: 2026-06-22
 - context_mode: narrow
