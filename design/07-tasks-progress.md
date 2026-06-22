@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: pending
+last_updated_at_commit: 50f65f3
 total_resolved_count: 17
 
 last_resolved:
   task: T-1.6
   title: "Brownfield workflow driver (understand->change orchestration over the loop)"
   resolved_at: 2026-06-22
-  commit: pending
+  commit: 50f65f3
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -177,7 +177,7 @@ in_flight: null
 - notes: Output disposal half of C6 (the Context Manager; first code in the new com.srk.codingagent.context package — compaction half is M2). OutputDisposer.reduceForContext does head+tail UTF-8-byte truncation over config.outputMaxInlineBytes() (default 16384, NFR-OUTPUT-MAX-INLINE — no literal; cut on code-point boundaries, never split a multi-byte char), inserting a truncation marker naming how much was elided + the fullRef; the marker is additive overhead, not subtracted from the cap, so a small cap never drops the required head/tail. OutputRetrieval.retrieve reads the full output back from the session event log (AC-19.3 round-trip: dispose -> persist -> retrieve -> equals original). FullRef = "evt:<seq>" (session-relative, schema-valid as event.schema.json toolResult.fullRef is an unconstrained string). Uniform disposal at the loop's tool-result boundary (covers file reads AND verbose command output in one place), wired into AgentLoop.handleToolUse exactly where 02-arch § 2 annotates "result maybe > cap -> CM disposes": full output -> log FIRST (capturing the appended seq for the fullRef), then reduced copy -> model context. Reduced content is always a plain String -> wire mapper routes it to the Converse toolResult.content.text member (D2-safe; never a structured object the json member rejects). AgentLoop constructor gained an 8th arg (OutputDisposer) — PUBLIC API CHANGE; AgentLoopFactory wires it via OutputDisposer.forConfig(config), and AgentLoopTest/OneShotRunnerTest/ReplRunnerTest updated for the new arity (all green). Tier (3) summarize-via-model-call NOT built (the explicit ADR-0006 escalation, OOS for v1). 587 tests green under mvn clean verify (+33; JaCoCo 0.80 gate met; OutputDisposer 92% line, OutputRetrieval/FullRef 100%; CT-SCH-1 extended to validate full + truncated/fullRef-bearing + reduced-string disposal events against event.schema.json). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor/Nit, 0 Discussion.
 
 ## T-1.6 — Brownfield workflow driver (understand->change orchestration over the loop)
-- commit: pending
+- commit: 50f65f3
 - review: design/reviews/code/T-1.6-r1.md
 - resolved: 2026-06-22
 - context_mode: narrow

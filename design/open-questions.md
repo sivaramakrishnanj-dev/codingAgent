@@ -124,3 +124,30 @@ auto-invokes the designer.
   actually delivers (bounded verify + surface; replay fidelity), with the compaction-keyed
   Element cells corrected when M2 lands or via the amendment.
 - status: open (informational; no action required to proceed)
+
+## Discussion items from T-1.6 — 2026-06-22
+
+### D1 — no agent-process exit code for a "verify-exhausted brownfield run"
+- task: T-1.6
+- spec_refs: cli-exit-codes.md (G4 / the 0-5/130 contract), AC-20.5, AC-5.3
+- suggested_amendment_kind: exit-code-update
+- finding: When a brownfield run completes — the agent explored, changed, and ran the
+  verify loop — but the change still fails its tests after NFR-VERIFY-MAX-ITERATIONS
+  (BrownfieldOutcome VERIFY_EXHAUSTED), there is no exit code in the cli-exit-codes
+  contract for "the agent ran fine but the requested change did not pass verification."
+  The task-builder resolved it as exit 0 with the failure output surfaced in the final
+  text (AC-20.5): the agent completed its work, a verify failure is not an internal fault
+  (so not exit 1), and the contract pins no other code — and the contract says new
+  categories require a formal amendment, so it did not invent one.
+- coordinator note: non-blocking; T-1.6 resolved cleanly (0 Blocker/Major/Minor/Nit). The
+  exit-0-with-surfaced-output disposition is a defensible reading of the existing contract.
+  However, a developer scripting `codingagent -p` in CI may WANT a distinct non-zero exit
+  to detect "change applied but tests still red" without parsing stdout — that is the
+  exit-code-update amendment candidate (a new code, e.g. for verification-not-achieved,
+  distinct from 0 success / 1 internal / 3 user-aborted). User's call after G1. Relevant to
+  G1: the gate's "explore->edit->verify->resume" criterion is about the cycle WORKING, not
+  about a specific exit code for the verify-failed case; the v1 disposition (surface +
+  exit 0) satisfies the cycle. THIRD spec-cite/contract point in M1 (cf. T-1.2 CT-INV-3,
+  T-1.4 CT-SM-5) — the three are candidates for one consolidated post-G1 amendment if the
+  user chooses.
+- status: open (informational; no action required to proceed)
