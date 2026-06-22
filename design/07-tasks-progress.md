@@ -2,41 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-22
 last_updated_at_commit: pending
-total_resolved_count: 17
+total_resolved_count: 18
 
 last_resolved:
-  task: T-1.6
-  title: "Brownfield workflow driver (understand->change orchestration over the loop)"
+  task: T-2.1
+  title: "Token budget tracking + compaction trigger (0.85xwindow from capability profile)"
   resolved_at: 2026-06-22
-  commit: 50f65f3
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-2.1
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-22T17:10:00-07:00
-  last_updated_at: 2026-06-22T17:10:00-07:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-2.1
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-22T17:10:00-07:00
-  last_updated_at: 2026-06-22T17:10:00-07:00
 
 ## Milestone gates
 
@@ -217,3 +194,13 @@ in_flight:
 - dcrs_consumed: []
 - milestone: M1 (LAST task; closes M1 -> gate G1)
 - notes: Brownfield understand->change->verify workflow driver (C3, ADR-0012 brownfield side), first code in the new com.srk.codingagent.workflow package. ADR-0012's load-bearing principle (a workflow driver is orchestration over the shared engine, not a separate engine) honoured: BrownfieldDriver composes the AgentLoop (C2) + the already-registered search/edit tools (T-1.3) + the VerifyLoop (T-1.4) via VerifyLoop.forConfig (the seam T-1.4 deferred to here). BrownfieldPlaybook.systemPrompt() is a real, tested artifact priming the model to explore-before-edit (AC-4.1/5.1) and verify-after-change (AC-5.3) and ask-when-ambiguous (AC-5.4); it reaches the AgentLoop's `system` arg (AgentLoopFactory now passes it instead of null). Multi-turn-continuation (the recurring T-1.1 D1 / T-1.2 seam) resolved as SINGLE-RUN-WITH-TOOLS: the model does explore+change in one AgentLoop.run turn (the loop already cycles tool_use<->end_turn), verify is a driver-invoked VerifyLoop after the turn, and the remedy is a fresh run(prompt) turn fed the failure output (the AC-20.3/AC-5.3 RemedyAttempt wiring T-1.4 deferred) — NO AgentLoop structural change. BrownfieldOutcome { VERIFIED, VERIFY_EXHAUSTED, NOT_VERIFIED } carries the loop + verify outcomes; VERIFY_EXHAUSTED surfaces the failure output (AC-20.5). WIRED INTO THE REAL RUN PATH: Main.runOneShot + runInteractive build BrownfieldRunner(BrownfieldDriver.overConfig(loop::run, new CommandExecutor(workspaceRoot), config)) and pass brownfield::run to OneShotRunner/ReplRunner, so a live codingagent -p / REPL run does brownfield explore->change->verify (the G1 smoke test exercises real code; BrownfieldWiringTest confirms the playbook reaches the Converse call). All driver LOGIC kept in the tested workflow unit; only the un-unit-testable composition lives in JaCoCo-excluded Main/AgentLoopFactory. OneShotRunner/ReplRunner/Main exit-code paths unchanged. 619 tests green under mvn clean verify (+32; JaCoCo 0.80 gate met; workflow package 95% instr, BrownfieldDriver/BrownfieldPlaybook 100%). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor/Nit, 1 Discussion. Discussion D1 (suggested_amendment_kind=exit-code-update): the cli-exit-codes contract (G4) pins no agent-process exit code for a "verify-exhausted brownfield run" (agent ran fine but the change still fails its tests); resolved as exit-0-with-surfaced-output (the agent completed; a verify failure is not an internal fault and the contract forbids inventing a code without an amendment), but a CI-scriptable disposition may warrant a formal exit-code-update amendment — user's call (logged to open-questions).
+
+## T-2.1 — Token budget tracking + compaction trigger (0.85xwindow from capability profile)
+- commit: pending
+- review: design/reviews/code/T-2.1-r1.md
+- resolved: 2026-06-22
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M2 (FIRST task)
+- notes: First M2 task; the real BudgetGuard that swaps in for BudgetGuard.NONE (the T-0.8 seam). Two new classes — ModelCapabilityProfile (C5, in com.srk.codingagent.model) is a thin record carrying ONLY contextWindowTokens, resolved from modelId via a prefix registry (Claude keyed on the "anthropic.claude" infix so both bare and the us. inference-profile default us.anthropic.claude-opus-4-8 resolve to a real Claude window, not the fallback); TokenBudgetGuard (C6 arithmetic, in com.srk.codingagent.loop where the BudgetGuard hook lives) implements BudgetGuard and returns COMPACT when measured usage.inputTokens >= ceil(0.85 x contextWindowTokens), else CONTINUE. Window comes from the profile so the guard never branches on modelId (ADR-0002 feature-detection). AgentLoopFactory wires TokenBudgetGuard.forConfig(config, profile) in place of BudgetGuard.NONE, so a live run now detects the threshold from measured usage (the T-2.1 verify criterion); the loop's existing COMPACT handling (surface) stays — the real S6->machine-B compaction handler is T-2.2. Scope kept tight per ADR-0002 "thin v1" + the minimal-viable-shape mandate: the full capability registry/feature-detection/schema-validation (03-data-model §2.6 fields, CT-SCH-15) is left to T-4.3, which can extend the record without caller rework; NO config key added (resolved-config.schema.json + CT-SCH-13/14 untouched), so ADR-0002's "conservative default window read from config NFR-MODEL-CONTEXT-WINDOW" is deferred to T-4.3 (safe-minimum 100K is a documented compiled-in constant in the JaCoCo-excluded composition root). CT-SM-6's T-2.1 half (threshold 0.85xwindow detection from measured usage) satisfied; the "-> derived session" half is T-2.2. 643 tests green under mvn clean verify (+24; JaCoCo 0.80 gate met; TokenBudgetGuard + ModelCapabilityProfile 100% line+branch). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 1 Minor, 1 Nit, 2 Discussion. D1 (suggested data-model-update): concrete window figures (Claude 200K, safe-minimum 100K) are not pinned by any spec symbol — team may want a per-family table/NFR. D2 (suggested schema-update): ADR-0002's conservative-default window "read from config" deferred to T-4.3 (compiled-in for now) — add the contextWindowTokens config key when the full capability registry lands. Both logged to open-questions; non-blocking.

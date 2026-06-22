@@ -3,7 +3,8 @@ package com.srk.codingagent.cli;
 import com.srk.codingagent.config.ResolvedConfig;
 import com.srk.codingagent.context.OutputDisposer;
 import com.srk.codingagent.loop.AgentLoop;
-import com.srk.codingagent.loop.BudgetGuard;
+import com.srk.codingagent.loop.TokenBudgetGuard;
+import com.srk.codingagent.model.ModelCapabilityProfile;
 import com.srk.codingagent.model.converse.ModelClient;
 import com.srk.codingagent.model.credentials.BedrockClientFactory;
 import com.srk.codingagent.model.credentials.BedrockCredentials;
@@ -50,6 +51,18 @@ import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
  * swallow it (no credentials means no usable Bedrock, a model-backend problem).
  */
 public final class AgentLoopFactory {
+
+    /**
+     * The conservative safe-minimum input-token window used for a model id with no known
+     * capability profile (ADR-0002 "a safe minimum context window"). v1 ships only Claude
+     * profiles populated, so the live default model ({@code us.anthropic.claude-opus-4-8})
+     * resolves to its real window through the registry; this fallback only applies to an
+     * unrecognized id and is set low so the compaction threshold fires conservatively rather
+     * than risking a context overflow on an unvalidated model. T-4.3 (the full capability
+     * registry + schema validation) sources this from config {@code NFR-MODEL-CONTEXT-WINDOW}
+     * instead; until then it is a compiled-in default in this composition root.
+     */
+    private static final int CONSERVATIVE_DEFAULT_CONTEXT_WINDOW_TOKENS = 100_000;
 
     private final CredentialResolver credentialResolver;
     private final BedrockClientFactory clientFactory;
@@ -114,13 +127,22 @@ public final class AgentLoopFactory {
         // ADR-0005: the loop draws every event's timestamp from this boundary clock.
         // US-19/ADR-0006: the disposer reduces oversized tool/command output for context at
         // the configured inline cap (NFR-OUTPUT-MAX-INLINE) while the log keeps the full copy.
+        // ADR-0002/0006 (T-2.1): the real budget guard replaces BudgetGuard.NONE. The active
+        // model's context window comes from its capability profile (C5 — the live default
+        // us.anthropic.claude-opus-4-8 resolves to the Claude window; an unknown id degrades to
+        // the conservative safe-minimum), and the 0.85 trigger fraction from config; the guard
+        // then fires COMPACT when measured usage.inputTokens >= 0.85 x window (AC-18.1). The
+        // guard arithmetic + profile resolution are tested units (TokenBudgetGuard /
+        // ModelCapabilityProfile); this composition root only wires them.
+        ModelCapabilityProfile profile = ModelCapabilityProfile.forModelId(
+                config.modelId(), CONSERVATIVE_DEFAULT_CONTEXT_WINDOW_TOKENS);
         // ADR-0012 (T-1.6): v1 is brownfield-only (02-architecture § 7 "the brownfield loop...
         // Enables now"), so the loop carries the brownfield playbook system prompt — the lever
         // that primes the model to explore-before-edit (AC-4.1/AC-5.1) and verify-after-change
         // (AC-5.3). The playbook content + the verify-loop wiring live in the tested workflow
         // unit; the factory only carries the prompt to the loop's `system` arg.
         return new AgentLoop(modelClient, tools, gate, log,
-                () -> Instant.now().toString(), BudgetGuard.NONE,
+                () -> Instant.now().toString(), TokenBudgetGuard.forConfig(config, profile),
                 OutputDisposer.forConfig(config), config.modelId(),
                 BrownfieldPlaybook.systemPrompt());
     }

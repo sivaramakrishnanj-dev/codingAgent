@@ -1,0 +1,103 @@
+package com.srk.codingagent.model;
+
+import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * The model-capability profile (component C5, ADR-0002): the abstraction the loop and the
+ * context manager consult instead of branching on {@code modelId} directly. A profile
+ * resolves a model id to the capabilities the rest of the system needs, so callers ask the
+ * profile ({@code profile.contextWindowTokens()}) rather than testing
+ * {@code if (modelId.contains("claude"))}.
+ *
+ * <p><b>v1 scope (T-2.1).</b> ADR-0002 ships an intentionally <em>thin</em> abstraction in
+ * v1 — a seam plus Claude profiles, not a full multi-provider matrix. The full profile shape
+ * (03-data-model.md &sect; 2.6: {@code providerFamily}, {@code supportsExtendedThinking},
+ * {@code promptCache}, {@code supportsToolUse}, image/document input, inference-param
+ * passthrough) plus feature detection and schema validation is <b>T-4.3</b>'s job (cites
+ * CT-SCH-15, NFR-MODEL-PROVIDER, OQ-J). T-2.1 needs <em>only</em> {@link #contextWindowTokens()}
+ * — the figure ADR-0006's compaction trigger divides by 0.85 — so this profile carries only
+ * that field today. It is kept forward-compatible: T-4.3 extends this record (or its registry)
+ * with the remaining capability fields without reworking the callers that already read the
+ * window through this seam.
+ *
+ * <p><b>Resolution (ADR-0002).</b> {@link #forModelId(String, int)} maps a model id to a
+ * profile via a static registry keyed by <b>model-id prefix</b>. A known prefix (v1: Claude
+ * Opus / Sonnet / Haiku) yields that family's real window; an unknown id yields a
+ * <b>conservative default profile</b> whose window is the supplied safe-minimum fallback
+ * (ADR-0002 "a safe minimum context window"). The registry is the single seam where future
+ * providers are added — a new prefix entry, not a code rewrite.
+ *
+ * <p>Immutable value object (Effective Java Item 17); one instance is safely shared.
+ *
+ * @param contextWindowTokens the model's effective input-token window — the figure the
+ *                            compaction threshold (NFR-CONTEXT-COMPACT-THRESHOLD,
+ *                            ADR-0006) is taken as a fraction of; {@code >= 1}.
+ */
+public record ModelCapabilityProfile(int contextWindowTokens) {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ModelCapabilityProfile.class);
+
+    /**
+     * The effective input-token window for the Claude Opus / Sonnet / Haiku 4-family models
+     * v1 ships profiles for (the default model id is the {@code us.anthropic.claude-opus-4-8}
+     * inference profile — ConfigDefaults / ADR-0001). 200K tokens is the published 4-family
+     * input window; the figure lives here (not in config) because v1 ships only Claude
+     * profiles populated and the per-family window is a property of the model, not an
+     * operator knob (ADR-0002 "v1 ships only Claude profiles populated"). T-4.3 may move this
+     * into the full registry entry it builds out.
+     */
+    static final int CLAUDE_4_FAMILY_CONTEXT_WINDOW_TOKENS = 200_000;
+
+    /**
+     * The model-id prefix the known Claude profiles are keyed on. Both the bare id
+     * ({@code anthropic.claude-...}) and the cross-region inference-profile id
+     * ({@code us.anthropic.claude-...}, the configured default — ConfigDefaults.MODEL_ID)
+     * contain this substring, so keying on it resolves the live default model to the real
+     * Claude window rather than the conservative fallback.
+     */
+    private static final String CLAUDE_MODEL_ID_INFIX = "anthropic.claude";
+
+    /**
+     * Validates the profile invariant.
+     *
+     * @throws IllegalArgumentException if {@code contextWindowTokens < 1}.
+     */
+    public ModelCapabilityProfile {
+        if (contextWindowTokens < 1) {
+            throw new IllegalArgumentException(
+                    "contextWindowTokens must be >= 1 (was " + contextWindowTokens + ")");
+        }
+    }
+
+    /**
+     * Resolves the capability profile for a model id (ADR-0002 static prefix registry). A
+     * known Claude id resolves to the Claude family window; an unknown id resolves to the
+     * conservative default profile carrying the supplied safe-minimum window.
+     *
+     * @param modelId             the active Bedrock model id (bare or {@code us.}
+     *                            inference-profile form); must not be {@code null}.
+     * @param fallbackWindowTokens the safe-minimum window for an unknown id (ADR-0002 "a
+     *                            safe minimum context window"); {@code >= 1}.
+     * @return the profile for {@code modelId}; never {@code null}.
+     * @throws NullPointerException     if {@code modelId} is {@code null}.
+     * @throws IllegalArgumentException if {@code fallbackWindowTokens < 1}.
+     */
+    public static ModelCapabilityProfile forModelId(String modelId, int fallbackWindowTokens) {
+        Objects.requireNonNull(modelId, "modelId");
+        if (fallbackWindowTokens < 1) {
+            throw new IllegalArgumentException(
+                    "fallbackWindowTokens must be >= 1 (was " + fallbackWindowTokens + ")");
+        }
+        if (modelId.contains(CLAUDE_MODEL_ID_INFIX)) {
+            return new ModelCapabilityProfile(CLAUDE_4_FAMILY_CONTEXT_WINDOW_TOKENS);
+        }
+        // ADR-0002: feature-detection over assumption — an unknown id is not failed, it
+        // degrades to the conservative default profile (correctness over optimization for
+        // unvalidated models). The fallback window keeps the compaction threshold computable.
+        LOGGER.info("No capability profile for model id '{}'; using conservative default "
+                + "window of {} tokens", modelId, fallbackWindowTokens);
+        return new ModelCapabilityProfile(fallbackWindowTokens);
+    }
+}
