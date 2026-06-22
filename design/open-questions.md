@@ -189,3 +189,23 @@ auto-invokes the designer.
   there so the conservative default is config-sourced per ADR-0002. If the user wants the config
   key pulled in earlier, that is a schema-update amendment — user's call. No action required to proceed.
 - status: open (informational; no action required to proceed)
+
+## Discussion items from T-2.4 — 2026-06-22
+
+### D1 — ADR-0007 prose + data-model § 2.5 casing disagree with the authoritative memory-entry schema (suggested: doc/adr-clarification)
+- task: T-2.4
+- spec_refs: ADR-0007 (entry-format prose example: tier `global | project` lowercase), 03-data-model.md § 2.5 (MemoryStatus enum named uppercase), memory-entry.schema.json (tier enum GLOBAL/PROJECT uppercase; status enum active/retired lowercase)
+- suggested_amendment_kind: doc/adr-clarification
+- finding: The authoritative formal contract — memory-entry.schema.json + the validated
+  fixture memory-entry.example.md (CT-SCH-11/12) — uses tier UPPERCASE (GLOBAL/PROJECT)
+  and status lowercase (active/retired). ADR-0007's entry-format prose example shows tier
+  in lowercase (`tier: global | project`), and 03-data-model § 2.5 names the status values
+  in uppercase. The implementation followed the SCHEMA (the formal contract + the thing the
+  contract tests validate): MemoryTier {GLOBAL, PROJECT} serialized uppercase, MemoryStatus
+  {ACTIVE, RETIRED} serialized lowercase via wireValue(). CT-SCH-11/12 are green.
+- coordinator note: non-blocking; T-2.4 resolved cleanly against the binding schema. This is
+  a spec-prose-vs-schema wording alignment, not a code defect. If the user wants the ADR-0007
+  prose example and the 03-data-model § 2.5 wording brought into line with the schema casing,
+  that is a doc/adr-clarification amendment (no code or schema change — the code already
+  matches the schema) — user's call. Could bundle with the deferred M1 consolidated amendment.
+- status: open (informational; no action required to proceed)
