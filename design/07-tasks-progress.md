@@ -2,43 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-22
 last_updated_at_commit: pending
-total_resolved_count: 14
+total_resolved_count: 15
 
 last_resolved:
-  task: T-1.3
-  title: "Search tools: grep, glob, list, edit_file"
+  task: T-1.4
+  title: "Verify loop: run configured test cmd, react to exit, bounded retries (<=5) then surface"
   resolved_at: 2026-06-22
-  commit: 29330ff
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-1.4
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-22T00:00:00+00:00
-  last_updated_at: 2026-06-22T00:00:00+00:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-1.4
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  open_action_items_for_implementer: []
-  open_action_items_for_tester: []
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-22T00:00:00+00:00
-  last_updated_at: 2026-06-22T00:00:00+00:00
 
 ## Milestone gates
 
@@ -180,3 +155,13 @@ in_flight:
 - dcrs_consumed: []
 - milestone: M1
 - notes: Four C9 file tools in com.srk.codingagent.tool, wired into AgentLoopFactory's production registry so a live codingagent/-p run exposes them. grep = java.util.regex over file lines (AC-4.2 textual, no AST), result rows "relativePath:lineNumber:lineText" (1-based, newline-joined; no match -> empty). glob = FileSystems PathMatcher over workspace-relative paths (sorted, newline-joined). list = Files.newDirectoryStream non-recursive entry names (sorted, trailing "/" on dirs). All three OperationClass.READ -> AC-4.4 non-gated for free via AgentLoop.gateRequestFor's generic forTool path (gate auto-approves READ). edit_file = literal UNIQUE-substring splice (not whole-file replace, that is write_file): exactly-one match applies + "ok:" summary (write_file style); 0 match -> error "no match"; >1 -> error "ambiguous" (AC-5.4 spirit, no silent guess); missing file -> error (AC-4.3). edit_file SIDE_EFFECTING -> AC-5.2 gated for free. All paths confined via the reused WorkspacePaths; inputs via ToolInputs (added optionalBoolean/optionalString); schemas authored in ToolSchemas (added grep/glob/list/editFile + booleanProperty) — reuse targets reused, not reimplemented (reuse_self_check passed). No gate change. 527 tests green under mvn clean verify (+35; JaCoCo 0.80 gate met; new-class line 77-100%, EditFileTool 77% gap = IO-failure catch branches like ReadFileTool/WriteFileTool). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 1 Minor, 0 Nit, 1 Discussion. Discussion D1 (suggested_amendment_kind=none): edit_file uses the generic forTool gate presentation (tool-name) not write_file-style path presentation; AC-10.1 is not a T-1.3 cited ref, left as a v1 choice for a later task to revisit.
+
+## T-1.4 — Verify loop: run configured test cmd, react to exit, bounded retries (<=5) then surface
+- commit: pending
+- review: design/reviews/code/T-1.4-r1.md
+- resolved: 2026-06-22
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M1
+- notes: VerifyLoop delivered as a standalone, injectable, fully unit-tested unit in com.srk.codingagent.loop (NOT bolted into AgentLoop, NOT in JaCoCo-excluded wiring). Bounded run->check->remedy->retry: runs the configured test command via an injected CommandRunner seam (CommandRunner.over(executor, command, timeout) is the production delegate to the real CommandExecutor; tests script exit-code sequences), success iff exitCode == 0 (RD-10/INV-17, CT-INV-14 asserted both directions incl. timeout's 124 = failure), and on non-zero invokes the injected RemedyAttempt seam (the model-driven "feed failure back and attempt a remedy" of AC-20.3 is the workflow driver's job, T-1.6/T-3.3 — RemedyAttempt.NONE is the no-op default) between attempts only, retrying up to config.verifyMaxIterations() (default 5, NFR-VERIFY-MAX-ITERATIONS — no literal). VerifyOutcome = { VERIFIED, EXHAUSTED, NO_TEST_COMMAND } carrying iterations-used + the final CommandResult; EXHAUSTED surfaces the relevant failure output (AC-20.5), is surfaced-not-fatal (02-arch § 3.2 — workflow decides), and is asserted at the exact boundary (N-1 fails then pass = VERIFIED; N fails = EXHAUSTED, does NOT run N+1). Unconfigured test command (commands().test()==null) -> distinct NO_TEST_COMMAND outcome (no crash, no invented ad-hoc command, AC-20.6). VerifyLoop.forConfig(executor, config, remedy) is the composition seam T-1.6/T-3.3 call; mirrored the BudgetGuard / OneShotLoop injected-seam idiom (not overloaded). 554 tests green under mvn clean verify (+27; JaCoCo 0.80 gate met; VerifyLoop/VerifyOutcome/RemedyAttempt 100% line, CommandRunner 100% line/4-of-5 branch). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor/Nit, 1 Discussion. Discussion D1 (suggested_amendment_kind=contract-test-update): CT-SM-5's Element cell "A: T13/T15" is a mis-cite (T13/T15 are the compaction transitions S1/S0->S6 and S6->S8/exit5, not verify); verify-exhausted is the S7 Surfacing state (state-machine.md § A explicitly names "verify-exhausted"). Built to the CT-SM-5 ASSERTION (AC-3.4/AC-20.5) + the S7 surface; suggest correcting the Element cell (and optionally modelling verify-exhaustion as an explicit S7 transition) — user's call (logged to open-questions). Relevant to G1: like CT-INV-3, this is a state-machine-cite bookkeeping point; G1 should judge against the contract M1 delivers (bounded verify + surface).
