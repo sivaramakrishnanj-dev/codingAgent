@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: pending
+last_updated_at_commit: 0b0661a
 total_resolved_count: 8
 
 last_resolved:
   task: T-0.8
   title: "Agent loop: stopReason dispatch (tool_use<->end_turn), log-before-act (C2)"
   resolved_at: 2026-06-22
-  commit: pending
+  commit: 0b0661a
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -81,7 +81,7 @@ in_flight: null
 - notes: ADR-0004 Permission Gate (C8) under com.srk.codingagent.permission — standalone PermissionGate the loop consults BEFORE ToolRegistry.dispatch. Eval order: Class R auto (AC-9.6) -> denylist test for run_command (AC-10.4) -> 4-mode table (AC-9.1-9.5). RD-1 grant matching: quote-honoring ShellTokenizer -> executable basename + known-subcommand-set normalization -> MatchKey (run_command:<exe>[ <subcmd>] | write:<subtree> | <tool>); ASK_ONCE_THEN_REMEMBER auto-approves matches. RD-2 conservative denylist (denylist-first, basename+case-fold, per-segment chaining; rm-noempty/mv-cp-dest realized as FS-state-independent pattern proxies). INV-9 enforced structurally in GateDecision ctor (denylisted => no matchedGrant). Lineage-scoped GrantStore; forSubAgent mints fresh empty store (INV-10/AC-10.6). Injected Approver seam (REPL UI is T-1.1). Loop S3->S4 wiring + PERMISSION_DECISION/TOOL_RESULT(denied) event emission deferred to T-0.8. Adversarial tokenizer+denylist tests (quoting, ;/&&/| chains, rm -rf $HOME, casing, /usr/bin/rm, redirect, curl|sh, sudo, fork-bomb, kill -9). 353 tests green under mvn clean verify (92.54% bundle, 97.58% permission pkg). CT-INV-7/8/9, CT-SM-2 satisfied (gate-level; loop wiring T-0.8). Reuses persistence.OperationClass/PermissionDecisionPayload + config.PermissionMode (no duplication). Self-checks: oracle-traceability=passed, reuse=passed. 2 Minor, 1 Nit (non-blocking). 2 Discussion items (D1: ADR denylist rows 1/5 vs FS-state-independent pattern proxy — logged in open-questions; D2: fork-bomb regex-shape vs tokenizer).
 
 ## T-0.8 — Agent loop: stopReason dispatch (tool_use<->end_turn), log-before-act (C2)
-- commit: pending
+- commit: 0b0661a
 - review: design/reviews/code/T-0.8-r1.md
 - resolved: 2026-06-22
 - context_mode: narrow
