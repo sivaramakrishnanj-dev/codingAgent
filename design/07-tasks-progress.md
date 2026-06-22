@@ -2,57 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-22
 last_updated_at_commit: pending
-total_resolved_count: 10
+total_resolved_count: 11
 
 last_resolved:
-  task: T-0.2-RD1
-  title: "Regression fix (DEFECT D1): default model id -> us. inference-profile form"
+  task: T-0.5-RD2
+  title: "Regression fix (DEFECT D2): toolResult content -> text member for plain strings"
   resolved_at: 2026-06-22
-  commit: 218da28
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-0.5-RD2
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-22T00:00:00+00:00
-  last_updated_at: 2026-06-22T00:00:00+00:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-0.5-RD2
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree:
-    - (none yet)
-  dcrs_consumed:
-    - (none)
-  started_at: 2026-06-22T00:00:00+00:00
-  last_updated_at: 2026-06-22T00:00:00+00:00
-  note: |
-    Regression fix to resolved M0 task T-0.5 (DEFECT D2). After D1 was fixed, the
-    real-Bedrock smoke test ran the FULL cycle (call 1 -> TOOL_USE read_file -> tool
-    approved+executed -> tool result appended -> call 2), and the SECOND call failed:
-    ValidationException "The format of the value at
-    messages.2.content.0.toolResult.content.0.json is invalid. Provide a json object
-    for the field and try again." (HTTP 400). Root cause: ConverseWireMapper.toWireToolResult
-    unconditionally puts the (string) tool output into a Converse toolResult.content[].json
-    member, but Converse requires json to be a JSON OBJECT. For a plain-text tool result it
-    must use the text member instead. Fix: map a string/plain tool result to a toolResult
-    content text member; only use json when the payload is a structured object. Add a
-    regression test that a plain-text tool output round-trips to a text member (not a
-    malformed json), so the second-call ValidationException can't recur. Not a DCR —
-    content-block.schema.json already says content is "text, or a structured object."
 
 ## Resolved tasks
 
@@ -146,3 +107,13 @@ in_flight:
 - dcrs_consumed: []
 - regression-of: T-0.2 (Config model + resolver)
 - notes: Correction to resolved M0 task T-0.2, found by the manual real-Bedrock smoke test that the G0 assertion needs but mocked tests structurally cannot make. ConfigDefaults.MODEL_ID was the BARE id "anthropic.claude-opus-4-8", which on-demand Converse rejects with a 400 ValidationException ("Invocation of model ID ... with on-demand throughput isn't supported. Retry ... with the ID or ARN of an inference profile ..."). With no ~/.codingagent/config.yaml present, the compiled-in default is the live value, so the fix is in the default itself. Changed MODEL_ID to the cross-region inference-profile form "us.anthropic.claude-opus-4-8" (verified ACTIVE via aws bedrock list-inference-profiles; with it the first Converse call SUCCEEDS, observed stopReason=TOOL_USE). ADR-0001 already named the us. form preferred-for-availability; aligned its pinned-default note + ConfigDefaults/ResolvedConfig Javadoc to the us. form (spec-consistency, NOT a DCR). Regression test added: modelId_isInferenceProfileFormNotBareOnDemandId asserts the default is region/scope-prefixed (us./global.) and NOT a bare anthropic. on-demand id (so a future bare-id regression fails the build). Updated the two ConfigResolverTest resolver-default assertions that read the default through the constant. Fixture config.global.yaml + test-local MODEL_ID constants intentionally keep the bare id (AC-8.1 configurable / arbitrary test values, not the NFR-MODEL-DEFAULT pinned default). 422 tests green under mvn clean verify (JaCoCo 0.80 gate met). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor/Nit. 1 Discussion item (D1: fixture/test-local bare-id literals left intentionally; suggested_amendment_kind=none).
+
+## T-0.5-RD2 — Regression fix (DEFECT D2): toolResult content -> text member for plain strings
+- commit: PLACEHOLDER_D2_SHA
+- review: design/reviews/code/T-0.5-RD2-r1.md
+- resolved: 2026-06-22
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- regression-of: T-0.5 (Model Client: Converse wire-format mapping)
+- notes: Correction to resolved M0 task T-0.5, found by the real-Bedrock smoke test full cycle once D1 was fixed. The SECOND Converse call failed with a 400 ValidationException ("The format of the value at messages.2.content.0.toolResult.content.0.json is invalid. Provide a json object for the field and try again."). Root cause: ConverseWireMapper.toWireToolResult unconditionally wrapped the tool output in a Converse toolResult content json member via ToolResultContentBlock.fromJson(...), but Converse requires json to be a JSON OBJECT; a plain-text (String) tool result (e.g. read_file contents) must use the text member. Fix: toWireToolResult now branches on the domain content runtime type — a Map (structured object, e.g. CommandResult) maps to the json member; any other non-null content maps to the text member via String.valueOf (conservative: a non-object json would re-trigger the same 400). null content still adds no content block. content-block.schema.json already sanctions content as "text, or a structured object", so this is spec-faithful, NOT a DCR. Two explicit regression tests added (mapsStringToolResultContentToTextMember: String -> text member, json() absent; mapsStructuredObjectToolResultContentToJsonMember: Map -> json object member, text() absent) — exactly the content-member assertions the structurally-blind existing tests (toolUseId/status only) never made, which is why the bug shipped. INV-6 pairing (CT-INV-5) preserved. 424 tests green under mvn clean verify (+2; 91.91% bundle line; ConverseWireMapper 98.18% line; 0.80 gate met). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor. 1 Nit (non-blocking). 0 Discussion items.

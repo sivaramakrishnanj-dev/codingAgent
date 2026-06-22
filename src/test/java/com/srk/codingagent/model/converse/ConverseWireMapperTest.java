@@ -1,6 +1,7 @@
 package com.srk.codingagent.model.converse;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -24,6 +25,7 @@ import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
 import software.amazon.awssdk.services.bedrockruntime.model.ToolConfiguration;
 import software.amazon.awssdk.services.bedrockruntime.model.ToolResultBlock;
+import software.amazon.awssdk.services.bedrockruntime.model.ToolResultContentBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.ToolResultStatus;
 import software.amazon.awssdk.services.bedrockruntime.model.ToolSpecification;
 import software.amazon.awssdk.services.bedrockruntime.model.Tool;
@@ -178,6 +180,71 @@ class ConverseWireMapperTest {
             ToolResultBlock wireResult = request.messages().get(1).content().get(0).toolResult();
             assertEquals(ToolResultStatus.ERROR, wireResult.status(),
                     "§ 7: domain status 'error' maps to the Converse ERROR status");
+        }
+
+        @Test
+        @DisplayName("§ 7 / schema / § 6.A.1 (D2 regression): a String toolResult content maps to the text member, not json")
+        void mapsStringToolResultContentToTextMember() {
+            // Oracle: content-block.schema.json ToolResultBlock — content is "text, OR a
+            // structured object"; § 6.A.1 — a toolResult content block supports text and json
+            // members, and the json member must be a JSON object. A plain-text (String) result
+            // is the "text" shape, so it must land in the Converse text member.
+            //
+            // Regression for D2: the prior mapping always used the json member, so a String
+            // content produced the real-Bedrock ValidationException "The format of the value at
+            // messages.2.content.0.toolResult.content.0.json is invalid. Provide a json object
+            // for the field". The structurally-blind existing tests asserted only status, never
+            // the content member, which is why the bug shipped. Paired with a prior toolUse to
+            // satisfy INV-6.
+            ContentBlock priorToolUse = ContentBlock.toolUse("tu-1", "read_file", Map.of());
+            ContentBlock toolResult = ContentBlock.toolResult("tu-1", "ok", "file contents here");
+
+            ConverseRequest request = mapper.toRequest(
+                    MODEL_ID,
+                    List.of(
+                            ConverseMessage.assistant(List.of(priorToolUse)),
+                            ConverseMessage.user(List.of(toolResult))),
+                    null,
+                    null);
+
+            ToolResultBlock wireResult = request.messages().get(1).content().get(0).toolResult();
+            ToolResultContentBlock wireContent = wireResult.content().get(0);
+            assertEquals("file contents here", wireContent.text(),
+                    "§ 7 / schema: a String (text-shape) toolResult content carries in the text member");
+            assertNull(wireContent.json(),
+                    "§ 6.A.1: the json member must be absent for a text-shape result (a String is not a JSON object)");
+        }
+
+        @Test
+        @DisplayName("§ 7 / schema / § 6.A.1: a structured-object toolResult content maps to the json member, not text")
+        void mapsStructuredObjectToolResultContentToJsonMember() {
+            // Oracle: content-block.schema.json ToolResultBlock — content is "text, OR a
+            // structured object (e.g. CommandResult)"; § 6.A.1 — the json member carries a JSON
+            // object. A structured-object (Map) result is the "structured object" shape, so it
+            // must land in the Converse json member as an object, complementary to the String →
+            // text case above (D2).
+            Map<String, Object> commandResult = Map.of("exitCode", 0, "stdout", "ok");
+            ContentBlock priorToolUse = ContentBlock.toolUse("tu-2", "run", Map.of());
+            ContentBlock toolResult = ContentBlock.toolResult("tu-2", "ok", commandResult);
+
+            ConverseRequest request = mapper.toRequest(
+                    MODEL_ID,
+                    List.of(
+                            ConverseMessage.assistant(List.of(priorToolUse)),
+                            ConverseMessage.user(List.of(toolResult))),
+                    null,
+                    null);
+
+            ToolResultBlock wireResult = request.messages().get(1).content().get(0).toolResult();
+            ToolResultContentBlock wireContent = wireResult.content().get(0);
+            assertNull(wireContent.text(),
+                    "§ 7 / schema: a structured-object result does not use the text member");
+            assertNotNull(wireContent.json(),
+                    "§ 6.A.1: a structured-object (Map) result carries in the json member");
+            assertTrue(wireContent.json().isMap(),
+                    "§ 6.A.1: the json member must be a JSON object (Document map), not a scalar");
+            assertEquals(0, wireContent.json().asMap().get("exitCode").asNumber().intValue(),
+                    "§ 7: the structured object's fields are carried into the json document");
         }
 
         @Test

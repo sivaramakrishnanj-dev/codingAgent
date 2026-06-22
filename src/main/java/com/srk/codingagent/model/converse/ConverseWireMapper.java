@@ -36,6 +36,19 @@ import software.amazon.awssdk.services.bedrockruntime.model.ToolUseBlock;
  *   <li>{@link ContentBlock.ToolResult} &rarr; {@code toolResult{toolUseId,content,status}}</li>
  * </ul>
  *
+ * <p><b>toolResult content member (text vs json).</b> The {@code content} of a
+ * {@link ContentBlock.ToolResult} is "text, or a structured object" per
+ * {@code 06-formal/content-block.schema.json} (and § 6.A.1: a toolResult content block
+ * supports {@code text} and {@code json} members). Converse requires the {@code json}
+ * member to be a JSON <em>object</em>; a plain-text result must use the {@code text}
+ * member instead. {@link #toWireToolResult} therefore branches on the runtime shape of
+ * the content: a {@link java.util.Map} (a structured object, e.g. a CommandResult-shaped
+ * map) maps to {@code json}; any other non-null content maps to {@code text}. Mapping a
+ * String into {@code json} is what produced the real-Bedrock
+ * {@code ValidationException: "The format of the value at ...toolResult.content.0.json is
+ * invalid. Provide a json object for the field"} (D2) — the motivating evidence for this
+ * branch.
+ *
  * <p>Response direction (response &rarr; us): parse {@code output.message.content[]}
  * into domain {@link ContentBlock}s ({@code text} and {@code toolUse} — the kinds a
  * model turn emits), map the wire {@code stopReason} to our {@link StopReason}, and map
@@ -253,9 +266,19 @@ public final class ConverseWireMapper {
         ToolResultBlock.Builder builder = ToolResultBlock.builder()
                 .toolUseId(toolResult.toolUseId())
                 .status(toWireToolResultStatus(toolResult.status()));
-        if (toolResult.content() != null) {
-            builder.content(ToolResultContentBlock.fromJson(
-                    DocumentConverter.toDocument(toolResult.content())));
+        Object content = toolResult.content();
+        if (content != null) {
+            // Converse's toolResult json member must be a JSON object; only a structured
+            // object (a Map) may use it. A plain-text result (e.g. the String contents of a
+            // file from read_file) must use the text member instead — routing a String into
+            // json produced the real-Bedrock ValidationException: "The format of the value at
+            // ...toolResult.content.0.json is invalid. Provide a json object for the field"
+            // (D2). Any other non-null, non-object content (number/boolean/list) is likewise
+            // not a JSON object, so it is rendered to the text member rather than json.
+            ToolResultContentBlock contentBlock = content instanceof java.util.Map<?, ?>
+                    ? ToolResultContentBlock.fromJson(DocumentConverter.toDocument(content))
+                    : ToolResultContentBlock.fromText(String.valueOf(content));
+            builder.content(contentBlock);
         }
         return builder.build();
     }
