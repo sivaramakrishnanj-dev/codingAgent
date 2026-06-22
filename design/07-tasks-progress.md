@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: pending
+last_updated_at_commit: 29330ff
 total_resolved_count: 14
 
 last_resolved:
   task: T-1.3
   title: "Search tools: grep, glob, list, edit_file"
   resolved_at: 2026-06-22
-  commit: pending
+  commit: 29330ff
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -147,7 +147,7 @@ in_flight: null
 - notes: Three resume behaviors over C15/C1, offline JSONL replay throughout (no live model call). New SessionReplay.replay(List<Event>) -> List<ConverseMessage> maps the USER_MESSAGE + MODEL_RESPONSE events in seq order to user/assistant turns (audit events TOOL_USE/PERMISSION_DECISION/TOOL_RESULT/MODEL_USAGE/SESSION_START/OUTCOME excluded), reversing 03-data-model § 7; replay preserves INV-1 seq order and INV-6 toolUse<->toolResult pairing so the reconstructed messages[] is wire-valid for a continued Converse call. New SessionStore.listSessions(repoKey) (the AC-7.1 gap — there was no enumerate op) orders most-recent-first by log mtime desc (tie-broken by id desc) — chosen over reverse-lexical id sort because the M0 "one-shot" id is not timestamp-prefixed. New SessionLineage.latestContinuation walks DERIVED_FROM edges (not SPAWNED_BY), cycle-safe via visited-set (INV-3), built+tested with synthetic metas; goes live when M2 compaction writes DERIVED_FROM. New ResumeCommand (list()/resume(), 98% line) + CliArguments RESUME/SESSIONS kinds + sessionId() (95% line); Main dispatches resume/sessions before the config gate (pure persistence/replay; no config or model call). Listing scoped to repoKey "one-shot" (the key the system writes under today; real git-remote repo-key derivation is a deferred session task). Continuation-wiring (feeding the replayed messages[] into a live continued loop) NOT built — it needs the production Bedrock composition (AgentLoopFactory); left as the documented next-task seam, no C2 structural change forced. 492 tests green under mvn clean verify (+42; JaCoCo 0.80 gate met; new classes 98-100% line). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 1 Minor, 1 Nit, 1 Discussion. Discussion D1 (suggested_amendment_kind=contract-test-update): the task row's Verify cell cites CT-INV-3, but CT-INV-3 pins INV-4 compaction byte-identity (US-18) = M2/T-2.2's lane, not T-1.2; the binding replay-fidelity contract is AC-7.2 + INV-1 (+ INV-6 wire-validity). Suggest correcting the Verify cell and moving CT-INV-3 to T-2.2 — user's call (logged to open-questions).
 
 ## T-1.3 — Search tools: grep, glob, list, edit_file
-- commit: pending
+- commit: 29330ff
 - review: design/reviews/code/T-1.3-r1.md
 - resolved: 2026-06-22
 - context_mode: narrow

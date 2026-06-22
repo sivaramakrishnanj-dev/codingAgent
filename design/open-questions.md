@@ -78,3 +78,22 @@ auto-invokes the designer.
   M2 builds compaction. Flagging so the G1 gate is judged against the contracts M1 actually
   delivers (replay fidelity), not against an M2 contract.
 - status: open (informational; no action required to proceed)
+
+## Discussion items from T-1.3 — 2026-06-22
+
+### D1 — edit_file uses the generic tool-name gate presentation, not write_file-style path presentation
+- task: T-1.3
+- spec_refs: AC-10.1
+- suggested_amendment_kind: none
+- finding: The new Class-X `edit_file` tool routes through the permission gate via
+  AgentLoop.gateRequestFor's generic `forTool` path, so an approval prompt presents the
+  tool name ("edit_file") rather than the file path + change summary the way `write_file`
+  does (via the `forWrite` path). AC-10.1 ("present the exact operation: command string,
+  or file path + change summary") is not a cited ref for T-1.3, so the task-builder left
+  this as a v1 choice. The task-builder considered extending `gateRequestFor` to give
+  edit_file the path-style presentation but deferred it.
+- coordinator note: low-signal, non-blocking. If a future task (or the AC-10.1-owning
+  T-1.1 follow-up) wants edit_file's approval prompt to show the path like write_file's,
+  it is a small, narrow AgentLoop.gateRequestFor enhancement — no spec amendment needed
+  (suggested_amendment_kind=none). Noted for awareness; T-1.3 resolved cleanly.
+- status: open (informational; no action required to proceed)
