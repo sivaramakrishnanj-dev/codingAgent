@@ -1,6 +1,11 @@
 # Editor / vault config
 .obsidian/
 
+# Eclipse / JDT IDE artifacts (not part of any task; source of phantom classpath diagnostics)
+.classpath
+.project
+.settings/
+
 # OS noise
 .DS_Store
 
