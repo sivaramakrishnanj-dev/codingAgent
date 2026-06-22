@@ -14,8 +14,10 @@ package com.srk.codingagent.config;
  * {@code ResolvedConfig} cannot be created.
  *
  * @param modelId                 the Bedrock model id; non-blank (schema:
- *                                {@code minLength 1}). Configured default
- *                                {@code anthropic.claude-opus-4-8}.
+ *                                {@code minLength 1}). Configured default is the
+ *                                cross-region inference-profile form
+ *                                {@code us.anthropic.claude-opus-4-8}
+ *                                (NFR-MODEL-DEFAULT / ADR-0001).
  * @param permissionMode          the authorization mode; default
  *                                {@link PermissionMode#ASK_EVERY_TIME}
  *                                (NFR-PERMISSION-DEFAULT).

@@ -2,55 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-22
 last_updated_at_commit: pending
-total_resolved_count: 9
+total_resolved_count: 10
 
 last_resolved:
-  task: T-0.9
-  title: "CLI one-shot (-p), exit codes, SIGINT->130 (C1)"
+  task: T-0.2-RD1
+  title: "Regression fix (DEFECT D1): default model id -> us. inference-profile form"
   resolved_at: 2026-06-22
-  commit: 0fa658d
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-0.2-RD1
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-22T00:00:00+00:00
-  last_updated_at: 2026-06-22T00:00:00+00:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-0.2-RD1
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree:
-    - (none yet)
-  dcrs_consumed:
-    - (none)
-  started_at: 2026-06-22T00:00:00+00:00
-  last_updated_at: 2026-06-22T00:00:00+00:00
-  note: |
-    Regression fix to resolved M0 task T-0.2 (DEFECT D1). A manual real-Bedrock
-    smoke test (the G0 assertion automated mocked tests structurally cannot make)
-    found the default model id ConfigDefaults.MODEL_ID = "anthropic.claude-opus-4-8"
-    (bare id) is rejected by on-demand Converse with a ValidationException
-    ("Invocation of model ID ... with on-demand throughput isn't supported. Retry
-    ... with the ID or ARN of an inference profile ..."). Fix: set the default to the
-    cross-region inference-profile id "us.anthropic.claude-opus-4-8" (verified ACTIVE
-    via aws bedrock list-inference-profiles; ADR-0001 already names this form as
-    preferred for availability). Plus a regression test asserting the default is an
-    inference-profile form (region-prefixed), not a bare anthropic. id. Not a DCR —
-    the spec already supports the fix.
 
 ## Resolved tasks
 
@@ -134,3 +97,13 @@ in_flight:
 - iterations: { task_builder: 1 }
 - dcrs_consumed: []
 - notes: 04-apis §1 + cli-exit-codes.md under com.srk.codingagent.cli (C1). Main.run(String[]) extended: CliArguments.parse dispatches by shape (one-shot -p / info / interactive); usage/config faults map to exit 2 BEFORE any model call (ADR-0009 fail-fast preserved, CT-EX-1). OneShotRunner runs the AgentLoop (T-0.8) on the -p prompt and maps LoopOutcome + thrown exceptions to ExitCode honoring cli-exit-codes §2 precedence enforced structurally by catch order: InterruptedRunException->130 caught FIRST (always wins, CT-EX-4), then CredentialResolutionException/ModelBackendException->4 (CT-EX-2 preserved, names paths), UserAbortedException->3, catch-all->1; completed outcome->0 (CT-EX-6). Exit 3 (blocking denial, CT-EX-3) realized via the existing Approver seam: NonInteractiveApprover throws UserAbortedException when a non-interactive one-shot gate must prompt (AC-10.2 'gated op the run cannot proceed without'; the loop never surfaces a denial, so this is the spec-faithful blocking signal). SIGINT->130 is a logic-only mapping seam at M0 (InterruptedRunException; interrupt status re-asserted) asserted without OS signal delivery — the signal handler + stream/subprocess cancellation are T-1.1; event log flushes per event (T-0.4) so resumability needs no special M0 teardown. Surfaced edge reasons: model_context_window_exceeded->5 CONTEXT_EXHAUSTED (no compaction at M0), guardrail/content_filtered/malformed_*->1 INTERNAL (contract pins no other code). run-and-map (OneShotRunner, fully unit-tested via injected loop + scripted Bedrock double) split from the live-AWS composition root (AgentLoopFactory, JaCoCo-excluded like Main bootstrap). 421 tests green under mvn clean verify (+41; 91.9% bundle line; OneShotRunner 100% line; 0.80 floor met). CT-EX-3/4/6 satisfied; CT-EX-1/2 preserved. Self-checks: oracle-traceability=passed, reuse=passed. 1 Minor (non-blocking). 1 Discussion item (D1: SIGINT->130 logic-only seam at M0, no production thrower yet — T-1.1 scope, not a defect; suggested_amendment_kind=none).
+
+## T-0.2-RD1 — Regression fix (DEFECT D1): default model id -> us. inference-profile form
+- commit: PLACEHOLDER_D1_SHA
+- review: design/reviews/code/T-0.2-RD1-r1.md
+- resolved: 2026-06-22
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- regression-of: T-0.2 (Config model + resolver)
+- notes: Correction to resolved M0 task T-0.2, found by the manual real-Bedrock smoke test that the G0 assertion needs but mocked tests structurally cannot make. ConfigDefaults.MODEL_ID was the BARE id "anthropic.claude-opus-4-8", which on-demand Converse rejects with a 400 ValidationException ("Invocation of model ID ... with on-demand throughput isn't supported. Retry ... with the ID or ARN of an inference profile ..."). With no ~/.codingagent/config.yaml present, the compiled-in default is the live value, so the fix is in the default itself. Changed MODEL_ID to the cross-region inference-profile form "us.anthropic.claude-opus-4-8" (verified ACTIVE via aws bedrock list-inference-profiles; with it the first Converse call SUCCEEDS, observed stopReason=TOOL_USE). ADR-0001 already named the us. form preferred-for-availability; aligned its pinned-default note + ConfigDefaults/ResolvedConfig Javadoc to the us. form (spec-consistency, NOT a DCR). Regression test added: modelId_isInferenceProfileFormNotBareOnDemandId asserts the default is region/scope-prefixed (us./global.) and NOT a bare anthropic. on-demand id (so a future bare-id regression fails the build). Updated the two ConfigResolverTest resolver-default assertions that read the default through the constant. Fixture config.global.yaml + test-local MODEL_ID constants intentionally keep the bare id (AC-8.1 configurable / arbitrary test values, not the NFR-MODEL-DEFAULT pinned default). 422 tests green under mvn clean verify (JaCoCo 0.80 gate met). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor/Nit. 1 Discussion item (D1: fixture/test-local bare-id literals left intentionally; suggested_amendment_kind=none).

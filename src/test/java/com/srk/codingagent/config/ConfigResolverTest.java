@@ -23,8 +23,9 @@ import org.junit.jupiter.api.io.TempDir;
  * <ul>
  *   <li><b>AC-8.2</b> — precedence CLI flags &gt; project &gt; global &gt; built-in
  *       defaults, first-wins per key.</li>
- *   <li><b>AC-8.3</b> — no model configured &rarr; NFR-MODEL-DEFAULT
- *       ({@code anthropic.claude-opus-4-8}).</li>
+ *   <li><b>AC-8.3</b> — no model configured &rarr; NFR-MODEL-DEFAULT, pinned by
+ *       ADR-0001 to the cross-region inference-profile form
+ *       ({@code us.anthropic.claude-opus-4-8}).</li>
  *   <li><b>AC-8.4</b> — no permission mode configured &rarr; NFR-PERMISSION-DEFAULT
  *       ({@code ASK_EVERY_TIME}).</li>
  *   <li><b>AC-8.5</b> — a malformed value (unknown mode, non-integer, out-of-range)
@@ -44,12 +45,13 @@ class ConfigResolverTest {
         @Test
         @DisplayName("all layers empty -> every field is the built-in default (AC-8.3, AC-8.4)")
         void allEmpty_yieldsBuiltInDefaults() {
-            // Oracle: AC-8.3 NFR-MODEL-DEFAULT, AC-8.4 NFR-PERMISSION-DEFAULT, plus the
-            // schema/NFR defaults for the remaining fields.
+            // Oracle: AC-8.3 NFR-MODEL-DEFAULT (pinned by ADR-0001 to the cross-region
+            // inference-profile form us.anthropic.claude-opus-4-8), AC-8.4
+            // NFR-PERMISSION-DEFAULT, plus the schema/NFR defaults for the remaining fields.
             ResolvedConfig cfg = resolver.resolve(Map.of(), Map.of(), Map.of());
 
-            assertEquals("anthropic.claude-opus-4-8", cfg.modelId(),
-                    "no model configured -> NFR-MODEL-DEFAULT (AC-8.3)");
+            assertEquals("us.anthropic.claude-opus-4-8", cfg.modelId(),
+                    "no model configured -> NFR-MODEL-DEFAULT (AC-8.3 / ADR-0001)");
             assertEquals(PermissionMode.ASK_EVERY_TIME, cfg.permissionMode(),
                     "no permission mode configured -> ASK_EVERY_TIME (AC-8.4)");
             assertEquals("us-east-1", cfg.region(), "default region us-east-1 (schema)");
@@ -349,7 +351,9 @@ class ConfigResolverTest {
 
             ResolvedConfig cfg = resolver.resolve(global, project, Map.of());
 
-            assertEquals("anthropic.claude-opus-4-8", cfg.modelId());
+            // Oracle: NFR-MODEL-DEFAULT pinned by ADR-0001 to the cross-region
+            // inference-profile form us.anthropic.claude-opus-4-8.
+            assertEquals("us.anthropic.claude-opus-4-8", cfg.modelId());
             assertEquals(PermissionMode.ASK_EVERY_TIME, cfg.permissionMode());
         }
 

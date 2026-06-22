@@ -7,14 +7,27 @@ package com.srk.codingagent.config;
  * every flag resolves to the value here.
  *
  * <p>Each constant cites the requirement that pins it. The default model id is
- * {@code anthropic.claude-opus-4-8} (the verified GA id for the newest Claude
- * Opus); the exact id is finalized by ADR-0001/0002 at the model-client task, and
- * is carried here as the configured default per the T-0.2 scope note.
+ * the cross-region inference-profile form {@code us.anthropic.claude-opus-4-8}
+ * (NOT the bare model id): on-demand Converse for Claude Opus rejects the bare
+ * {@code anthropic.claude-opus-4-8} id with a {@code ValidationException}
+ * ("Invocation of model ID ... with on-demand throughput isn't supported. Retry
+ * your request with the ID or ARN of an inference profile that contains this
+ * model."), so the pinned default must be an inference-profile id (ADR-0001,
+ * NFR-MODEL-DEFAULT). The exact id is finalized by ADR-0001/0002 at the
+ * model-client task; the {@code us.} cross-region profile is preferred for
+ * availability and is carried here as the configured default.
  */
 public final class ConfigDefaults {
 
-    /** Default Bedrock model id (newest Claude Opus GA id). AC-8.3 / NFR-MODEL-DEFAULT. */
-    public static final String MODEL_ID = "anthropic.claude-opus-4-8";
+    /**
+     * Default Bedrock model id: the cross-region inference-profile form for the
+     * newest Claude Opus. AC-8.3 / NFR-MODEL-DEFAULT / ADR-0001.
+     *
+     * <p>It is the {@code us.}-prefixed inference-profile id, not the bare model
+     * id, because on-demand Converse for Opus requires an inference-profile id (the
+     * bare {@code anthropic.claude-opus-4-8} fails with a 400 ValidationException).
+     */
+    public static final String MODEL_ID = "us.anthropic.claude-opus-4-8";
 
     /** Default permission mode. AC-8.4 / NFR-PERMISSION-DEFAULT. */
     public static final PermissionMode PERMISSION_MODE = PermissionMode.ASK_EVERY_TIME;

@@ -1,6 +1,8 @@
 package com.srk.codingagent.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,8 +13,9 @@ import org.junit.jupiter.api.Test;
  * <p>Each default is pinned by an NFR/AC, which is the oracle (NOT the constant's
  * declared literal):
  * <ul>
- *   <li>{@code MODEL_ID} &rarr; AC-8.3 / NFR-MODEL-DEFAULT (configured default
- *       {@code anthropic.claude-opus-4-8}).</li>
+ *   <li>{@code MODEL_ID} &rarr; AC-8.3 / NFR-MODEL-DEFAULT / ADR-0001 (configured
+ *       default is the cross-region inference-profile form
+ *       {@code us.anthropic.claude-opus-4-8}, not the bare model id).</li>
  *   <li>{@code PERMISSION_MODE} &rarr; AC-8.4 / NFR-PERMISSION-DEFAULT
  *       ({@code ASK_EVERY_TIME}).</li>
  *   <li>{@code SUB_AGENT_MAX} &rarr; NFR-SUBAGENT-MAX (1).</li>
@@ -25,12 +28,40 @@ import org.junit.jupiter.api.Test;
 class ConfigDefaultsTest {
 
     @Test
-    @DisplayName("default modelId is the configured Opus default (AC-8.3 / NFR-MODEL-DEFAULT)")
-    void modelId_isConfiguredOpusDefault() {
-        // Oracle: NFR-MODEL-DEFAULT, configured default anthropic.claude-opus-4-8
-        // (design-progress.md s6.A.3 verified GA id; finalized at T-0.5).
-        assertEquals("anthropic.claude-opus-4-8", ConfigDefaults.MODEL_ID,
-                "Default model id must be the configured newest-GA Opus id (AC-8.3)");
+    @DisplayName("default modelId is the pinned cross-region inference-profile id "
+            + "(AC-8.3 / NFR-MODEL-DEFAULT / ADR-0001)")
+    void modelId_isPinnedInferenceProfileDefault() {
+        // Oracle: NFR-MODEL-DEFAULT, pinned by ADR-0001 (s Decision, "Default model")
+        // to the cross-region inference-profile form us.anthropic.claude-opus-4-8
+        // (preferred for availability; design-progress.md s6.A.3 names the us. form).
+        assertEquals("us.anthropic.claude-opus-4-8", ConfigDefaults.MODEL_ID,
+                "Default model id must be the pinned cross-region inference-profile id "
+                        + "(AC-8.3 / ADR-0001)");
+    }
+
+    @Test
+    @DisplayName("default modelId is an inference-profile form, not a bare on-demand id "
+            + "(regression D1; NFR-MODEL-DEFAULT / ADR-0001)")
+    void modelId_isInferenceProfileFormNotBareOnDemandId() {
+        // Oracle: NFR-MODEL-DEFAULT is pinned by ADR-0001 to the CROSS-REGION
+        // INFERENCE-PROFILE form. On-demand Converse for Opus rejects a bare model id:
+        //   ValidationException "Invocation of model ID anthropic.claude-opus-4-8 with
+        //   on-demand throughput isn't supported. Retry your request with the ID or ARN
+        //   of an inference profile that contains this model." (HTTP 400, real Bedrock).
+        // Shape (not literal) assertion so a future regression back to ANY bare
+        // anthropic.* on-demand id fails here, regardless of the exact Opus version:
+        //   - an inference-profile id is region/scope-prefixed (e.g. "us.", "global."),
+        //   - a bare on-demand model id starts directly with "anthropic.".
+        String modelId = ConfigDefaults.MODEL_ID;
+        assertFalse(modelId.startsWith("anthropic."),
+                "Default must NOT be a bare anthropic.* on-demand model id — on-demand "
+                        + "Converse for Opus rejects it (ValidationException). ADR-0001 pins "
+                        + "the cross-region inference-profile form.");
+        assertTrue(modelId.matches("^[a-z]+\\..+"),
+                "Default must be an inference-profile id, i.e. region/scope-prefixed "
+                        + "(e.g. us.* or global.*) per NFR-MODEL-DEFAULT / ADR-0001");
+        assertTrue(modelId.contains("anthropic.claude-opus"),
+                "Default inference profile must still target Claude Opus (NFR-MODEL-DEFAULT)");
     }
 
     @Test
