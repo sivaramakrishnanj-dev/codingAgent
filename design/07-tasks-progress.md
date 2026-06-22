@@ -2,43 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-22
 last_updated_at_commit: pending
-total_resolved_count: 16
+total_resolved_count: 17
 
 last_resolved:
-  task: T-1.5
-  title: "Output disposal: head+tail truncation, full->log, retrieval"
+  task: T-1.6
+  title: "Brownfield workflow driver (understand->change orchestration over the loop)"
   resolved_at: 2026-06-22
-  commit: 0380973
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-1.6
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-22T00:00:00+00:00
-  last_updated_at: 2026-06-22T00:00:00+00:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-1.6
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  open_action_items_for_implementer: []
-  open_action_items_for_tester: []
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-22T00:00:00+00:00
-  last_updated_at: 2026-06-22T00:00:00+00:00
 
 ## Milestone gates
 
@@ -200,3 +175,13 @@ in_flight:
 - dcrs_consumed: []
 - milestone: M1
 - notes: Output disposal half of C6 (the Context Manager; first code in the new com.srk.codingagent.context package — compaction half is M2). OutputDisposer.reduceForContext does head+tail UTF-8-byte truncation over config.outputMaxInlineBytes() (default 16384, NFR-OUTPUT-MAX-INLINE — no literal; cut on code-point boundaries, never split a multi-byte char), inserting a truncation marker naming how much was elided + the fullRef; the marker is additive overhead, not subtracted from the cap, so a small cap never drops the required head/tail. OutputRetrieval.retrieve reads the full output back from the session event log (AC-19.3 round-trip: dispose -> persist -> retrieve -> equals original). FullRef = "evt:<seq>" (session-relative, schema-valid as event.schema.json toolResult.fullRef is an unconstrained string). Uniform disposal at the loop's tool-result boundary (covers file reads AND verbose command output in one place), wired into AgentLoop.handleToolUse exactly where 02-arch § 2 annotates "result maybe > cap -> CM disposes": full output -> log FIRST (capturing the appended seq for the fullRef), then reduced copy -> model context. Reduced content is always a plain String -> wire mapper routes it to the Converse toolResult.content.text member (D2-safe; never a structured object the json member rejects). AgentLoop constructor gained an 8th arg (OutputDisposer) — PUBLIC API CHANGE; AgentLoopFactory wires it via OutputDisposer.forConfig(config), and AgentLoopTest/OneShotRunnerTest/ReplRunnerTest updated for the new arity (all green). Tier (3) summarize-via-model-call NOT built (the explicit ADR-0006 escalation, OOS for v1). 587 tests green under mvn clean verify (+33; JaCoCo 0.80 gate met; OutputDisposer 92% line, OutputRetrieval/FullRef 100%; CT-SCH-1 extended to validate full + truncated/fullRef-bearing + reduced-string disposal events against event.schema.json). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor/Nit, 0 Discussion.
+
+## T-1.6 — Brownfield workflow driver (understand->change orchestration over the loop)
+- commit: pending
+- review: design/reviews/code/T-1.6-r1.md
+- resolved: 2026-06-22
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M1 (LAST task; closes M1 -> gate G1)
+- notes: Brownfield understand->change->verify workflow driver (C3, ADR-0012 brownfield side), first code in the new com.srk.codingagent.workflow package. ADR-0012's load-bearing principle (a workflow driver is orchestration over the shared engine, not a separate engine) honoured: BrownfieldDriver composes the AgentLoop (C2) + the already-registered search/edit tools (T-1.3) + the VerifyLoop (T-1.4) via VerifyLoop.forConfig (the seam T-1.4 deferred to here). BrownfieldPlaybook.systemPrompt() is a real, tested artifact priming the model to explore-before-edit (AC-4.1/5.1) and verify-after-change (AC-5.3) and ask-when-ambiguous (AC-5.4); it reaches the AgentLoop's `system` arg (AgentLoopFactory now passes it instead of null). Multi-turn-continuation (the recurring T-1.1 D1 / T-1.2 seam) resolved as SINGLE-RUN-WITH-TOOLS: the model does explore+change in one AgentLoop.run turn (the loop already cycles tool_use<->end_turn), verify is a driver-invoked VerifyLoop after the turn, and the remedy is a fresh run(prompt) turn fed the failure output (the AC-20.3/AC-5.3 RemedyAttempt wiring T-1.4 deferred) — NO AgentLoop structural change. BrownfieldOutcome { VERIFIED, VERIFY_EXHAUSTED, NOT_VERIFIED } carries the loop + verify outcomes; VERIFY_EXHAUSTED surfaces the failure output (AC-20.5). WIRED INTO THE REAL RUN PATH: Main.runOneShot + runInteractive build BrownfieldRunner(BrownfieldDriver.overConfig(loop::run, new CommandExecutor(workspaceRoot), config)) and pass brownfield::run to OneShotRunner/ReplRunner, so a live codingagent -p / REPL run does brownfield explore->change->verify (the G1 smoke test exercises real code; BrownfieldWiringTest confirms the playbook reaches the Converse call). All driver LOGIC kept in the tested workflow unit; only the un-unit-testable composition lives in JaCoCo-excluded Main/AgentLoopFactory. OneShotRunner/ReplRunner/Main exit-code paths unchanged. 619 tests green under mvn clean verify (+32; JaCoCo 0.80 gate met; workflow package 95% instr, BrownfieldDriver/BrownfieldPlaybook 100%). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor/Nit, 1 Discussion. Discussion D1 (suggested_amendment_kind=exit-code-update): the cli-exit-codes contract (G4) pins no agent-process exit code for a "verify-exhausted brownfield run" (agent ran fine but the change still fails its tests); resolved as exit-0-with-surfaced-output (the agent completed; a verify failure is not an internal fault and the contract forbids inventing a code without an amendment), but a CI-scriptable disposition may warrant a formal exit-code-update amendment — user's call (logged to open-questions).

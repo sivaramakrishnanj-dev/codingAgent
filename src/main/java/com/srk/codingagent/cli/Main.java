@@ -11,6 +11,9 @@ import com.srk.codingagent.persistence.EventLog;
 import com.srk.codingagent.persistence.SessionLineage;
 import com.srk.codingagent.persistence.SessionReplay;
 import com.srk.codingagent.persistence.SessionStore;
+import com.srk.codingagent.tool.CommandExecutor;
+import com.srk.codingagent.workflow.BrownfieldDriver;
+import com.srk.codingagent.workflow.BrownfieldRunner;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -179,7 +182,14 @@ public final class Main {
         try (EventLog log = sessions.openLog(ONE_SHOT_LINEAGE, ONE_SHOT_LINEAGE)) {
             AgentLoop loop = new AgentLoopFactory().create(
                     config, workspaceRoot, ONE_SHOT_LINEAGE, log, new NonInteractiveApprover());
-            return new OneShotRunner(loop::run, System.out, System.err).run(prompt);
+            // T-1.6: route the one-shot through the brownfield workflow driver (ADR-0012,
+            // v1 brownfield-only) so the model explores->changes (the loop carries the
+            // brownfield playbook) then the driver verifies the change via the configured
+            // test command (AC-5.3). The runner maps the brownfield outcome to a LoopOutcome
+            // so OneShotRunner's exit-code mapping is unchanged.
+            BrownfieldRunner brownfield = new BrownfieldRunner(BrownfieldDriver.overConfig(
+                    loop::run, new CommandExecutor(workspaceRoot), config));
+            return new OneShotRunner(brownfield::run, System.out, System.err).run(prompt);
         }
     }
 
@@ -210,7 +220,13 @@ public final class Main {
             Approver approver = new InteractiveApprover(answerSource, System.out);
             AgentLoop loop = new AgentLoopFactory().create(
                     config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver);
-            ReplRunner runner = new ReplRunner(loop::run, answerSource, interrupted::get,
+            // T-1.6: each REPL turn is a brownfield understand->change->verify cycle (ADR-0012,
+            // v1 brownfield-only). The loop carries the brownfield playbook; the driver verifies
+            // each completed change via the configured test command (AC-5.3). The runner maps the
+            // brownfield outcome to a LoopOutcome so ReplRunner's per-turn handling is unchanged.
+            BrownfieldRunner brownfield = new BrownfieldRunner(BrownfieldDriver.overConfig(
+                    loop::run, new CommandExecutor(workspaceRoot), config));
+            ReplRunner runner = new ReplRunner(brownfield::run, answerSource, interrupted::get,
                     config.permissionMode(), System.out, System.err);
             return runner.run();
         } catch (CredentialResolutionException noCredentials) {

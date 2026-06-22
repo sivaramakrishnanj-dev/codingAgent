@@ -22,6 +22,7 @@ import com.srk.codingagent.tool.RunCommandTool;
 import com.srk.codingagent.tool.ToolHandler;
 import com.srk.codingagent.tool.ToolRegistry;
 import com.srk.codingagent.tool.WriteFileTool;
+import com.srk.codingagent.workflow.BrownfieldPlaybook;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -113,9 +114,15 @@ public final class AgentLoopFactory {
         // ADR-0005: the loop draws every event's timestamp from this boundary clock.
         // US-19/ADR-0006: the disposer reduces oversized tool/command output for context at
         // the configured inline cap (NFR-OUTPUT-MAX-INLINE) while the log keeps the full copy.
+        // ADR-0012 (T-1.6): v1 is brownfield-only (02-architecture § 7 "the brownfield loop...
+        // Enables now"), so the loop carries the brownfield playbook system prompt — the lever
+        // that primes the model to explore-before-edit (AC-4.1/AC-5.1) and verify-after-change
+        // (AC-5.3). The playbook content + the verify-loop wiring live in the tested workflow
+        // unit; the factory only carries the prompt to the loop's `system` arg.
         return new AgentLoop(modelClient, tools, gate, log,
                 () -> Instant.now().toString(), BudgetGuard.NONE,
-                OutputDisposer.forConfig(config), config.modelId(), null);
+                OutputDisposer.forConfig(config), config.modelId(),
+                BrownfieldPlaybook.systemPrompt());
     }
 
     private static ToolRegistry toolRegistry(ResolvedConfig config, Path workspaceRoot) {
