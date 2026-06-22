@@ -1,42 +1,19 @@
 ---
 doc: tasks-progress
-last_updated: 2026-06-22
+last_updated: 2026-06-23
 last_updated_at_commit: pending
-total_resolved_count: 21
+total_resolved_count: 22
 
 last_resolved:
-  task: T-2.4
-  title: "Memory store: two-tier markdown + index, read/write tools, re-read-fresh"
-  resolved_at: 2026-06-22
-  commit: 0e7b32d
+  task: T-2.5
+  title: "Memory propose-and-approve + compaction harvest (US-21 + AC-18.5)"
+  resolved_at: 2026-06-23
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-2.5
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-22T18:45:00-07:00
-  last_updated_at: 2026-06-22T18:45:00-07:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-2.5
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-22T18:45:00-07:00
-  last_updated_at: 2026-06-22T18:45:00-07:00
 
 ## Milestone gates
 
@@ -257,3 +234,13 @@ in_flight:
 - dcrs_consumed: []
 - milestone: M2
 - notes: Two-tier curated-memory store (C16, com.srk.codingagent.memory) + read/write tools (C12, com.srk.codingagent.tool.memory) per ADR-0007. MemoryStore (root mirrors SessionStore: ~/.codingagent, GLOBAL memory/ + PROJECT projects/<repo-key>/memory/, injectable + forUserHome()) writes one markdown file per learning <slug>.md with the memory-entry.schema.json front-matter (MemoryMarkdown parses/emits via the same SnakeYAML SafeConstructor the config loader uses; created timestamp boundary-captured + emitted QUOTED so YAML keeps it a string) + prose body, maintains a per-tier INDEX.md (one line per entry, AC-14.3), and RE-READS FROM DISK on each load with NO masking cache so a hand-edited/deleted .md is honored on next load (CT-INV-12/INV-14, asserted: write -> external edit/delete -> load reflects change). read_memory (Class R, auto-approved) pulls a full entry on demand; write_memory (Class X, gated per ADR-0004) is the EXPLICIT "remember X" write path (AC-12.1/US-12). Every write logs a MEMORY_WRITE event (new typed MemoryWritePayload {slug,tier,originSession,why}; EventCodec now maps MEMORY_WRITE instead of throwing — only MODEL_REQUEST remains unmodelled; no event.schema.json edit, generic-object payload like ERROR/SUBAGENT) for provenance/audit (AC-12.4). NO auto-extract: an entry persists only via an explicit/approved write (CT-INV-11/INV-13, NoAutoExtractContractTest asserts no auto-write path). Tier classification global-vs-project on write (AC-12.3); human-editable markdown (AC-14.1). CT-SCH-11 (fixture front-matter validates against memory-entry.schema.json via the networknt validator, schema+fixture copied to src/test/resources mirroring the event-schema CT) + CT-SCH-12 (invalid tier rejected) green. CASING resolved toward the AUTHORITATIVE schema: tier UPPERCASE GLOBAL/PROJECT, status lowercase active/retired (MemoryStatus.wireValue) — ADR-0007 prose shows lowercase tier + 03-data-model § 2.5 shows uppercase MemoryStatus, both disagreeing with the schema; resolved to schema, NO schema/fixture edited. T-2.5 SEAM (clean): MemoryStore.write(entry, repoKey) owns file+index ONLY; the CALLER logs the MEMORY_WRITE event, so T-2.5's propose-and-approve flow reuses write() unchanged and adds only its gate + event append + the compaction-harvest hook (the Compactor summary already elicits durable learnings as text per T-2.2). 779 tests green under mvn clean verify (+61; JaCoCo 0.80 gate met; MemoryStore 88%, tools/payload 92-100%, MemoryToolInputs 67%). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 2 Minor (m1/m2: forced cross-package duplication of requireString/schema-builder helpers because tool/ToolInputs + tool/ToolSchemas are package-private and the C12 memory tools live in the tool.memory sub-package — documented; a future visibility-widening refactor could dedupe), 0 Nit, 1 Discussion. D1 (suggested doc/adr-clarification): ADR-0007 prose (lowercase tier) + data-model § 2.5 (uppercase MemoryStatus) disagree with the authoritative schema (uppercase tier, lowercase status); code follows the schema, prose alignment suggested. Logged to open-questions.
+
+## T-2.5 — Memory propose-and-approve + compaction harvest (US-21 + AC-18.5)
+- commit: pending
+- review: design/reviews/code/T-2.5-r1.md
+- resolved: 2026-06-23
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M2
+- notes: The propose-and-approve curated-write path (C12, US-21) + the compaction learning-harvest (C6, AC-18.5), per ADR-0007/0006. Resumed an in-flight checkpoint (906fc99) whose prior task-builder died on a transient API error before returning a handoff; the partial production code was assessed complete + spec-correct and kept. New tool.memory types: LearningProposal (record: slug/tier/why/body + presentation() approval line, AC-21.1), LearningApprover (@FunctionalInterface approve/deny seam mirroring permission.Approver but learning-shaped; APPROVE_ALL/DENY_ALL), LearningProposer (propose(LearningProposal)->Optional<MemoryEntry>: approver.approve -> on APPROVE reuse MemoryStore.write + log MEMORY_WRITE with boundary clock/originSession provenance, AC-21.3/AC-12.4; on DENY persist NOTHING — no file/index/event, AC-21.2/AC-21.4/INV-13), LearningExtractor (@FunctionalInterface summary-text->List<LearningProposal>, default NONE; extraction heuristic kept a separate injected seam so the harvest wiring stays thin — production extraction is RL-ladder future work), MemoryLearningHarvester (implements the context-side LearningHarvester seam: extract-then-propose-each, returns approved+persisted count). New context type LearningHarvester (C6->C12 seam interface, default NONE no-op; mirrors T-2.1's BudgetGuard.NONE swap idiom so Compactor depends only on the seam, never the memory store). Compactor MODIFIED: new 7-arg ctor adds the LearningHarvester (old 6-arg delegates with NONE — additive, no public-API break); compact() invokes harvester.harvest(summary) AFTER a usable non-blank summary exists and BEFORE derive() (the "before archiving" window AC-18.5 requires), original preserved byte-identical regardless (INV-4/INV-5). REUSE clean: MemoryStore.write/readEntry/loadIndexes, EventLog.append/nextSeq, MemoryEntry/MemoryTier/MemoryStatus, MemoryWritePayload, PermissionDecisionOutcome — all reused, nothing reimplemented (reuse_self_check passed). D2-class guard honored: tests assert REAL shapes not field-presence — approved entry re-read FRESH from a new MemoryStore (INV-14) with tier/created/originSession/body asserted; harvested entry's on-disk front-matter validated against memory-entry.schema.json (networknt, CT-SCH-11/12 shape); deny path checks ALL three persistence surfaces absent (file+index+MEMORY_WRITE event, CT-INV-11). The load-bearing CompactionHarvestEndToEndTest wires a REAL MemoryLearningHarvester into a REAL Compactor and proves AC-18.5 through an actual summarize->harvest->derive: approved candidate becomes a recallable entry, original log byte-identical on approve AND deny (INV-5), nothing harvested on deny (no-auto-extract holds at the harvest moment). +26 tests across LearningProposerTest(9, inherited), MemoryLearningHarvesterTest(9), LearningProposalTest(4), CompactionHarvestEndToEndTest(4). 805 tests green under mvn clean verify (JaCoCo 0.80 BUNDLE gate met; new Learning* classes 100% instr, Compactor 93%/85%). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor, 1 Nit (cosmetic same-value test constant pair). 0 Discussion (the ADR-0007 prose-vs-schema casing mismatch is already T-2.4 D1 in open-questions; T-2.5 follows the schema per directive, not re-raised).

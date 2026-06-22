@@ -68,12 +68,15 @@ import org.slf4j.LoggerFactory;
  * code (5) the CLI/REPL boundary maps to. This task owns producing the LT4 signal; the
  * {@code System.exit(5)} dispatch stays at the CLI boundary.
  *
- * <p><b>The learning-harvest seam (AC-18.5 — NOT implemented here).</b> ADR-0006 says
- * compaction "proposes durable learnings for memory before archiving." The memory store
- * (T-2.4) and the propose-and-approve harvest (T-2.5) are separate later tasks. T-2.2 leaves a
- * clean seam: the summary already surfaces durable learnings as text (the compaction prompt
- * asks for them), so T-2.5 can read the summary and wire the propose call. No memory proposal
- * is made here (the memory store does not exist yet).
+ * <p><b>The learning-harvest seam (AC-18.5).</b> ADR-0006 says compaction "proposes durable
+ * learnings for memory before archiving." T-2.2 left a clean seam: the summary surfaces
+ * durable learnings as text (the compaction prompt asks for them). T-2.5 wires it as an
+ * injected {@link LearningHarvester} the Compactor invokes <em>after</em> a usable summary is
+ * produced and <em>before</em> the successor is derived (the "before archiving" window AC-18.5
+ * requires). The harvester only <em>proposes</em> — nothing is persisted without the
+ * developer's approval (AC-21.4, INV-13) — and the original is preserved unchanged regardless
+ * (INV-5). When no memory harvest is configured the Compactor uses {@link LearningHarvester#NONE}
+ * (a no-op), so compaction behaviour is unchanged where the harvest is not wired.
  *
  * <p>Boundary-captured ids and timestamps (ADR-0005): the derived session id is supplied in the
  * {@link CompactionRequest}; every appended event draws its timestamp from the injected
@@ -107,9 +110,13 @@ public final class Compactor {
     private final Supplier<String> clock;
     private final String summarizerModelId;
     private final int recentTailTurns;
+    private final LearningHarvester harvester;
 
     /**
-     * Creates a compactor over its collaborators.
+     * Creates a compactor over its collaborators with no learning harvest configured (the
+     * harvest seam defaults to {@link LearningHarvester#NONE}). Equivalent to
+     * {@link #Compactor(ModelClient, SessionStore, SessionReplay, Supplier, String, int,
+     * LearningHarvester)} with {@code LearningHarvester.NONE}.
      *
      * @param modelClient       the Converse adapter the summary call goes through (C4); must
      *                          not be {@code null}.
@@ -139,6 +146,46 @@ public final class Compactor {
             Supplier<String> clock,
             String summarizerModelId,
             int recentTailTurns) {
+        this(modelClient, store, replay, clock, summarizerModelId, recentTailTurns,
+                LearningHarvester.NONE);
+    }
+
+    /**
+     * Creates a compactor over its collaborators, including the learning-harvest seam (AC-18.5).
+     *
+     * @param modelClient       the Converse adapter the summary call goes through (C4); must
+     *                          not be {@code null}.
+     * @param store             the session/lineage store (C15) used to read the original, open
+     *                          the derived log, and write the child's lineage meta; must not be
+     *                          {@code null}.
+     * @param replay            the events&rarr;messages projection (reused for the recent-tail
+     *                          carryover and the summary-call transcript); must not be
+     *                          {@code null}.
+     * @param clock             the timestamp source for every appended event (ADR-0005 — never
+     *                          {@code Instant.now()}); must not be {@code null}.
+     * @param summarizerModelId the model id the summary Converse call uses (the same model or a
+     *                          configured cheaper summarizer, ADR-0006 /
+     *                          {@link com.srk.codingagent.config.ResolvedConfig#summarizerModelId()});
+     *                          non-blank.
+     * @param recentTailTurns   how many recent verbatim turns to carry forward into the derived
+     *                          session (the configurable tail, ADR-0006); {@code >= 0} (0 seeds
+     *                          only the summary).
+     * @param harvester         the learning-harvest seam (AC-18.5) invoked after a usable
+     *                          summary is produced and before the successor is derived; use
+     *                          {@link LearningHarvester#NONE} for no harvest; must not be
+     *                          {@code null}.
+     * @throws NullPointerException     if any reference argument is {@code null}.
+     * @throws IllegalArgumentException if {@code summarizerModelId} is blank or
+     *                                  {@code recentTailTurns} is negative.
+     */
+    public Compactor(
+            ModelClient modelClient,
+            SessionStore store,
+            SessionReplay replay,
+            Supplier<String> clock,
+            String summarizerModelId,
+            int recentTailTurns,
+            LearningHarvester harvester) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient");
         this.store = Objects.requireNonNull(store, "store");
         this.replay = Objects.requireNonNull(replay, "replay");
@@ -152,6 +199,7 @@ public final class Compactor {
         }
         this.summarizerModelId = summarizerModelId;
         this.recentTailTurns = recentTailTurns;
+        this.harvester = Objects.requireNonNull(harvester, "harvester");
     }
 
     /**
@@ -188,6 +236,17 @@ public final class Compactor {
             LOGGER.warn("Compaction summary was empty for session {}; cannot derive context",
                     request.originalSessionId());
             return fail(request, "summarizer returned no usable summary text");
+        }
+
+        // AC-18.5: propose durable learnings from the summary for memory BEFORE archiving. The
+        // harvest runs here — after a usable summary exists, before derive() seeds the successor
+        // and writes the lineage edge (the archival moment). The harvester only PROPOSES; the
+        // developer's approval decides what (if anything) is persisted (AC-21.2/AC-21.4, INV-13),
+        // and the original is preserved unchanged regardless (INV-5).
+        int harvested = harvester.harvest(summary);
+        if (harvested > 0) {
+            LOGGER.info("Harvested {} approved learning(s) from the compaction summary (AC-18.5)",
+                    harvested);
         }
 
         return derive(request, originalEvents, summary);
