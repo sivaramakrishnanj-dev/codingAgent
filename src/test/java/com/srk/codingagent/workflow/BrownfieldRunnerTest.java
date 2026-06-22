@@ -1,14 +1,22 @@
 package com.srk.codingagent.workflow;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.srk.codingagent.loop.LoopOutcome;
 import com.srk.codingagent.loop.VerifyOutcome;
+import com.srk.codingagent.persistence.Event;
+import com.srk.codingagent.persistence.EventCodec;
+import com.srk.codingagent.persistence.EventLog;
+import com.srk.codingagent.persistence.OutcomePayload;
+import com.srk.codingagent.persistence.OutcomeRecorder;
 import com.srk.codingagent.persistence.StopReason;
 import com.srk.codingagent.tool.CommandResult;
+import java.io.StringWriter;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -134,5 +142,118 @@ class BrownfieldRunnerTest {
     @DisplayName("the runner requires its driver")
     void constructorRejectsNull() {
         assertThrows(NullPointerException.class, () -> new BrownfieldRunner(null));
+        assertThrows(NullPointerException.class, () -> new BrownfieldRunner(null, null));
+    }
+
+    private static final String TS = "2026-06-23T10:00:00Z";
+    private static final String TASK_REF = "one-shot";
+
+    private static OutcomePayload onlyOutcomeIn(String jsonl) {
+        EventCodec codec = new EventCodec();
+        List<Event> outcomes = jsonl.lines()
+                .filter(line -> !line.isBlank())
+                .map(codec::decode)
+                .filter(e -> e.payload() instanceof OutcomePayload)
+                .toList();
+        assertEquals(1, outcomes.size(), "exactly one OUTCOME event must have been appended");
+        return (OutcomePayload) outcomes.get(0).payload();
+    }
+
+    @Test
+    @DisplayName("US-16/AC-16.2: a concluded VERIFIED run records an OUTCOME (success=true) to the session log")
+    void verifiedRunRecordsSuccessOutcome() {
+        // Oracle: AC-16.1/AC-16.2/AC-16.3 — when a brownfield unit of work concludes, an OUTCOME
+        // signal is recorded, with success derived from the verification (RD-10: zero exit ->
+        // success). This asserts the wiring seam: a runner with a recorder, on a VERIFIED run,
+        // appends a success=true OUTCOME to the session log. The recorder is a REAL OutcomeRecorder
+        // over a REAL EventLog; only the model/build boundary (the driver's seams) is scripted.
+        StringWriter sink = new StringWriter();
+        OutcomeRecorder recorder = new OutcomeRecorder(EventLog.over(sink, "t"), () -> TS, TASK_REF);
+        LoopOutcome change = LoopOutcome.completed("Added the null check.");
+        VerifyOutcome verified = VerifyOutcome.verified(1, CommandResult.completed("mvn test", 0, "ok", "", 5L));
+        BrownfieldRunner runner = new BrownfieldRunner(driverWith(change, verified), recorder);
+
+        runner.run(REQUEST);
+
+        OutcomePayload payload = onlyOutcomeIn(sink.toString());
+        assertTrue(payload.success(), "AC-16.2/RD-10: a verified change records success=true");
+        assertEquals(TASK_REF, payload.taskRef(), "AC-16.1: recorded under the run's taskRef");
+        assertEquals(1, payload.iterations(), "AC-16.1: the verifying attempt count is recorded");
+    }
+
+    @Test
+    @DisplayName("US-16/AC-16.2: a concluded VERIFY_EXHAUSTED run records an OUTCOME (success=false)")
+    void verifyExhaustedRunRecordsFailureOutcome() {
+        // Oracle: AC-16.2/RD-10/INV-17 — exhausted (non-zero on every attempt) is not a zero exit,
+        // so the recorded outcome is success=false. The verify-exhausted -> exit-0 mapping (G4) is
+        // independent of the recorded SIGNAL: the run completes (exit 0) but the outcome signal is a
+        // failure for measurement (US-16).
+        StringWriter sink = new StringWriter();
+        OutcomeRecorder recorder = new OutcomeRecorder(EventLog.over(sink, "t"), () -> TS, TASK_REF);
+        LoopOutcome change = LoopOutcome.completed("Edited OrderService.");
+        VerifyOutcome exhausted = VerifyOutcome.exhausted(
+                3, CommandResult.completed("mvn test", 1, "Tests run: 9", "FAIL", 5L));
+        BrownfieldRunner runner = new BrownfieldRunner(driverWith(change, exhausted), recorder);
+
+        runner.run(REQUEST);
+
+        OutcomePayload payload = onlyOutcomeIn(sink.toString());
+        assertFalse(payload.success(), "AC-16.2/RD-10: an exhausted (non-zero) verification is success=false");
+        assertEquals(3, payload.iterations(), "AC-16.1: the bound (attempts taken) is recorded");
+    }
+
+    @Test
+    @DisplayName("AC-16.2: a NO_TEST_COMMAND run records no OUTCOME — no exit status to derive from")
+    void noTestCommandRunRecordsNothing() {
+        // Oracle: AC-16.2 — with no test command there is no verification exit status, so no signal
+        // is recorded (the documented disposition). The run still maps to a completed outcome (AC-20.6),
+        // but writes no OUTCOME event.
+        StringWriter sink = new StringWriter();
+        OutcomeRecorder recorder = new OutcomeRecorder(EventLog.over(sink, "t"), () -> TS, TASK_REF);
+        LoopOutcome change = LoopOutcome.completed("Made the change; no test command configured.");
+        BrownfieldRunner runner = new BrownfieldRunner(
+                driverWith(change, VerifyOutcome.noTestCommand()), recorder);
+
+        runner.run(REQUEST);
+
+        assertTrue(sink.toString().isBlank(),
+                "AC-16.2: a run with no verification command records no OUTCOME signal");
+    }
+
+    @Test
+    @DisplayName("AC-16.2: a surfaced run (no verification ran) records no OUTCOME")
+    void surfacedRunRecordsNothing() {
+        // Oracle: AC-16.2 — when the change-turn surfaces before any verification (no VerifyOutcome),
+        // there is no exit status, so no signal is recorded.
+        StringWriter sink = new StringWriter();
+        OutcomeRecorder recorder = new OutcomeRecorder(EventLog.over(sink, "t"), () -> TS, TASK_REF);
+        LoopOutcome surfaced = LoopOutcome.surfaced(StopReason.MODEL_CONTEXT_WINDOW_EXCEEDED);
+        BrownfieldDriver.LoopTurn loop = prompt -> surfaced;
+        BrownfieldDriver.VerifierFactory neverCalled = remedy -> () -> {
+            throw new AssertionError("verifier must not run on a surfaced turn");
+        };
+        BrownfieldRunner runner = new BrownfieldRunner(new BrownfieldDriver(loop, neverCalled), recorder);
+
+        runner.run(REQUEST);
+
+        assertTrue(sink.toString().isBlank(),
+                "AC-16.2: a surfaced run (no verification ran) records no OUTCOME signal");
+    }
+
+    @Test
+    @DisplayName("no recorder wired: the run-path mapping is unchanged and no OUTCOME is recorded")
+    void noRecorderLeavesMappingUnchanged() {
+        // Oracle: the recording is layered over the disposition->LoopOutcome mapping. With no
+        // recorder (the no-arg constructor), the mapping is identical to the recorder-less path and
+        // nothing is written — confirming the seam is additive and optional.
+        LoopOutcome change = LoopOutcome.completed("Added the null check.");
+        VerifyOutcome verified = VerifyOutcome.verified(1, CommandResult.completed("mvn test", 0, "ok", "", 5L));
+        BrownfieldRunner runner = new BrownfieldRunner(driverWith(change, verified));
+
+        LoopOutcome mapped = runner.run(REQUEST);
+
+        assertTrue(mapped.completed(), "the no-recorder mapping is unchanged (verified -> completed)");
+        assertEquals("Added the null check.", mapped.finalTextIfPresent().orElse(""),
+                "the change-turn answer is carried through with no recorder wired");
     }
 }

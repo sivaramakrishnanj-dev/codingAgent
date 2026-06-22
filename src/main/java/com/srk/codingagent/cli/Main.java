@@ -8,6 +8,7 @@ import com.srk.codingagent.loop.AgentLoop;
 import com.srk.codingagent.model.credentials.CredentialResolutionException;
 import com.srk.codingagent.permission.Approver;
 import com.srk.codingagent.persistence.EventLog;
+import com.srk.codingagent.persistence.OutcomeRecorder;
 import com.srk.codingagent.persistence.SessionLineage;
 import com.srk.codingagent.persistence.SessionReplay;
 import com.srk.codingagent.persistence.SessionStore;
@@ -19,6 +20,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -187,8 +189,16 @@ public final class Main {
             // brownfield playbook) then the driver verifies the change via the configured
             // test command (AC-5.3). The runner maps the brownfield outcome to a LoopOutcome
             // so OneShotRunner's exit-code mapping is unchanged.
+            // T-2.6 (US-16): record an OUTCOME signal when the run concludes — success derived from
+            // the verification command's exit status (AC-16.2) and appended to the session log
+            // (AC-16.1/AC-16.3). The brownfield run is free-form (not task-numbered) at M2, so the
+            // outcome's taskRef defaults to the session lineage id (ONE_SHOT_LINEAGE). The boundary
+            // clock matches the one the loop uses (ADR-0005). The recorder's derivation + append is
+            // a tested unit (OutcomeRecorder); this composition root only wires it.
+            OutcomeRecorder outcomeRecorder = new OutcomeRecorder(
+                    log, () -> Instant.now().toString(), ONE_SHOT_LINEAGE);
             BrownfieldRunner brownfield = new BrownfieldRunner(BrownfieldDriver.overConfig(
-                    loop::run, new CommandExecutor(workspaceRoot), config));
+                    loop::run, new CommandExecutor(workspaceRoot), config), outcomeRecorder);
             return new OneShotRunner(brownfield::run, System.out, System.err).run(prompt);
         }
     }
@@ -224,8 +234,14 @@ public final class Main {
             // v1 brownfield-only). The loop carries the brownfield playbook; the driver verifies
             // each completed change via the configured test command (AC-5.3). The runner maps the
             // brownfield outcome to a LoopOutcome so ReplRunner's per-turn handling is unchanged.
+            // T-2.6 (US-16): each concluded turn records an OUTCOME signal to the same session log,
+            // success derived from the verification exit status (AC-16.2/AC-16.1/AC-16.3). The
+            // free-form brownfield turn's taskRef defaults to the session lineage id; the boundary
+            // clock matches the loop's (ADR-0005). The derivation is the tested OutcomeRecorder unit.
+            OutcomeRecorder outcomeRecorder = new OutcomeRecorder(
+                    log, () -> Instant.now().toString(), ONE_SHOT_LINEAGE);
             BrownfieldRunner brownfield = new BrownfieldRunner(BrownfieldDriver.overConfig(
-                    loop::run, new CommandExecutor(workspaceRoot), config));
+                    loop::run, new CommandExecutor(workspaceRoot), config), outcomeRecorder);
             ReplRunner runner = new ReplRunner(brownfield::run, answerSource, interrupted::get,
                     config.permissionMode(), System.out, System.err);
             return runner.run();

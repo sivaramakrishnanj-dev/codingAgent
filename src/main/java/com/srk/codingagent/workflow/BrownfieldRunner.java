@@ -2,6 +2,7 @@ package com.srk.codingagent.workflow;
 
 import com.srk.codingagent.loop.LoopOutcome;
 import com.srk.codingagent.loop.VerifyOutcome;
+import com.srk.codingagent.persistence.OutcomeRecorder;
 import com.srk.codingagent.tool.CommandResult;
 import java.util.Objects;
 import org.slf4j.Logger;
@@ -47,15 +48,43 @@ public final class BrownfieldRunner {
     private static final Logger LOGGER = LoggerFactory.getLogger(BrownfieldRunner.class);
 
     private final BrownfieldDriver driver;
+    private final OutcomeRecorder outcomeRecorder;
 
     /**
-     * Creates a runner over a composed brownfield driver.
+     * Creates a runner over a composed brownfield driver, recording no outcome signal.
+     *
+     * <p>Equivalent to {@link #BrownfieldRunner(BrownfieldDriver, OutcomeRecorder)} with a
+     * {@code null} recorder: the run-path mapping is unchanged and no {@code OUTCOME} event is
+     * appended when the run concludes. Used where a session log / task reference is not available
+     * (and in tests that exercise only the disposition&rarr;{@link LoopOutcome} mapping).
      *
      * @param driver the brownfield workflow driver; must not be {@code null}.
      * @throws NullPointerException if {@code driver} is {@code null}.
      */
     public BrownfieldRunner(BrownfieldDriver driver) {
+        this(driver, null);
+    }
+
+    /**
+     * Creates a runner over a composed brownfield driver that records an outcome signal when each
+     * brownfield run concludes (US-16, AC-16.*).
+     *
+     * <p>When the run concludes, the runner hands the run's {@link VerifyOutcome} (when a
+     * verification ran) to the {@link OutcomeRecorder}, which derives the success/effort signal from
+     * the final verification command's exit status (AC-16.2, RD-10, INV-17) and appends it as an
+     * {@code OUTCOME} event to the session log (AC-16.1, AC-16.3). The recording is layered over —
+     * not folded into — the disposition&rarr;{@link LoopOutcome} mapping, so the run path's
+     * exit-code behaviour (G4) is unchanged whether or not a recorder is wired.
+     *
+     * @param driver          the brownfield workflow driver; must not be {@code null}.
+     * @param outcomeRecorder the per-run outcome recorder bound to the session log + task reference,
+     *                        or {@code null} to record no outcome (the production live path always
+     *                        supplies one; see {@link com.srk.codingagent.cli.Main}).
+     * @throws NullPointerException if {@code driver} is {@code null}.
+     */
+    public BrownfieldRunner(BrownfieldDriver driver, OutcomeRecorder outcomeRecorder) {
         this.driver = Objects.requireNonNull(driver, "driver");
+        this.outcomeRecorder = outcomeRecorder;
     }
 
     /**
@@ -69,11 +98,26 @@ public final class BrownfieldRunner {
      */
     public LoopOutcome run(String prompt) {
         BrownfieldOutcome outcome = driver.run(prompt);
+        recordOutcome(outcome);
         return switch (outcome.disposition()) {
             case VERIFIED -> outcome.loopOutcome();
             case NOT_VERIFIED -> outcome.loopOutcome();
             case VERIFY_EXHAUSTED -> verifyExhaustedOutcome(outcome);
         };
+    }
+
+    /**
+     * Records the outcome signal for a concluded brownfield run (US-16, AC-16.*): the run's
+     * {@link VerifyOutcome} (present only when a verification ran) is handed to the
+     * {@link OutcomeRecorder}, which derives success from the final verification command's exit
+     * status (AC-16.2) and appends an {@code OUTCOME} event to the session log (AC-16.1, AC-16.3).
+     * A no-op when no recorder is wired (the no-arg constructor) so the run-path mapping is
+     * unchanged in that case.
+     */
+    private void recordOutcome(BrownfieldOutcome outcome) {
+        if (outcomeRecorder != null) {
+            outcomeRecorder.recordIfVerificationRan(outcome.verifyOutcomeIfPresent());
+        }
     }
 
     /**
