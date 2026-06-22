@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: pending
+last_updated_at_commit: e1299c6
 total_resolved_count: 23
 
 last_resolved:
   task: T-2.6
   title: "Outcome signals (success + iterations from test exit)"
   resolved_at: 2026-06-23
-  commit: pending
+  commit: e1299c6
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -246,7 +246,7 @@ in_flight: null
 - notes: The propose-and-approve curated-write path (C12, US-21) + the compaction learning-harvest (C6, AC-18.5), per ADR-0007/0006. Resumed an in-flight checkpoint (906fc99) whose prior task-builder died on a transient API error before returning a handoff; the partial production code was assessed complete + spec-correct and kept. New tool.memory types: LearningProposal (record: slug/tier/why/body + presentation() approval line, AC-21.1), LearningApprover (@FunctionalInterface approve/deny seam mirroring permission.Approver but learning-shaped; APPROVE_ALL/DENY_ALL), LearningProposer (propose(LearningProposal)->Optional<MemoryEntry>: approver.approve -> on APPROVE reuse MemoryStore.write + log MEMORY_WRITE with boundary clock/originSession provenance, AC-21.3/AC-12.4; on DENY persist NOTHING — no file/index/event, AC-21.2/AC-21.4/INV-13), LearningExtractor (@FunctionalInterface summary-text->List<LearningProposal>, default NONE; extraction heuristic kept a separate injected seam so the harvest wiring stays thin — production extraction is RL-ladder future work), MemoryLearningHarvester (implements the context-side LearningHarvester seam: extract-then-propose-each, returns approved+persisted count). New context type LearningHarvester (C6->C12 seam interface, default NONE no-op; mirrors T-2.1's BudgetGuard.NONE swap idiom so Compactor depends only on the seam, never the memory store). Compactor MODIFIED: new 7-arg ctor adds the LearningHarvester (old 6-arg delegates with NONE — additive, no public-API break); compact() invokes harvester.harvest(summary) AFTER a usable non-blank summary exists and BEFORE derive() (the "before archiving" window AC-18.5 requires), original preserved byte-identical regardless (INV-4/INV-5). REUSE clean: MemoryStore.write/readEntry/loadIndexes, EventLog.append/nextSeq, MemoryEntry/MemoryTier/MemoryStatus, MemoryWritePayload, PermissionDecisionOutcome — all reused, nothing reimplemented (reuse_self_check passed). D2-class guard honored: tests assert REAL shapes not field-presence — approved entry re-read FRESH from a new MemoryStore (INV-14) with tier/created/originSession/body asserted; harvested entry's on-disk front-matter validated against memory-entry.schema.json (networknt, CT-SCH-11/12 shape); deny path checks ALL three persistence surfaces absent (file+index+MEMORY_WRITE event, CT-INV-11). The load-bearing CompactionHarvestEndToEndTest wires a REAL MemoryLearningHarvester into a REAL Compactor and proves AC-18.5 through an actual summarize->harvest->derive: approved candidate becomes a recallable entry, original log byte-identical on approve AND deny (INV-5), nothing harvested on deny (no-auto-extract holds at the harvest moment). +26 tests across LearningProposerTest(9, inherited), MemoryLearningHarvesterTest(9), LearningProposalTest(4), CompactionHarvestEndToEndTest(4). 805 tests green under mvn clean verify (JaCoCo 0.80 BUNDLE gate met; new Learning* classes 100% instr, Compactor 93%/85%). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor, 1 Nit (cosmetic same-value test constant pair). 0 Discussion (the ADR-0007 prose-vs-schema casing mismatch is already T-2.4 D1 in open-questions; T-2.5 follows the schema per directive, not re-raised).
 
 ## T-2.6 — Outcome signals (success + iterations from test exit)
-- commit: pending
+- commit: e1299c6
 - review: design/reviews/code/T-2.6-r1.md
 - resolved: 2026-06-23
 - context_mode: narrow
