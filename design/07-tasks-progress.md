@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: pending
+last_updated_at_commit: 5111f78
 total_resolved_count: 11
 
 last_resolved:
   task: T-0.5-RD2
   title: "Regression fix (DEFECT D2): toolResult content -> text member for plain strings"
   resolved_at: 2026-06-22
-  commit: pending
+  commit: 5111f78
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -109,7 +109,7 @@ in_flight: null
 - notes: Correction to resolved M0 task T-0.2, found by the manual real-Bedrock smoke test that the G0 assertion needs but mocked tests structurally cannot make. ConfigDefaults.MODEL_ID was the BARE id "anthropic.claude-opus-4-8", which on-demand Converse rejects with a 400 ValidationException ("Invocation of model ID ... with on-demand throughput isn't supported. Retry ... with the ID or ARN of an inference profile ..."). With no ~/.codingagent/config.yaml present, the compiled-in default is the live value, so the fix is in the default itself. Changed MODEL_ID to the cross-region inference-profile form "us.anthropic.claude-opus-4-8" (verified ACTIVE via aws bedrock list-inference-profiles; with it the first Converse call SUCCEEDS, observed stopReason=TOOL_USE). ADR-0001 already named the us. form preferred-for-availability; aligned its pinned-default note + ConfigDefaults/ResolvedConfig Javadoc to the us. form (spec-consistency, NOT a DCR). Regression test added: modelId_isInferenceProfileFormNotBareOnDemandId asserts the default is region/scope-prefixed (us./global.) and NOT a bare anthropic. on-demand id (so a future bare-id regression fails the build). Updated the two ConfigResolverTest resolver-default assertions that read the default through the constant. Fixture config.global.yaml + test-local MODEL_ID constants intentionally keep the bare id (AC-8.1 configurable / arbitrary test values, not the NFR-MODEL-DEFAULT pinned default). 422 tests green under mvn clean verify (JaCoCo 0.80 gate met). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor/Nit. 1 Discussion item (D1: fixture/test-local bare-id literals left intentionally; suggested_amendment_kind=none).
 
 ## T-0.5-RD2 — Regression fix (DEFECT D2): toolResult content -> text member for plain strings
-- commit: PLACEHOLDER_D2_SHA
+- commit: 5111f78
 - review: design/reviews/code/T-0.5-RD2-r1.md
 - resolved: 2026-06-22
 - context_mode: narrow
