@@ -15,6 +15,14 @@ last_resolved:
 in_flight: null
 ---
 
+## Milestone gates
+
+### G0 (after M0 — Walking skeleton) — ✅ PASSED 2026-06-22
+- Auto checks: `mvn clean verify` green (424 tests, JaCoCo ≥0.80); shaded `codingagent.jar` builds; G0 contract tests (CT-SCH-1..4/9/10/13/14, CT-INV-1/7/8/9, CT-EX-1..4/6) green.
+- **Manual real-Bedrock smoke test (main agent):** `AWS_PROFILE=awsBedRockProfile`, us-east-1, `java -jar target/codingagent.jar -p "…read pom.xml…"` → **EXIT 0**, full cycle: call1 `stopReason=TOOL_USE` (read_file) → gate auto-approve (Class R) → toolResult(text) → call2 `stopReason=END_TURN`. Correct grounded answer ("Apache Maven, Java 21"). Session JSONL persisted (MODEL_RESPONSE/TOOL_USE/PERMISSION_DECISION/TOOL_RESULT logged).
+- Smoke test found + fixed 2 live-only defects before passing: D1 (default model id must be `us.` inference-profile form → T-0.2-RD1, commit 218da28) and D2 (toolResult plain-string → `text` member, not `json` → T-0.5-RD2, commit 5111f78). Both now regression-tested.
+- Verdict: **M0 truly complete; G0 passed.** Cleared to proceed to M1 on user direction.
+
 ## Resolved tasks
 
 ## T-0.1 — Project skeleton: Maven, Java 21, com.srk.codingagent packages, JUnit 5, shaded-jar build
