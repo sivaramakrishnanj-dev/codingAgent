@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: pending
+last_updated_at_commit: abb14e2
 total_resolved_count: 19
 
 last_resolved:
   task: T-2.2
   title: "Compaction-with-derivation: summary call, new derived session, original preserved"
   resolved_at: 2026-06-22
-  commit: pending
+  commit: abb14e2
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -206,7 +206,7 @@ in_flight: null
 - notes: First M2 task; the real BudgetGuard that swaps in for BudgetGuard.NONE (the T-0.8 seam). Two new classes — ModelCapabilityProfile (C5, in com.srk.codingagent.model) is a thin record carrying ONLY contextWindowTokens, resolved from modelId via a prefix registry (Claude keyed on the "anthropic.claude" infix so both bare and the us. inference-profile default us.anthropic.claude-opus-4-8 resolve to a real Claude window, not the fallback); TokenBudgetGuard (C6 arithmetic, in com.srk.codingagent.loop where the BudgetGuard hook lives) implements BudgetGuard and returns COMPACT when measured usage.inputTokens >= ceil(0.85 x contextWindowTokens), else CONTINUE. Window comes from the profile so the guard never branches on modelId (ADR-0002 feature-detection). AgentLoopFactory wires TokenBudgetGuard.forConfig(config, profile) in place of BudgetGuard.NONE, so a live run now detects the threshold from measured usage (the T-2.1 verify criterion); the loop's existing COMPACT handling (surface) stays — the real S6->machine-B compaction handler is T-2.2. Scope kept tight per ADR-0002 "thin v1" + the minimal-viable-shape mandate: the full capability registry/feature-detection/schema-validation (03-data-model §2.6 fields, CT-SCH-15) is left to T-4.3, which can extend the record without caller rework; NO config key added (resolved-config.schema.json + CT-SCH-13/14 untouched), so ADR-0002's "conservative default window read from config NFR-MODEL-CONTEXT-WINDOW" is deferred to T-4.3 (safe-minimum 100K is a documented compiled-in constant in the JaCoCo-excluded composition root). CT-SM-6's T-2.1 half (threshold 0.85xwindow detection from measured usage) satisfied; the "-> derived session" half is T-2.2. 643 tests green under mvn clean verify (+24; JaCoCo 0.80 gate met; TokenBudgetGuard + ModelCapabilityProfile 100% line+branch). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 1 Minor, 1 Nit, 2 Discussion. D1 (suggested data-model-update): concrete window figures (Claude 200K, safe-minimum 100K) are not pinned by any spec symbol — team may want a per-family table/NFR. D2 (suggested schema-update): ADR-0002's conservative-default window "read from config" deferred to T-4.3 (compiled-in for now) — add the contextWindowTokens config key when the full capability registry lands. Both logged to open-questions; non-blocking.
 
 ## T-2.2 — Compaction-with-derivation: summary call, new derived session, original preserved
-- commit: pending
+- commit: abb14e2
 - review: design/reviews/code/T-2.2-r1.md
 - resolved: 2026-06-22
 - context_mode: narrow
