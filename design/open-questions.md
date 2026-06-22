@@ -97,3 +97,30 @@ auto-invokes the designer.
   it is a small, narrow AgentLoop.gateRequestFor enhancement — no spec amendment needed
   (suggested_amendment_kind=none). Noted for awareness; T-1.3 resolved cleanly.
 - status: open (informational; no action required to proceed)
+
+## Discussion items from T-1.4 — 2026-06-22
+
+### D1 — CT-SM-5 Element cell "A: T13/T15" mis-cites the compaction transitions; verify-exhausted is S7
+- task: T-1.4
+- spec_refs: CT-SM-5 (06-formal/contract-tests.md § 3), state-machine.md § A (S7, T13, T15), AC-3.4, AC-20.5
+- suggested_amendment_kind: contract-test-update (optionally state-machine-update)
+- finding: CT-SM-5's *assertion* — "verify loop stops after NFR-VERIFY-MAX-ITERATIONS and
+  surfaces" (Traces AC-3.4, AC-20.5) — is exactly T-1.4's contract and is satisfied. But
+  its *Element* cell reads "A: T13/T15", and in state-machine.md § A, T13/T15 are the
+  COMPACTION transitions (T13: S1/S0->S6 on usage>=0.85xwindow or /compact -> machine B;
+  T15: S6->S8 compaction-failed -> exit 5), not verify. The verify loop is not a numbered
+  transition in machine A; the verify-exhausted surface is the S7 Surfacing state, whose
+  own definition in § A explicitly lists "verify-exhausted" as one of its meanings. The
+  task-builder built to the CT-SM-5 assertion + the S7 surface and did NOT contort the
+  verify loop into the compaction transitions.
+- coordinator note: spec-bookkeeping inconsistency in a CT Element cell, not a code defect —
+  T-1.4 resolved cleanly (0 Blocker/Major/Minor/Nit). If the user wants it corrected, the
+  fix is a contract-test-update (point CT-SM-5's Element at S7 verify-exhausted / US-20),
+  optionally a state-machine-update to model verify-exhaustion as an explicit transition
+  into S7. This is the SECOND state-machine-cite mismatch in M1 (cf. T-1.2 D1 / CT-INV-3) —
+  the two together are a candidate for a single small tasks-table/contract-tests amendment
+  the user may choose to run after G1. Relevant to G1 judgment: G1's checklist lists
+  CT-SM-5 (and CT-INV-3) as green criteria; G1 should be judged against the contracts M1
+  actually delivers (bounded verify + surface; replay fidelity), with the compaction-keyed
+  Element cells corrected when M2 lands or via the amendment.
+- status: open (informational; no action required to proceed)

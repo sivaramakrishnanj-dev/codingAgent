@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: pending
+last_updated_at_commit: 8cec682
 total_resolved_count: 15
 
 last_resolved:
   task: T-1.4
   title: "Verify loop: run configured test cmd, react to exit, bounded retries (<=5) then surface"
   resolved_at: 2026-06-22
-  commit: pending
+  commit: 8cec682
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -157,7 +157,7 @@ in_flight: null
 - notes: Four C9 file tools in com.srk.codingagent.tool, wired into AgentLoopFactory's production registry so a live codingagent/-p run exposes them. grep = java.util.regex over file lines (AC-4.2 textual, no AST), result rows "relativePath:lineNumber:lineText" (1-based, newline-joined; no match -> empty). glob = FileSystems PathMatcher over workspace-relative paths (sorted, newline-joined). list = Files.newDirectoryStream non-recursive entry names (sorted, trailing "/" on dirs). All three OperationClass.READ -> AC-4.4 non-gated for free via AgentLoop.gateRequestFor's generic forTool path (gate auto-approves READ). edit_file = literal UNIQUE-substring splice (not whole-file replace, that is write_file): exactly-one match applies + "ok:" summary (write_file style); 0 match -> error "no match"; >1 -> error "ambiguous" (AC-5.4 spirit, no silent guess); missing file -> error (AC-4.3). edit_file SIDE_EFFECTING -> AC-5.2 gated for free. All paths confined via the reused WorkspacePaths; inputs via ToolInputs (added optionalBoolean/optionalString); schemas authored in ToolSchemas (added grep/glob/list/editFile + booleanProperty) — reuse targets reused, not reimplemented (reuse_self_check passed). No gate change. 527 tests green under mvn clean verify (+35; JaCoCo 0.80 gate met; new-class line 77-100%, EditFileTool 77% gap = IO-failure catch branches like ReadFileTool/WriteFileTool). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 1 Minor, 0 Nit, 1 Discussion. Discussion D1 (suggested_amendment_kind=none): edit_file uses the generic forTool gate presentation (tool-name) not write_file-style path presentation; AC-10.1 is not a T-1.3 cited ref, left as a v1 choice for a later task to revisit.
 
 ## T-1.4 — Verify loop: run configured test cmd, react to exit, bounded retries (<=5) then surface
-- commit: pending
+- commit: 8cec682
 - review: design/reviews/code/T-1.4-r1.md
 - resolved: 2026-06-22
 - context_mode: narrow
