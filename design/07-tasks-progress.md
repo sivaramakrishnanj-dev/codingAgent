@@ -23,6 +23,15 @@ in_flight: null
 - Smoke test found + fixed 2 live-only defects before passing: D1 (default model id must be `us.` inference-profile form → T-0.2-RD1, commit 218da28) and D2 (toolResult plain-string → `text` member, not `json` → T-0.5-RD2, commit 5111f78). Both now regression-tested.
 - Verdict: **M0 truly complete; G0 passed.** Cleared to proceed to M1 on user direction.
 
+### G1 (after M1 — Usable brownfield) — ✅ PASSED 2026-06-22
+- Auto checks (coordinator): `mvn clean verify` green (**619 tests**, JaCoCo ≥0.80); shaded `codingagent.jar` builds + launches; G1 contract assertions green (CT-SM-1/2 cycle+gate-deny, CT-SM-5 verify-stops-and-surfaces, CT-INV-2 log-before-act, replay-fidelity AC-7.2/INV-1, CT-INV-14 zero-exit⟺success). T-1.1..T-1.6 all resolved iter 1 (HEAD dcacb8a).
+- **Manual real-Bedrock smoke test (main agent), in a disposable sandbox Maven project** (`/tmp/ca-g1-sandbox.*`, so live edit/exec hit throwaway files, not this repo):
+  - **Explore** (one-shot, read-only): agent used glob+grep across multiple tool rounds → `END_TURN`, correct grounded answer about the sandbox's `Calc`/TODO. Toolset registered: read_file, grep, glob, list, write_file, edit_file, run_command.
+  - **Edit + verify** (REPL, approvals via stdin `y`): agent added `subtract(int,int)` + a JUnit test (2× `edit_file` approved via InteractiveApprover), ran `mvn test` (approved) → `END_TURN`, reported pass. **Independently re-verified by main agent**: files correct, `mvn test` exit 0 — claim not hallucinated.
+  - **Resume**: `codingagent sessions` lists persisted sessions (exit 0); JSONL persisted. (repoKey still the M0 "one-shot" placeholder — real git-remote keying is a later task, not a G1 criterion.)
+- **G1 caveat (coordinator-flagged, non-blocking spec bookkeeping):** the G1 checklist in `07-tasks.md` §3 cites CT-INV-3 and CT-SM-5, but those CTs' element/CT cells are cross-wired to **M2 compaction transitions** (CT-INV-3 pins INV-4 compaction byte-identity; CT-SM-5 cell mis-cites T13/T15). M1 delivered the *assertions* those CTs carry (replay fidelity = AC-7.2/INV-1; verify-stop-surface = AC-3.4/20.5 at S7) — all green. Judge G1 against contracts M1 delivers, not the mislabeled cells. 3 open-questions logged (T-1.2 D1, T-1.4 D1, T-1.6 D1) as candidates for one consolidated contract-test/exit-code amendment.
+- Verdict: **M1 truly complete; G1 passed** (explore→edit→verify→resume proven live). Cleared to proceed to M2 on user direction.
+
 ## Resolved tasks
 
 ## T-0.1 — Project skeleton: Maven, Java 21, com.srk.codingagent packages, JUnit 5, shaded-jar build
