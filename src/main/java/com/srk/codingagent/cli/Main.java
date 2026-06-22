@@ -5,12 +5,21 @@ import com.srk.codingagent.config.ConfigLocations;
 import com.srk.codingagent.config.ConfigResolver;
 import com.srk.codingagent.config.ResolvedConfig;
 import com.srk.codingagent.loop.AgentLoop;
+import com.srk.codingagent.model.credentials.CredentialResolutionException;
+import com.srk.codingagent.permission.Approver;
 import com.srk.codingagent.persistence.EventLog;
 import com.srk.codingagent.persistence.SessionStore;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import sun.misc.Signal;
 
 /**
  * Command-line entry point for the coding agent.
@@ -18,12 +27,21 @@ import org.slf4j.LoggerFactory;
  * <p>The CLI resolves its configuration on startup and dispatches by invocation shape
  * (04-apis § 1.1). A one-shot invocation ({@code codingagent -p "<prompt>"}) runs the
  * agent's tool-use cycle to {@code end_turn} then exits with the agent-process exit code
- * (US-6); the interactive REPL ({@code codingagent} with no {@code -p}) is a later task
- * (T-1.1). Configuration is layered by precedence (flags &gt; project &gt; global &gt;
- * defaults) and validated <em>before</em> any model call (ADR-0009): a malformed or
- * unknown configuration value, or a bad CLI argument, makes the process exit
- * {@link ExitCode#USAGE_CONFIG} ({@code 2}) with a stderr line naming the offending
- * key/argument (AC-8.5, AC-6.4, cli-exit-codes {@code 2}).
+ * (US-6); the interactive REPL ({@code codingagent} with no {@code -p}) enters a read-eval
+ * loop (driven by {@link ReplRunner}) that runs each developer line as an agent-loop turn or
+ * an in-REPL slash-command and exits cleanly on {@code /exit} / EOF (T-1.1). Configuration is
+ * layered by precedence (flags &gt; project &gt; global &gt; defaults) and validated
+ * <em>before</em> any model call (ADR-0009): a malformed or unknown configuration value, or a
+ * bad CLI argument, makes the process exit {@link ExitCode#USAGE_CONFIG} ({@code 2}) with a
+ * stderr line naming the offending key/argument (AC-8.5, AC-6.4, cli-exit-codes {@code 2}).
+ *
+ * <p><b>SIGINT (02-architecture § 4, cli-exit-codes {@code 130}).</b> The interactive path
+ * installs an OS signal handler for {@code INT} (Ctrl-C) that interrupts the in-flight REPL
+ * step and ends the session with exit {@code 130}; the session remains resumable because the
+ * event log is flushed per event (NFR-LOG-DURABILITY). Installing the OS signal handler is the
+ * one non-portable production-only step, so it lives here in the bootstrap shell (excluded from
+ * the coverage gate); the testable interrupt-to-{@code 130} mapping lives in {@link ReplRunner}
+ * and is reconciled with the {@link InterruptedRunException} seam {@link OneShotRunner} maps.
  *
  * <p><b>Exit-code precedence (cli-exit-codes § 2).</b> The launcher realizes the contract's
  * ordering: {@code 2} usage/config is decided here at startup, before any model or tool
@@ -72,8 +90,10 @@ public final class Main {
      * {@link ExitCode#USAGE_CONFIG} ({@code 2}) before any model call (fail-fast, ADR-0009).
      * For a one-shot prompt it builds the agent loop and delegates the run-and-map to
      * {@link OneShotRunner}. For {@code --help} / {@code --version} it prints the requested
-     * information and returns {@code 0}. The interactive REPL shape (no {@code -p}) is not
-     * yet implemented (T-1.1); it currently returns {@code 0} after reporting that.
+     * information and returns {@code 0}. For the interactive REPL shape (no {@code -p}) it
+     * builds the agent loop with an interactive approver, installs the SIGINT handler, and
+     * delegates the read-eval loop to {@link ReplRunner}, returning the session's exit code
+     * (clean {@code 0} on {@code /exit} / EOF, {@code 130} on Ctrl-C).
      *
      * @param args command-line arguments; may be {@code null} (treated as no arguments).
      * @return the process exit code per the exit-code contract.
@@ -110,10 +130,8 @@ public final class Main {
         if (parsed.kind() == CliArguments.Kind.ONE_SHOT) {
             return runOneShot(config, parsed.prompt().orElseThrow());
         }
-        // Interactive REPL shape (no -p): the REPL is T-1.1. Report and exit cleanly.
-        LOGGER.info("Interactive REPL is not yet available (T-1.1); exiting cleanly");
-        System.err.println("codingagent: interactive mode is not yet available; use -p \"<prompt>\"");
-        return SUCCESS_EXIT_CODE;
+        // Interactive REPL shape (no -p): enter the read-eval loop (04-apis § 1.1).
+        return runInteractive(config);
     }
 
     /**
@@ -129,6 +147,85 @@ public final class Main {
             AgentLoop loop = new AgentLoopFactory().create(
                     config, workspaceRoot, ONE_SHOT_LINEAGE, log, new NonInteractiveApprover());
             return new OneShotRunner(loop::run, System.out, System.err).run(prompt);
+        }
+    }
+
+    /**
+     * Wires the production agent loop with an interactive approver and runs the REPL session,
+     * returning the session's exit code. The composition (credentials, Bedrock client, tools,
+     * gate, log) is the production-only seam; the read-eval loop it delegates to lives in the
+     * unit-tested {@link ReplRunner}, and the interactive approval prompt in
+     * {@link InteractiveApprover}.
+     *
+     * <p>A SIGINT handler is installed for the duration of the session: on Ctrl-C it sets the
+     * shared interrupt flag {@link ReplRunner} polls and interrupts this thread so an in-flight
+     * step is cancelled and the session ends with exit {@code 130} (02-architecture § 4). The
+     * session log is held open across turns and closed on exit; per-event flushing keeps the
+     * session resumable (NFR-LOG-DURABILITY).
+     */
+    private static int runInteractive(ResolvedConfig config) {
+        Path workspaceRoot = Path.of("").toAbsolutePath();
+        SessionStore sessions = SessionStore.forUserHome();
+        BufferedReader reader = new BufferedReader(
+                new InputStreamReader(System.in, StandardCharsets.UTF_8));
+        AtomicBoolean interrupted = new AtomicBoolean(false);
+        Thread session = Thread.currentThread();
+        installSigintHandler(interrupted, session);
+
+        try (EventLog log = sessions.openLog(ONE_SHOT_LINEAGE, ONE_SHOT_LINEAGE)) {
+            Supplier<String> answerSource = lineSupplier(reader);
+            Approver approver = new InteractiveApprover(answerSource, System.out);
+            AgentLoop loop = new AgentLoopFactory().create(
+                    config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver);
+            ReplRunner runner = new ReplRunner(loop::run, answerSource, interrupted::get,
+                    config.permissionMode(), System.out, System.err);
+            return runner.run();
+        } catch (CredentialResolutionException noCredentials) {
+            // No usable SigV4 credentials means no usable Bedrock — the REPL cannot start
+            // (model-backend, AC-8.9 → exit 4). Reported once with the paths attempted (G2).
+            LOGGER.error("cannot start interactive session (no usable credentials): {}",
+                    noCredentials.getMessage(), noCredentials);
+            System.err.println("codingagent: " + noCredentials.getMessage());
+            return ExitCode.MODEL_BACKEND.code();
+        }
+    }
+
+    /**
+     * Adapts a line reader to the {@link Supplier} the REPL and approver read from: each call
+     * returns the next line, or {@code null} at end-of-input (Ctrl-D / EOF). An I/O error on
+     * the input stream is treated as end-of-input so the session ends cleanly rather than
+     * crashing.
+     */
+    private static Supplier<String> lineSupplier(BufferedReader reader) {
+        return () -> {
+            try {
+                return reader.readLine();
+            } catch (IOException e) {
+                LOGGER.warn("input stream read failed; treating as end-of-input", e);
+                return null;
+            }
+        };
+    }
+
+    /**
+     * Installs the OS SIGINT (Ctrl-C) handler for the interactive session: it flags the
+     * interrupt the REPL polls and interrupts the session thread so an in-flight step is
+     * cancelled (02-architecture § 4; cli-exit-codes {@code 130}). Using {@code sun.misc.Signal}
+     * (the {@code jdk.unsupported} module, available without compiler flags) is the portable-
+     * enough way to install a process signal handler on the standard JDK; it lives in this
+     * coverage-excluded bootstrap shell so the testable interrupt-to-{@code 130} logic in
+     * {@link ReplRunner} stays free of the non-portable dependency.
+     */
+    private static void installSigintHandler(AtomicBoolean interrupted, Thread session) {
+        try {
+            Signal.handle(new Signal("INT"), signal -> {
+                interrupted.set(true);
+                session.interrupt();
+            });
+        } catch (IllegalArgumentException | UnsupportedOperationException e) {
+            // A platform that does not allow handling INT (or already reserves it): the REPL
+            // still works; only the in-step Ctrl-C-to-130 cancellation is unavailable.
+            LOGGER.warn("could not install SIGINT handler; Ctrl-C cancellation unavailable", e);
         }
     }
 

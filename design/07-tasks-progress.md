@@ -2,43 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-22
 last_updated_at_commit: pending
-total_resolved_count: 11
+total_resolved_count: 12
 
 last_resolved:
-  task: T-0.5-RD2
-  title: "Regression fix (DEFECT D2): toolResult content -> text member for plain strings"
+  task: T-1.1
+  title: "REPL: interactive loop, inline approval prompts, slash-commands, real SIGINT->130"
   resolved_at: 2026-06-22
-  commit: 5111f78
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-1.1
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-22T00:00:00+00:00
-  last_updated_at: 2026-06-22T00:00:00+00:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-1.1
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  open_action_items_for_implementer: []
-  open_action_items_for_tester: []
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-22T00:00:00+00:00
-  last_updated_at: 2026-06-22T00:00:00+00:00
 
 ## Milestone gates
 
@@ -150,3 +125,13 @@ in_flight:
 - dcrs_consumed: []
 - regression-of: T-0.5 (Model Client: Converse wire-format mapping)
 - notes: Correction to resolved M0 task T-0.5, found by the real-Bedrock smoke test full cycle once D1 was fixed. The SECOND Converse call failed with a 400 ValidationException ("The format of the value at messages.2.content.0.toolResult.content.0.json is invalid. Provide a json object for the field and try again."). Root cause: ConverseWireMapper.toWireToolResult unconditionally wrapped the tool output in a Converse toolResult content json member via ToolResultContentBlock.fromJson(...), but Converse requires json to be a JSON OBJECT; a plain-text (String) tool result (e.g. read_file contents) must use the text member. Fix: toWireToolResult now branches on the domain content runtime type — a Map (structured object, e.g. CommandResult) maps to the json member; any other non-null content maps to the text member via String.valueOf (conservative: a non-object json would re-trigger the same 400). null content still adds no content block. content-block.schema.json already sanctions content as "text, or a structured object", so this is spec-faithful, NOT a DCR. Two explicit regression tests added (mapsStringToolResultContentToTextMember: String -> text member, json() absent; mapsStructuredObjectToolResultContentToJsonMember: Map -> json object member, text() absent) — exactly the content-member assertions the structurally-blind existing tests (toolUseId/status only) never made, which is why the bug shipped. INV-6 pairing (CT-INV-5) preserved. 424 tests green under mvn clean verify (+2; 91.91% bundle line; ConverseWireMapper 98.18% line; 0.80 gate met). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor. 1 Nit (non-blocking). 0 Discussion items.
+
+## T-1.1 — REPL: interactive loop, inline approval prompts, slash-commands, real SIGINT->130
+- commit: pending
+- review: design/reviews/code/T-1.1-r1.md
+- resolved: 2026-06-22
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M1 (first task)
+- notes: Real interactive REPL replacing Main's stub, plus the real SIGINT->130 handler + in-flight cancellation T-0.9 left as a seam. New testable types ReplRunner (read-eval loop; /exit, /mode, /permission show-only, unrecognized-reported; 100% line+branch) and InteractiveApprover (inline approval present-before-decide, AC-10.1, via GateRequest.presentation(); 100% line+branch), split from production-only composition in Main.runInteractive (live Bedrock client + sun.misc.Signal("INT") handler + stdin read; JaCoCo-excluded like AgentLoopFactory). SIGINT mechanism: sun.misc.Signal (jdk.unsupported, no compiler flags; pom has no forbidden-apis/enforcer), isolated in Main; ReplRunner maps both the injected interrupt flag and a caught InterruptedRunException (the existing OneShotRunner seam) to exit 130 by catch order, reconciling the real handler with the modelled seam. Streaming = render the completed LoopOutcome final text per turn (ModelClient is the sync Converse call; no token-stream source to feed). A failed turn keeps the REPL alive (developer chooses next step, AC-10.2 spirit); only SIGINT (->130) and a fatal PersistenceException (->1, AC-13.4) end the session. Stub-era interactive tests in MainTest/MainConfigTest/MainOneShotTest repointed to the INFO path (the no-arg shape now enters real REPL composition, not unit-reproducible); config fail-fast->exit-2 coverage retained. 450 tests green under mvn clean verify (+26 net: -4 stub-era, +30 new; JaCoCo 0.80 gate met). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 1 Minor, 0 Nit, 1 Discussion. Discussion D1 (suggested_amendment_kind=none): REPL drives each prompt as an independent AgentLoop.run turn; cross-turn model-context continuation is C15/T-1.2's replay->messages[] job, not pinned by T-1.1's ACs — surfaced as an explicit seam (the ReplLoop seam accepts a continued driver when T-1.2 lands).

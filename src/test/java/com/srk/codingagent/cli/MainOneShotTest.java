@@ -30,9 +30,13 @@ import org.junit.jupiter.api.io.TempDir;
  *   <li><b>CT-EX-1 / AC-8.5 / ADR-0009:</b> on the one-shot path a malformed config still
  *       fails fast with exit {@code 2} naming the key, before the loop is built — the
  *       fail-fast-before-any-model-call ordering is preserved.</li>
- *   <li><b>04-apis § 1.1:</b> {@code --help} / {@code --version} print and exit {@code 0};
- *       the interactive shape (no {@code -p}) exits {@code 0} (REPL is T-1.1).</li>
+ *   <li><b>04-apis § 1.1:</b> {@code --help} / {@code --version} print and exit {@code 0}.</li>
  * </ul>
+ *
+ * <p>The no-{@code -p} interactive shape now enters the real REPL (T-1.1), whose composition
+ * resolves live credentials and reads stdin — not unit-testable here without a live AWS call
+ * (and an interactive stdin); its read-eval logic is covered by {@code ReplRunnerTest} and its
+ * composition by the G1 real-Bedrock smoke test.
  *
  * <p>The test redirects {@code user.home} to a temporary store and captures
  * {@code System.out}/{@code System.err}, restoring both per test. {@code Main.main(String[])}
@@ -164,19 +168,5 @@ class MainOneShotTest {
         assertEquals(0, exitCode, "--version exits 0");
         assertTrue(stdout().toLowerCase(java.util.Locale.ROOT).contains("codingagent"),
                 "--version prints a version line; was: " + stdout());
-    }
-
-    @Test
-    @DisplayName("04-apis § 1.1: the interactive shape (no -p) exits 0 (REPL is T-1.1)")
-    void interactiveShape_exitsZero(@TempDir Path home) {
-        // Oracle: 04-apis § 1.1 — "Interactive (REPL) = codingagent [options]". The REPL is
-        // T-1.1; this task recognizes the no-arg shape and exits cleanly (0) after reporting
-        // that interactive mode is not yet available.
-        System.setProperty("user.home", home.toString());
-
-        int exitCode = Main.run(new String[] {});
-
-        assertEquals(0, exitCode,
-                "the interactive shape (no -p) exits 0 at M0 (the REPL is T-1.1)");
     }
 }
