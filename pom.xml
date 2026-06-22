@@ -296,6 +296,16 @@
                                   out of the bootstrap shell.
                                 -->
                                 <exclude>com/srk/codingagent/cli/Main.class</exclude>
+                                <!--
+                                  Production composition root (T-0.9): wires the agent loop
+                                  from resolved config by constructing a live Bedrock client
+                                  from real SigV4 credentials. Like Main, it is pure wiring
+                                  with no branching business logic and is not meaningfully
+                                  unit-coverable without a live AWS call. Its run-and-map
+                                  logic (OneShotRunner) and its credential-failure -> exit-4
+                                  mapping ARE tested (OneShotRunnerTest).
+                                -->
+                                <exclude>com/srk/codingagent/cli/AgentLoopFactory.class</exclude>
                             </excludes>
                         </configuration>
                     </execution>

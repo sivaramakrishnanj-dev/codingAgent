@@ -2,43 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-22
 last_updated_at_commit: pending
-total_resolved_count: 8
+total_resolved_count: 9
 
 last_resolved:
-  task: T-0.8
-  title: "Agent loop: stopReason dispatch (tool_use<->end_turn), log-before-act (C2)"
+  task: T-0.9
+  title: "CLI one-shot (-p), exit codes, SIGINT->130 (C1)"
   resolved_at: 2026-06-22
-  commit: 0b0661a
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-0.9
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-22T00:30:00+05:30
-  last_updated_at: 2026-06-22T00:30:00+05:30
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-0.9
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  open_action_items_for_implementer: []
-  open_action_items_for_tester: []
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-22T00:30:00+05:30
-  last_updated_at: 2026-06-22T00:30:00+05:30
 
 ## Resolved tasks
 
@@ -113,3 +88,12 @@ in_flight:
 - iterations: { task_builder: 1 }
 - dcrs_consumed: []
 - notes: ADR-0001 owned-loop C2 under com.srk.codingagent.loop. AgentLoop drives state-machine A: T1 append USER_MESSAGE -> seed transcript; per turn S1 ModelClient.converse -> T2/T3 append MODEL_RESPONSE+MODEL_USAGE before acting (INV-2); dispatch on StopReason. tool_use (T2->S2): per toolUse block log TOOL_USE digest -> PermissionGate.evaluate -> append PERMISSION_DECISION before exec (INV-8 gate-in-the-middle) -> on approve ToolRegistry.dispatch + TOOL_RESULT (INV-6 toolUseId pairing); on deny TOOL_RESULT(denied), no handler run (CT-SM-2/T8); batch results as one user msg, re-call (T10). end_turn/stop_sequence -> LoopOutcome.completed(finalText); edge reasons (max_tokens, ctx-exceeded, guardrail, content_filtered, malformed_*) -> LoopOutcome.surfaced(stopReason) — compaction body (S6/machine B), bounded repair-retry (CT-SM-3), SIGINT (T18), exit dispatch (S8/T-0.9) deferred to clean seams. BudgetGuard T13 seam injected (NONE = no-compaction prod wiring). ADR-0005 injected clock Supplier — loop never calls Instant.now(). Fail-closed gating: unknown/coarse toolUse gated SIDE_EFFECTING (never auto-approved as read) before dispatch. ToolRegistry.operationClass(name) accessor added so the loop builds the right GateRequest without a parallel classifier. Pure composition of T-0.4 EventLog / T-0.5 ModelClient / T-0.6 ToolRegistry / T-0.7 PermissionGate (no reimplementation). Scripted hand-rolled BedrockRuntimeClient double — no live AWS call. 380 tests green under mvn clean verify (93.1% bundle line, 100% loop line / 89.7% loop branch). CT-SM-1, CT-SM-2, CT-INV-2 satisfied. Self-checks: oracle-traceability=passed, reuse=passed. 1 Minor, 1 Nit (non-blocking). 1 Discussion item (D1: loop folds differentiated max_tokens/malformed_* handling into uniform SURFACED — exactly the deferred scope, not a defect; suggested_amendment_kind=none).
+
+## T-0.9 — CLI one-shot (-p), exit codes, SIGINT->130 (C1)
+- commit: pending
+- review: design/reviews/code/T-0.9-r1.md
+- resolved: 2026-06-22
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- notes: 04-apis §1 + cli-exit-codes.md under com.srk.codingagent.cli (C1). Main.run(String[]) extended: CliArguments.parse dispatches by shape (one-shot -p / info / interactive); usage/config faults map to exit 2 BEFORE any model call (ADR-0009 fail-fast preserved, CT-EX-1). OneShotRunner runs the AgentLoop (T-0.8) on the -p prompt and maps LoopOutcome + thrown exceptions to ExitCode honoring cli-exit-codes §2 precedence enforced structurally by catch order: InterruptedRunException->130 caught FIRST (always wins, CT-EX-4), then CredentialResolutionException/ModelBackendException->4 (CT-EX-2 preserved, names paths), UserAbortedException->3, catch-all->1; completed outcome->0 (CT-EX-6). Exit 3 (blocking denial, CT-EX-3) realized via the existing Approver seam: NonInteractiveApprover throws UserAbortedException when a non-interactive one-shot gate must prompt (AC-10.2 'gated op the run cannot proceed without'; the loop never surfaces a denial, so this is the spec-faithful blocking signal). SIGINT->130 is a logic-only mapping seam at M0 (InterruptedRunException; interrupt status re-asserted) asserted without OS signal delivery — the signal handler + stream/subprocess cancellation are T-1.1; event log flushes per event (T-0.4) so resumability needs no special M0 teardown. Surfaced edge reasons: model_context_window_exceeded->5 CONTEXT_EXHAUSTED (no compaction at M0), guardrail/content_filtered/malformed_*->1 INTERNAL (contract pins no other code). run-and-map (OneShotRunner, fully unit-tested via injected loop + scripted Bedrock double) split from the live-AWS composition root (AgentLoopFactory, JaCoCo-excluded like Main bootstrap). 421 tests green under mvn clean verify (+41; 91.9% bundle line; OneShotRunner 100% line; 0.80 floor met). CT-EX-3/4/6 satisfied; CT-EX-1/2 preserved. Self-checks: oracle-traceability=passed, reuse=passed. 1 Minor (non-blocking). 1 Discussion item (D1: SIGINT->130 logic-only seam at M0, no production thrower yet — T-1.1 scope, not a defect; suggested_amendment_kind=none).

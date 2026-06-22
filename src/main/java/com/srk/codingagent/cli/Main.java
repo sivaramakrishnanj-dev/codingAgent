@@ -4,6 +4,10 @@ import com.srk.codingagent.config.ConfigException;
 import com.srk.codingagent.config.ConfigLocations;
 import com.srk.codingagent.config.ConfigResolver;
 import com.srk.codingagent.config.ResolvedConfig;
+import com.srk.codingagent.loop.AgentLoop;
+import com.srk.codingagent.persistence.EventLog;
+import com.srk.codingagent.persistence.SessionStore;
+import java.nio.file.Path;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,19 +15,28 @@ import org.slf4j.LoggerFactory;
 /**
  * Command-line entry point for the coding agent.
  *
- * <p>At this milestone the CLI resolves its configuration on startup and then
- * exits cleanly. Configuration is layered by precedence (flags &gt; project &gt;
- * global &gt; defaults) and validated <em>before</em> any model call (ADR-0009);
- * a malformed or unknown configuration value makes the process exit
+ * <p>The CLI resolves its configuration on startup and dispatches by invocation shape
+ * (04-apis § 1.1). A one-shot invocation ({@code codingagent -p "<prompt>"}) runs the
+ * agent's tool-use cycle to {@code end_turn} then exits with the agent-process exit code
+ * (US-6); the interactive REPL ({@code codingagent} with no {@code -p}) is a later task
+ * (T-1.1). Configuration is layered by precedence (flags &gt; project &gt; global &gt;
+ * defaults) and validated <em>before</em> any model call (ADR-0009): a malformed or
+ * unknown configuration value, or a bad CLI argument, makes the process exit
  * {@link ExitCode#USAGE_CONFIG} ({@code 2}) with a stderr line naming the offending
- * key (AC-8.5, AC-6.4). The full exit-code dispatch (model-backend, abort,
- * interrupt) and the interactive REPL are implemented by later tasks; this class
- * provides only the launchable seam those tasks extend.
+ * key/argument (AC-8.5, AC-6.4, cli-exit-codes {@code 2}).
  *
- * <p>The launch logic lives in {@link #run(String[])}, which returns a process exit
- * code instead of calling {@link System#exit(int)} directly, so it is
- * unit-testable without terminating the test JVM. {@link #main(String[])} is the
- * thin shell that maps the returned code onto the process exit status.
+ * <p><b>Exit-code precedence (cli-exit-codes § 2).</b> The launcher realizes the contract's
+ * ordering: {@code 2} usage/config is decided here at startup, before any model or tool
+ * work; the model-backend ({@code 4}), context-exhausted ({@code 5}), user-aborted
+ * ({@code 3}), internal ({@code 1}), interrupted ({@code 130}), and success ({@code 0})
+ * codes are decided by {@link OneShotRunner} once the run begins. Every non-zero exit prints
+ * one human-readable stderr line naming the cause (guarantee G2).
+ *
+ * <p>The launch logic lives in {@link #run(String[])}, which returns a process exit code
+ * instead of calling {@link System#exit(int)} directly, so it is unit-testable without
+ * terminating the test JVM (the agent-loop construction is the one production-only seam,
+ * isolated in {@link AgentLoopFactory}). {@link #main(String[])} is the thin shell that
+ * maps the returned code onto the process exit status.
  */
 public final class Main {
 
@@ -38,41 +51,94 @@ public final class Main {
      */
     static final int SUCCESS_EXIT_CODE = ExitCode.OK.code();
 
+    /**
+     * The session lineage / id used for the one-shot run's event log. Repo-key derivation
+     * from a git remote and stable session ids are a later session task; at M0 a one-shot
+     * uses a fixed boundary-captured lineage so the gate's grant store and the session log
+     * are wired without pulling that derivation forward.
+     */
+    private static final String ONE_SHOT_LINEAGE = "one-shot";
+
     private Main() {
         // Utility entry point; not instantiable.
     }
 
     /**
-     * Launches the agent CLI: resolves configuration, then exits.
+     * Launches the agent CLI: parses the invocation, resolves configuration, and runs the
+     * selected shape, returning the process exit code.
      *
-     * <p>Configuration is resolved from the default file locations
-     * ({@code ~/.codingagent/...}) plus an empty flag layer (CLI flag parsing is a
-     * later task). On a configuration error the method logs the failure, prints a
-     * stderr line naming the offending key, and returns
-     * {@link ExitCode#USAGE_CONFIG}. Otherwise it returns {@link #SUCCESS_EXIT_CODE}.
-     * No model call is made yet, so a successful resolution still exits {@code 0}.
+     * <p>On a bad invocation (unknown flag, missing prompt value) or a configuration error,
+     * the method prints a stderr line naming the offending argument/key and returns
+     * {@link ExitCode#USAGE_CONFIG} ({@code 2}) before any model call (fail-fast, ADR-0009).
+     * For a one-shot prompt it builds the agent loop and delegates the run-and-map to
+     * {@link OneShotRunner}. For {@code --help} / {@code --version} it prints the requested
+     * information and returns {@code 0}. The interactive REPL shape (no {@code -p}) is not
+     * yet implemented (T-1.1); it currently returns {@code 0} after reporting that.
      *
-     * @param args command-line arguments; currently unused for behavior (accepted
-     *             for the stable {@code main}-style signature later tasks build on).
-     *             May be {@code null}.
-     * @return the process exit code: {@link #SUCCESS_EXIT_CODE} on a clean launch,
-     *         {@link ExitCode#USAGE_CONFIG} ({@code 2}) on a configuration error.
+     * @param args command-line arguments; may be {@code null} (treated as no arguments).
+     * @return the process exit code per the exit-code contract.
      */
     public static int run(String[] args) {
-        LOGGER.info("codingagent CLI starting (resolving config; {} argument(s))",
-                args == null ? 0 : args.length);
+        LOGGER.info("codingagent CLI starting ({} argument(s))", args == null ? 0 : args.length);
+        CliArguments parsed;
         try {
-            ResolvedConfig config = resolveConfig();
-            LOGGER.info("codingagent CLI started with model '{}' in mode {}",
-                    config.modelId(), config.permissionMode());
-            return SUCCESS_EXIT_CODE;
+            parsed = CliArguments.parse(args);
+        } catch (UsageException e) {
+            // Bad CLI args → exit 2 (cli-exit-codes 2, § 3.2). G2: name the offending arg.
+            LOGGER.error("usage error for argument '{}': {}", e.offendingArgument(), e.getMessage());
+            System.err.println("codingagent: usage error: " + e.getMessage());
+            return ExitCode.USAGE_CONFIG.code();
+        }
+
+        if (parsed.kind() == CliArguments.Kind.INFO) {
+            return printInfo(parsed.infoFlag().orElseThrow());
+        }
+
+        ResolvedConfig config;
+        try {
+            config = resolveConfig();
         } catch (ConfigException e) {
-            // Fail-fast (ADR-0009): a bad/unknown config value must stop the run
-            // before any model call. G2: the stderr line names the offending key.
+            // Fail-fast (ADR-0009): a bad/unknown config value must stop the run before any
+            // model call. G2: the stderr line names the offending key.
             LOGGER.error("configuration error for key '{}': {}", e.key(), e.getMessage());
             System.err.println("codingagent: configuration error: " + e.getMessage());
             return ExitCode.USAGE_CONFIG.code();
         }
+        LOGGER.info("codingagent CLI started with model '{}' in mode {}",
+                config.modelId(), config.permissionMode());
+
+        if (parsed.kind() == CliArguments.Kind.ONE_SHOT) {
+            return runOneShot(config, parsed.prompt().orElseThrow());
+        }
+        // Interactive REPL shape (no -p): the REPL is T-1.1. Report and exit cleanly.
+        LOGGER.info("Interactive REPL is not yet available (T-1.1); exiting cleanly");
+        System.err.println("codingagent: interactive mode is not yet available; use -p \"<prompt>\"");
+        return SUCCESS_EXIT_CODE;
+    }
+
+    /**
+     * Wires the production agent loop and runs the one-shot prompt, mapping the outcome to
+     * an exit code. The agent-loop construction (credentials, Bedrock client, tools, gate,
+     * log) is the one production-only seam; the run-and-map logic it delegates to lives in
+     * the unit-tested {@link OneShotRunner}.
+     */
+    private static int runOneShot(ResolvedConfig config, String prompt) {
+        Path workspaceRoot = Path.of("").toAbsolutePath();
+        SessionStore sessions = SessionStore.forUserHome();
+        try (EventLog log = sessions.openLog(ONE_SHOT_LINEAGE, ONE_SHOT_LINEAGE)) {
+            AgentLoop loop = new AgentLoopFactory().create(
+                    config, workspaceRoot, ONE_SHOT_LINEAGE, log, new NonInteractiveApprover());
+            return new OneShotRunner(loop::run, System.out, System.err).run(prompt);
+        }
+    }
+
+    private static int printInfo(String infoFlag) {
+        if (CliArguments.VERSION.equals(infoFlag)) {
+            System.out.println("codingagent (development build)");
+        } else {
+            System.out.println("usage: codingagent -p \"<prompt>\" [options]");
+        }
+        return SUCCESS_EXIT_CODE;
     }
 
     private static ResolvedConfig resolveConfig() {
