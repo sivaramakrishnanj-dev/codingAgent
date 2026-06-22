@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: pending
+last_updated_at_commit: aae305e
 total_resolved_count: 20
 
 last_resolved:
   task: T-2.3
   title: "Sub-agent orchestrator (in-process, N=1, isolated context, budget, no inherited grants)"
   resolved_at: 2026-06-22
-  commit: pending
+  commit: aae305e
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -216,7 +216,7 @@ in_flight: null
 - notes: The compaction-with-derivation flow (C6, ADR-0006, state-machine B). New Compactor (com.srk.codingagent.context, beside OutputDisposer) orchestrates: (1) a dedicated summarizer Converse call through the real ModelClient seam (same model or a configured cheaper summarizerModelId, fixed compaction system prompt asking for task state/decisions/files/open-work/durable-learnings, no toolConfig — OQ-D/AC-18.4); (2) derive a NEW session (boundary-captured id) seeded with the summary + a configurable recent-tail of verbatim turns (recentTailTurns is a Compactor ctor knob, NOT a new config key — avoids touching resolved-config schema/CT-SCH-13/14), reusing SessionReplay for the tail; (3) record lineage on the CHILD .meta.json (edgeType=DERIVED_FROM, parentSessionId=original — the edge SessionStore.deriveMeta deliberately left null) and append COMPACTION(from,to,summaryRef) + (on failure) ERROR to the CHILD log so the parent stays byte-identical; (4) failure path returns CompactionOutcome.failed() carrying CONTEXT_EXHAUSTED_EXIT_CODE=5 (LT4->LT7->machine-A T15). THE LOAD-BEARING WIRE WORK (INV-7): ContentBlock gained a Reasoning permitted variant realizing the EXISTING content-block.schema.json reasoning variant (no schema edit — schema already had it; CT-SCH-5 still green via new ContentBlockSchemaContractTest), and ConverseWireMapper now maps reasoningContent BOTH directions (response->ContentBlock.Reasoning, ContentBlock.Reasoning->request) with the signature preserved VERBATIM — so a reasoning block round-trips response->persist(EventCodec)->replay(SessionReplay)->request unchanged; tests assert the derived session's seeded messages[] round-trip with the signature byte-identical (not field-presence), INV-6 toolUse<->toolResult pairing, parent log byte-identity (CT-INV-3, bytes read before/after), original-log-still-present (CT-INV-4), LT2->LT3 derived-session (CT-SM-6) and LT4->exit5 (CT-SM-7). New payloads: CompactionPayload + ErrorPayload (EventPayload sealed permits extended; EventCodec now maps COMPACTION/ERROR instead of throwing UnsupportedPayloadException), CompactionTrigger {THRESHOLD, MANUAL, CONTEXT_WINDOW_EXCEEDED}. SCOPE SEAMS (deliberate, recorded): AC-18.5 learning-harvest left as a documented seam — the compaction prompt elicits durable learnings as text; T-2.5 reads it and wires the propose call (memory store T-2.4 does not exist yet), so NO memory proposal made here. AgentLoop NOT bound to invoke the Compactor / continue-in-derived (machine A T14) — that is run-driver orchestration (REPL/brownfield), not the loop's single-responsibility cycle; the loop's existing surfaced(COMPACT) stays as the LT2 hand-off and AgentLoop tests stay green. T-2.2's verify (CT-SM-6/7, CT-INV-3/4) is satisfied entirely by the Compactor + persistence/wire path. 681 tests green under mvn clean verify (+38; JaCoCo 0.80 gate met; Compactor 90%, ConverseWireMapper 98%, ContentBlock 100%, payloads/trigger/outcome 100%). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major, 1 Minor (Compactor.concatText near-dups private AgentLoop.finalText ~9-line joiner across loop<->context boundary; extract deferred to avoid churning the heavily-tested AgentLoop), 0 Nit, 0 Discussion.
 
 ## T-2.3 — Sub-agent orchestrator (in-process, N=1, isolated context, budget, no inherited grants)
-- commit: pending
+- commit: aae305e
 - review: design/reviews/code/T-2.3-r1.md
 - resolved: 2026-06-22
 - context_mode: narrow
