@@ -169,6 +169,36 @@ class ToolRegistryTest {
     }
 
     @Test
+    @DisplayName("C7: operationClass exposes a registered tool's class so the loop builds the right GateRequest")
+    void operationClassReportsRegisteredToolClass() {
+        // Oracle: 04-apis § 3 / AC-5.2 — read_file is Class R, write_file/run_command are
+        // Class X. The registry is the single source of each tool's class (the handler's own
+        // operationClass), so the loop (T-0.8) reads it from here rather than re-classifying.
+        ToolRegistry registry = ToolRegistry.of(List.of(
+                new FakeTool("read_file", OperationClass.READ, in -> "r"),
+                new FakeTool("write_file", OperationClass.SIDE_EFFECTING, in -> "w")));
+
+        assertEquals(java.util.Optional.of(OperationClass.READ), registry.operationClass("read_file"),
+                "a Class-R tool reports READ");
+        assertEquals(java.util.Optional.of(OperationClass.SIDE_EFFECTING),
+                registry.operationClass("write_file"), "a Class-X tool reports SIDE_EFFECTING");
+    }
+
+    @Test
+    @DisplayName("C7: operationClass is empty for an unregistered tool name")
+    void operationClassEmptyForUnknownTool() {
+        // Oracle: C7 — an unknown tool has no registered class; the registry reports empty so
+        // the loop can fail-closed (the unknown toolUse still routes to dispatch for the
+        // structured error).
+        ToolRegistry registry = ToolRegistry.of(List.of(
+                new FakeTool("known", OperationClass.READ, in -> "k")));
+
+        assertTrue(registry.operationClass("unregistered").isEmpty(),
+                "an unregistered tool name has no operation class");
+        assertThrows(NullPointerException.class, () -> registry.operationClass(null));
+    }
+
+    @Test
     @DisplayName("Tool.fromToolSpec is the rendering target ConverseWireMapper consumes (reuse, T-0.5)")
     void renderedConfigIsTheConverseToolConfiguration() {
         // Oracle: dependency contract — ConverseWireMapper.toRequest takes the SDK

@@ -1,0 +1,829 @@
+package com.srk.codingagent.loop;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.srk.codingagent.config.PermissionMode;
+import com.srk.codingagent.model.converse.ModelClient;
+import com.srk.codingagent.permission.Approver;
+import com.srk.codingagent.permission.GrantStore;
+import com.srk.codingagent.permission.PermissionGate;
+import com.srk.codingagent.persistence.EventLog;
+import com.srk.codingagent.persistence.OperationClass;
+import com.srk.codingagent.persistence.PermissionDecisionOutcome;
+import com.srk.codingagent.persistence.StopReason;
+import com.srk.codingagent.tool.ToolHandler;
+import com.srk.codingagent.tool.ToolRegistry;
+import java.io.StringWriter;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.core.document.Document;
+import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
+import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
+import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
+import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
+import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
+import software.amazon.awssdk.services.bedrockruntime.model.Message;
+
+/**
+ * Unit tests for {@link AgentLoop} — the agent loop (component C2, ADR-0001), the
+ * stopReason dispatch (tool_use &harr; end_turn) with the permission gate inline and
+ * log-before-act.
+ *
+ * <p><b>SUT and collaborators.</b> The SUT is a real {@link AgentLoop} composed with a
+ * real {@link ModelClient} (and its real {@code ConverseWireMapper}), a real
+ * {@link ToolRegistry} of small real test tools, a real {@link PermissionGate} with a stub
+ * {@link Approver}, and a real {@link EventLog} writing to a {@link StringWriter}. Nothing
+ * the loop's logic owns is mocked. The single external dependency — the
+ * {@link BedrockRuntimeClient} — is a hand-rolled in-test double that replays a scripted
+ * sequence of {@link ConverseResponse}s (turn-1 tool_use &rarr; turn-2 end_turn, deny path,
+ * edge reasons), so the loop is driven by scripted model turns with no live AWS call (the
+ * task's mocked-Bedrock directive; ADR-0001 — no live calls in unit tests).
+ *
+ * <p><b>Oracles.</b> Expected values trace to the spec, not to {@link AgentLoop}'s code:
+ * <ul>
+ *   <li><b>CT-SM-1 (state machine A, T2&rarr;T10):</b> {@code stopReason: tool_use} drives
+ *       gate &rarr; exec &rarr; append-result &rarr; re-call until {@code end_turn}.</li>
+ *   <li><b>CT-INV-2 (INV-2, log-before-act):</b> each side-effecting step's event is
+ *       appended (and flushed) before the loop acts on its consequence. The authoritative
+ *       per-cycle event order is the contract fixture {@code session-tool-use-cycle.jsonl}:
+ *       {@code USER_MESSAGE, MODEL_RESPONSE, MODEL_USAGE, TOOL_USE, PERMISSION_DECISION,
+ *       TOOL_RESULT, MODEL_RESPONSE, MODEL_USAGE}.</li>
+ *   <li><b>CT-SM-2 (state machine A, T8):</b> a gate deny appends
+ *       {@code PERMISSION_DECISION(deny)} + {@code TOOL_RESULT(denied)} and the loop
+ *       continues, with no handler run (INV-8 gate-before-side-effect).</li>
+ *   <li><b>§ 3.1 / state machine A T3/T4/T5:</b> {@code end_turn} returns the final text;
+ *       {@code stop_sequence} is treated as {@code end_turn}; edge reasons are surfaced.</li>
+ * </ul>
+ */
+class AgentLoopTest {
+
+    private static final String MODEL_ID = "anthropic.claude-opus-4-8";
+    private static final String TS = "2026-06-17T09:00:00Z";
+
+    /** A minimal valid JSON-Schema input document for a test tool (independent of the tool package). */
+    private static Document minimalSchema() {
+        return Document.mapBuilder().putString("type", "object").build();
+    }
+
+    // --- Scripted external Bedrock dependency (the only test double) -----------------
+
+    /**
+     * A {@link BedrockRuntimeClient} that replays a scripted queue of responses, one per
+     * {@code converse} call, capturing each request. The SUT is {@link AgentLoop} via a
+     * real {@link ModelClient}; this only stubs the external Bedrock dependency.
+     */
+    private static final class ScriptedBedrockClient implements BedrockRuntimeClient {
+        private final Deque<ConverseResponse> script = new ArrayDeque<>();
+        private final List<ConverseRequest> requests = new ArrayList<>();
+
+        ScriptedBedrockClient then(ConverseResponse response) {
+            script.addLast(response);
+            return this;
+        }
+
+        @Override
+        public ConverseResponse converse(ConverseRequest request) {
+            requests.add(request);
+            if (script.isEmpty()) {
+                throw new IllegalStateException("scripted model exhausted after " + requests.size() + " calls");
+            }
+            return script.removeFirst();
+        }
+
+        int callCount() {
+            return requests.size();
+        }
+
+        @Override
+        public String serviceName() {
+            return "bedrock-runtime";
+        }
+
+        @Override
+        public void close() {
+            // no-op for the in-test double
+        }
+    }
+
+    private static ConverseResponse toolUseTurn(String text, String toolUseId, String tool,
+            Map<String, String> input) {
+        Document.MapBuilder in = Document.mapBuilder();
+        input.forEach(in::putString);
+        // The SDK Message builder's content(...) overloads SET (not append) the block list,
+        // so a text+toolUse turn (matching the contract fixture's TOOL_USE turn) is passed as
+        // one content(List) call.
+        software.amazon.awssdk.services.bedrockruntime.model.ContentBlock textBlock =
+                software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.fromText(text);
+        software.amazon.awssdk.services.bedrockruntime.model.ContentBlock toolUseBlock =
+                software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.fromToolUse(
+                        b -> b.toolUseId(toolUseId).name(tool).input(in.build()));
+        Message message = Message.builder()
+                .role(ConversationRole.ASSISTANT)
+                .content(List.of(textBlock, toolUseBlock))
+                .build();
+        return ConverseResponse.builder()
+                .output(ConverseOutput.builder().message(message).build())
+                .stopReason("tool_use")
+                .usage(u -> u.inputTokens(100).outputTokens(20).totalTokens(120))
+                .build();
+    }
+
+    private static ConverseResponse textTurn(String text, String stopReason) {
+        Message message = Message.builder()
+                .role(ConversationRole.ASSISTANT)
+                .content(c -> c.text(text))
+                .build();
+        return ConverseResponse.builder()
+                .output(ConverseOutput.builder().message(message).build())
+                .stopReason(stopReason)
+                .usage(u -> u.inputTokens(50).outputTokens(10).totalTokens(60))
+                .build();
+    }
+
+    // --- A small real tool (a controllable collaborator, not a mock of the SUT) -------
+
+    /** A real read-class tool that records whether it ran; stands in for a registered tool. */
+    private static final class RecordingTool implements ToolHandler {
+        private final String name;
+        private final OperationClass operationClass;
+        private final AtomicBoolean ran = new AtomicBoolean(false);
+        private final Object result;
+
+        RecordingTool(String name, OperationClass operationClass, Object result) {
+            this.name = name;
+            this.operationClass = operationClass;
+            this.result = result;
+        }
+
+        @Override
+        public String name() {
+            return name;
+        }
+
+        @Override
+        public String description() {
+            return name + " test tool";
+        }
+
+        @Override
+        public Document inputSchema() {
+            return minimalSchema();
+        }
+
+        @Override
+        public OperationClass operationClass() {
+            return operationClass;
+        }
+
+        @Override
+        public Object handle(Map<String, Object> input) {
+            ran.set(true);
+            return result;
+        }
+    }
+
+    // --- Fixtures -------------------------------------------------------------------
+
+    private static AgentLoop loopWith(BedrockRuntimeClient bedrock, ToolRegistry tools,
+            PermissionMode mode, Approver approver, EventLog log) {
+        ModelClient modelClient = new ModelClient(bedrock);
+        PermissionGate gate = new PermissionGate(mode, GrantStore.forSession("root"), approver);
+        return new AgentLoop(modelClient, tools, gate, log, () -> TS, BudgetGuard.NONE, MODEL_ID, null);
+    }
+
+    private static Approver alwaysApprove() {
+        return req -> PermissionDecisionOutcome.APPROVE;
+    }
+
+    private static Approver alwaysDeny() {
+        return req -> PermissionDecisionOutcome.DENY;
+    }
+
+    private static List<String> typesIn(StringWriter sink) {
+        List<String> types = new ArrayList<>();
+        for (String line : sink.toString().lines().toList()) {
+            int i = line.indexOf("\"type\":\"");
+            if (i >= 0) {
+                int start = i + "\"type\":\"".length();
+                types.add(line.substring(start, line.indexOf('"', start)));
+            }
+        }
+        return types;
+    }
+
+    // --- CT-SM-1 : the full tool-use cycle drives to end_turn ------------------------
+
+    @Test
+    @DisplayName("CT-SM-1: tool_use drives gate->exec->append-result->re-call until end_turn")
+    void toolUseCycleDrivesToEndTurn() {
+        // Oracle: CT-SM-1 / state machine A T2->T10 — "stopReason: tool_use drives
+        // gate->exec->append-result->re-call until end_turn". Turn 1 returns tool_use; the
+        // loop must gate, run the tool, append its result, re-call; turn 2 returns end_turn,
+        // and the loop returns the final text. Expected end-state traces to the scripted
+        // turns + the state-machine contract, not to AgentLoop internals.
+        RecordingTool tool = new RecordingTool("read_file", OperationClass.READ, "file contents");
+        ToolRegistry tools = ToolRegistry.of(List.of(tool));
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("I'll read it.", "tu_01", "read_file", Map.of("path", "x.txt")))
+                .then(textTurn("Here is the file.", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysApprove(), EventLog.over(new StringWriter(), "t"));
+
+        LoopOutcome outcome = loop.run("Read x.txt");
+
+        assertEquals(2, bedrock.callCount(),
+                "CT-SM-1: a tool_use turn re-calls the model after the tool result (T10)");
+        assertTrue(tool.ran.get(), "CT-SM-1: the approved tool's handler ran (T7->S4)");
+        assertEquals(LoopOutcome.Kind.COMPLETED, outcome.kind(),
+                "CT-SM-1: the cycle terminates at end_turn (T3->S5)");
+        assertEquals(StopReason.END_TURN, outcome.stopReason(),
+                "CT-SM-1: the terminal stop reason is end_turn");
+        assertEquals("Here is the file.", outcome.finalText(),
+                "CT-SM-1: end_turn returns the final assistant text (§ 3.1)");
+    }
+
+    @Test
+    @DisplayName("CT-SM-1: the tool result is sent back to the model on the re-call (T10)")
+    void toolResultIsSentBackOnRecall() {
+        // Oracle: state machine A T10 — "append the batched toolResults as one user message
+        // and re-call". The second Converse request must carry the tool result the loop
+        // produced, correlated by toolUseId (INV-6). Assert against the captured request,
+        // not impl state.
+        RecordingTool tool = new RecordingTool("read_file", OperationClass.READ, "the data");
+        ToolRegistry tools = ToolRegistry.of(List.of(tool));
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("reading", "tu_77", "read_file", Map.of("path", "y.txt")))
+                .then(textTurn("done", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysApprove(), EventLog.over(new StringWriter(), "t"));
+
+        loop.run("Read y.txt");
+
+        ConverseRequest recall = bedrock.requests.get(1);
+        boolean carriesToolResult = recall.messages().stream()
+                .flatMap(m -> m.content().stream())
+                .anyMatch(b -> b.toolResult() != null && "tu_77".equals(b.toolResult().toolUseId()));
+        assertTrue(carriesToolResult,
+                "T10/INV-6: the re-call resends the tool result correlated by its toolUseId");
+    }
+
+    // --- CT-INV-2 : log-before-act ordering -----------------------------------------
+
+    @Test
+    @DisplayName("CT-INV-2: events are appended in the fixture's log-before-act order")
+    void eventsAppendedInLogBeforeActOrder() {
+        // Oracle: CT-INV-2 / INV-2 — "each side-effecting step's event is flushed before the
+        // effect (log-before-act)". The authoritative per-cycle order is the contract fixture
+        // session-tool-use-cycle.jsonl: USER_MESSAGE, then per assistant turn MODEL_RESPONSE
+        // then MODEL_USAGE, then per toolUse TOOL_USE -> PERMISSION_DECISION -> TOOL_RESULT,
+        // then the re-call's MODEL_RESPONSE/MODEL_USAGE. Assert the emitted event type
+        // sequence equals the fixture's sequence (minus SESSION_START/OUTCOME, which are not
+        // this task's lane).
+        RecordingTool tool = new RecordingTool("run_command", OperationClass.SIDE_EFFECTING, "ran");
+        ToolRegistry tools = ToolRegistry.of(List.of(tool));
+        StringWriter sink = new StringWriter();
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("running", "tu_01", "run_command", Map.of("command", "mvn -q test")))
+                .then(textTurn("All pass.", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysApprove(), EventLog.over(sink, "t"));
+
+        loop.run("Run the tests");
+
+        assertEquals(List.of(
+                "USER_MESSAGE",        // T1
+                "MODEL_RESPONSE",      // T2 assistant turn logged BEFORE tools dispatch
+                "MODEL_USAGE",
+                "TOOL_USE",            // the toolUse digest (fixture seq 4)
+                "PERMISSION_DECISION", // logged BEFORE the tool runs (INV-2 + INV-8)
+                "TOOL_RESULT",         // logged after the tool returns (T9)
+                "USER_MESSAGE",        // the batched tool result sent back (T10)
+                "MODEL_RESPONSE",      // the re-call's end_turn turn
+                "MODEL_USAGE"),
+                typesIn(sink),
+                "CT-INV-2: the event order matches the contract fixture's log-before-act order");
+    }
+
+    @Test
+    @DisplayName("CT-INV-2: the assistant MODEL_RESPONSE is logged before any tool is dispatched")
+    void modelResponseLoggedBeforeToolDispatch() {
+        // Oracle: CT-INV-2 / INV-2 — "the assistant MODEL_RESPONSE is appended before tools
+        // dispatch". A tool that records the event log's contents at the instant it runs must
+        // observe the MODEL_RESPONSE already written (the response is durably recorded before
+        // the side effect acts).
+        StringWriter sink = new StringWriter();
+        EventLog log = EventLog.over(sink, "t");
+        AtomicBoolean responseLoggedWhenToolRan = new AtomicBoolean(false);
+        ToolHandler probe = new ToolHandler() {
+            @Override
+            public String name() {
+                return "read_file";
+            }
+
+            @Override
+            public String description() {
+                return "probe";
+            }
+
+            @Override
+            public Document inputSchema() {
+                return minimalSchema();
+            }
+
+            @Override
+            public OperationClass operationClass() {
+                return OperationClass.READ;
+            }
+
+            @Override
+            public Object handle(Map<String, Object> input) {
+                responseLoggedWhenToolRan.set(sink.toString().contains("\"type\":\"MODEL_RESPONSE\""));
+                return "ok";
+            }
+        };
+        ToolRegistry tools = ToolRegistry.of(List.of(probe));
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("reading", "tu_01", "read_file", Map.of("path", "z")))
+                .then(textTurn("done", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME, alwaysApprove(), log);
+
+        loop.run("go");
+
+        assertTrue(responseLoggedWhenToolRan.get(),
+                "INV-2: the assistant MODEL_RESPONSE must be logged before the tool dispatches");
+    }
+
+    @Test
+    @DisplayName("CT-INV-2: the PERMISSION_DECISION is logged before the tool handler runs (INV-8 + INV-2)")
+    void permissionDecisionLoggedBeforeHandlerRuns() {
+        // Oracle: INV-2 + INV-8 — no side effect executes without a preceding
+        // PERMISSION_DECISION, and that decision is logged before the effect. The tool, when
+        // it runs, must already see its PERMISSION_DECISION on disk.
+        StringWriter sink = new StringWriter();
+        EventLog log = EventLog.over(sink, "t");
+        AtomicBoolean decisionLoggedWhenToolRan = new AtomicBoolean(false);
+        ToolHandler probe = new ToolHandler() {
+            @Override
+            public String name() {
+                return "read_file";
+            }
+
+            @Override
+            public String description() {
+                return "probe";
+            }
+
+            @Override
+            public Document inputSchema() {
+                return minimalSchema();
+            }
+
+            @Override
+            public OperationClass operationClass() {
+                return OperationClass.READ;
+            }
+
+            @Override
+            public Object handle(Map<String, Object> input) {
+                decisionLoggedWhenToolRan.set(
+                        sink.toString().contains("\"type\":\"PERMISSION_DECISION\""));
+                return "ok";
+            }
+        };
+        ToolRegistry tools = ToolRegistry.of(List.of(probe));
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("reading", "tu_01", "read_file", Map.of("path", "z")))
+                .then(textTurn("done", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME, alwaysApprove(), log);
+
+        loop.run("go");
+
+        assertTrue(decisionLoggedWhenToolRan.get(),
+                "INV-8/INV-2: the PERMISSION_DECISION must be logged before the side effect");
+    }
+
+    // --- CT-SM-2 : a gate deny appends decision + denied result and continues ---------
+
+    @Test
+    @DisplayName("CT-SM-2: a gate deny logs PERMISSION_DECISION(deny)+TOOL_RESULT(denied), runs no handler")
+    void gateDenyLogsDeniedResultAndRunsNoHandler() {
+        // Oracle: CT-SM-2 / state machine A T8 — "a gate denial appends TOOL_RESULT(denied)
+        // and the loop continues (no side effect)". With a side-effecting tool and a denying
+        // approver, the loop must log a deny decision and a denied tool result, must NOT run
+        // the handler (INV-8), and must continue to the next turn (which ends the turn).
+        RecordingTool tool = new RecordingTool("run_command", OperationClass.SIDE_EFFECTING, "should not run");
+        ToolRegistry tools = ToolRegistry.of(List.of(tool));
+        StringWriter sink = new StringWriter();
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("running", "tu_09", "run_command", Map.of("command", "rm -rf /")))
+                .then(textTurn("Understood, I won't.", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysDeny(), EventLog.over(sink, "t"));
+
+        LoopOutcome outcome = loop.run("Delete everything");
+
+        assertFalse(tool.ran.get(), "CT-SM-2/INV-8: a denied tool's handler must NOT run");
+        assertTrue(sink.toString().contains("\"decision\":\"deny\""),
+                "CT-SM-2: a deny decision is recorded on the PERMISSION_DECISION event");
+        assertTrue(sink.toString().contains("\"status\":\"denied\""),
+                "CT-SM-2: a denied tool result (status denied) is recorded (T8)");
+        assertEquals(2, bedrock.callCount(),
+                "CT-SM-2: the loop continues after a denial — it re-calls with the denied result");
+        assertEquals(LoopOutcome.Kind.COMPLETED, outcome.kind(),
+                "CT-SM-2: the loop proceeds to the next turn and completes normally");
+    }
+
+    @Test
+    @DisplayName("CT-SM-2: the denied tool result is sent back to the model so it can react (T8)")
+    void deniedResultSentBackToModel() {
+        // Oracle: state machine A T8 — "loop continues with the denial result"; the denied
+        // tool result, correlated by toolUseId (INV-6), is resent so the model reacts.
+        RecordingTool tool = new RecordingTool("run_command", OperationClass.SIDE_EFFECTING, "x");
+        ToolRegistry tools = ToolRegistry.of(List.of(tool));
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("running", "tu_09", "run_command", Map.of("command", "rm -rf /")))
+                .then(textTurn("ok", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysDeny(), EventLog.over(new StringWriter(), "t"));
+
+        loop.run("go");
+
+        ConverseRequest recall = bedrock.requests.get(1);
+        boolean carriesDenied = recall.messages().stream()
+                .flatMap(m -> m.content().stream())
+                .anyMatch(b -> b.toolResult() != null && "tu_09".equals(b.toolResult().toolUseId()));
+        assertTrue(carriesDenied,
+                "T8/INV-6: the denied result is resent on the re-call, correlated by toolUseId");
+    }
+
+    @Test
+    @DisplayName("INV-8: READ_ONLY denies a side-effecting tool without prompting, runs no handler")
+    void readOnlyDeniesSideEffectingTool() {
+        // Oracle: AC-9.2 (gate behaviour, T-0.7) composed in the loop — in READ_ONLY a
+        // Class-X tool is denied; the loop must record the deny + denied result and run no
+        // handler (INV-8). The deny here comes from the mode, not the approver (no prompt).
+        RecordingTool tool = new RecordingTool("write_file", OperationClass.SIDE_EFFECTING, "wrote");
+        ToolRegistry tools = ToolRegistry.of(List.of(tool));
+        StringWriter sink = new StringWriter();
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("writing", "tu_05", "write_file",
+                        Map.of("path", "a.txt", "content", "hi")))
+                .then(textTurn("blocked", "end_turn"));
+        // An approver that would approve if consulted — proving the DENY came from the mode.
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.READ_ONLY,
+                alwaysApprove(), EventLog.over(sink, "t"));
+
+        loop.run("write a file");
+
+        assertFalse(tool.ran.get(), "AC-9.2/INV-8: READ_ONLY denies the write; the handler must not run");
+        assertTrue(sink.toString().contains("\"status\":\"denied\""),
+                "the denied tool result is recorded even though the deny came from the mode");
+    }
+
+    // --- end_turn / stop_sequence / edge reasons (§ 3.1, T3/T4/T5) -------------------
+
+    @Test
+    @DisplayName("§ 3.1: an immediate end_turn returns the final text with no tool dispatch")
+    void immediateEndTurnReturnsFinalText() {
+        // Oracle: § 3.1 / state machine A T3 — "end_turn: return final text". A first-turn
+        // end_turn completes with one model call and no tools.
+        ToolRegistry tools = ToolRegistry.of(List.of());
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(textTurn("Hello, how can I help?", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysApprove(), EventLog.over(new StringWriter(), "t"));
+
+        LoopOutcome outcome = loop.run("hi");
+
+        assertEquals(1, bedrock.callCount(), "§ 3.1: end_turn does not re-call");
+        assertEquals(LoopOutcome.Kind.COMPLETED, outcome.kind());
+        assertEquals("Hello, how can I help?", outcome.finalText(),
+                "§ 3.1: end_turn returns the model's final text");
+    }
+
+    @Test
+    @DisplayName("§ 3.1: stop_sequence is treated as end_turn")
+    void stopSequenceTreatedAsEndTurn() {
+        // Oracle: § 3.1 — "stop_sequence: treat as end_turn unless a workflow uses
+        // sequences". The loop completes (does not surface) on a stop_sequence turn.
+        ToolRegistry tools = ToolRegistry.of(List.of());
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(textTurn("stopped here", "stop_sequence"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysApprove(), EventLog.over(new StringWriter(), "t"));
+
+        LoopOutcome outcome = loop.run("hi");
+
+        assertEquals(LoopOutcome.Kind.COMPLETED, outcome.kind(),
+                "§ 3.1: stop_sequence is treated as end_turn (a completed outcome)");
+        assertEquals("stopped here", outcome.finalText());
+    }
+
+    @Test
+    @DisplayName("state machine A T5: guardrail_intervened is surfaced, not retried, no tools run")
+    void guardrailIsSurfaced() {
+        // Oracle: § 3.1 / state machine A T5 — "guardrail_intervened: surface; do not retry
+        // blindly". The loop must stop with a surfaced outcome carrying the stop reason, and
+        // must not re-call.
+        ToolRegistry tools = ToolRegistry.of(List.of());
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(textTurn("", "guardrail_intervened"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysApprove(), EventLog.over(new StringWriter(), "t"));
+
+        LoopOutcome outcome = loop.run("hi");
+
+        assertEquals(1, bedrock.callCount(), "T5: a surfaced edge reason is not retried blindly");
+        assertEquals(LoopOutcome.Kind.SURFACED, outcome.kind(),
+                "T5 -> S7: guardrail_intervened is surfaced, not completed");
+        assertEquals(StopReason.GUARDRAIL_INTERVENED, outcome.stopReason(),
+                "T5: the surfaced outcome carries the edge stop reason for the caller to decide");
+        assertFalse(outcome.completed(), "a surfaced outcome is not a completion");
+    }
+
+    @Test
+    @DisplayName("state machine A T4: model_context_window_exceeded is surfaced (compaction seam, T-2.x)")
+    void contextWindowExceededIsSurfaced() {
+        // Oracle: § 3.1 / state machine A T4 — context-window-exceeded hands to the
+        // compaction machine. Compaction is out of scope (T-2.1/T-2.2); the loop surfaces the
+        // reason rather than implementing compaction. Assert it surfaces, no tools, no
+        // re-call.
+        ToolRegistry tools = ToolRegistry.of(List.of());
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(textTurn("", "model_context_window_exceeded"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysApprove(), EventLog.over(new StringWriter(), "t"));
+
+        LoopOutcome outcome = loop.run("hi");
+
+        assertEquals(LoopOutcome.Kind.SURFACED, outcome.kind(),
+                "T4: context-window-exceeded is surfaced (compaction is a later task)");
+        assertEquals(StopReason.MODEL_CONTEXT_WINDOW_EXCEEDED, outcome.stopReason());
+    }
+
+    // --- Multi-tool turn, multi-cycle, multi-block ----------------------------------
+
+    @Test
+    @DisplayName("CT-SM-1: a turn with multiple toolUse blocks gates and dispatches each, batches results")
+    void multipleToolUseBlocksInOneTurn() {
+        // Oracle: state machine A T6 ("next toolUse block") looped over a turn's blocks, then
+        // T10 ("append all toolResults as one user message"). A turn with two toolUse blocks
+        // must run both handlers and batch both results into one user message on the re-call.
+        RecordingTool reader = new RecordingTool("read_file", OperationClass.READ, "data");
+        RecordingTool runner = new RecordingTool("run_command", OperationClass.SIDE_EFFECTING, "out");
+        ToolRegistry tools = ToolRegistry.of(List.of(reader, runner));
+        // Build all three content blocks in one content(List) call: the SDK Message builder's
+        // content(Consumer) overload replaces (not appends), so a multi-block turn must pass
+        // the whole list at once for the model client to parse every block.
+        software.amazon.awssdk.services.bedrockruntime.model.ContentBlock textBlock =
+                software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.fromText("doing two things");
+        software.amazon.awssdk.services.bedrockruntime.model.ContentBlock readBlock =
+                software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.fromToolUse(
+                        b -> b.toolUseId("tu_a").name("read_file")
+                                .input(Document.mapBuilder().putString("path", "x").build()));
+        software.amazon.awssdk.services.bedrockruntime.model.ContentBlock runBlock =
+                software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.fromToolUse(
+                        b -> b.toolUseId("tu_b").name("run_command")
+                                .input(Document.mapBuilder().putString("command", "ls").build()));
+        Message twoTools = Message.builder()
+                .role(ConversationRole.ASSISTANT)
+                .content(List.of(textBlock, readBlock, runBlock))
+                .build();
+        ConverseResponse twoToolTurn = ConverseResponse.builder()
+                .output(ConverseOutput.builder().message(twoTools).build())
+                .stopReason("tool_use")
+                .usage(u -> u.inputTokens(80).outputTokens(30).totalTokens(110))
+                .build();
+        StringWriter sink = new StringWriter();
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(twoToolTurn)
+                .then(textTurn("both done", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME, alwaysApprove(),
+                EventLog.over(sink, "t"));
+
+        loop.run("do two things");
+
+        assertTrue(reader.ran.get() && runner.ran.get(), "T6: both toolUse blocks are dispatched");
+        ConverseRequest recall = bedrock.requests.get(1);
+        long resultMessages = recall.messages().stream()
+                .filter(m -> m.content().stream().anyMatch(b -> b.toolResult() != null))
+                .count();
+        assertEquals(1, resultMessages,
+                "T10: both tool results are batched into exactly one user message on the re-call");
+        assertEquals(2, typesIn(sink).stream().filter("TOOL_RESULT"::equals).count(),
+                "T9: each dispatched tool produces its own TOOL_RESULT event");
+    }
+
+    @Test
+    @DisplayName("T9: an approved tool that fails yields a TOOL_RESULT(error), and the loop continues")
+    void approvedToolFailureYieldsErrorResult() {
+        // Oracle: state machine A T9 — "tool handler returns (incl. error)" -> append
+        // TOOL_RESULT. 04-apis § 3 — a handler failure becomes an error tool result so the
+        // model reacts (the registry maps a ToolInvocationException to an error result). The
+        // loop must log a TOOL_RESULT with error status and continue (the tool ran, but
+        // failed — distinct from a gate denial).
+        ToolHandler failing = new ToolHandler() {
+            @Override
+            public String name() {
+                return "run_command";
+            }
+
+            @Override
+            public String description() {
+                return "always fails";
+            }
+
+            @Override
+            public Document inputSchema() {
+                return minimalSchema();
+            }
+
+            @Override
+            public OperationClass operationClass() {
+                return OperationClass.SIDE_EFFECTING;
+            }
+
+            @Override
+            public Object handle(Map<String, Object> input) {
+                throw new com.srk.codingagent.tool.ToolInvocationException("command not found");
+            }
+        };
+        ToolRegistry tools = ToolRegistry.of(List.of(failing));
+        StringWriter sink = new StringWriter();
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("running", "tu_e", "run_command", Map.of("command", "bogus")))
+                .then(textTurn("that failed", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME, alwaysApprove(),
+                EventLog.over(sink, "t"));
+
+        LoopOutcome outcome = loop.run("run bogus");
+
+        assertTrue(sink.toString().contains("\"status\":\"error\""),
+                "T9: an approved-but-failed tool yields a TOOL_RESULT(error) event");
+        assertFalse(sink.toString().contains("\"status\":\"denied\""),
+                "a tool failure is an error, not a denial (the gate approved it)");
+        assertEquals(2, bedrock.callCount(), "T9 -> T10: the loop re-calls after the error result");
+        assertEquals(LoopOutcome.Kind.COMPLETED, outcome.kind());
+    }
+
+    @Test
+    @DisplayName("§ 3.1: a multi-text-block end_turn joins the text blocks into the final answer")
+    void endTurnJoinsMultipleTextBlocks() {
+        // Oracle: § 3.1 / state machine A T3 — end_turn renders the final text. A turn with
+        // two text blocks renders both, joined, as the final answer.
+        software.amazon.awssdk.services.bedrockruntime.model.ContentBlock first =
+                software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.fromText("line one");
+        software.amazon.awssdk.services.bedrockruntime.model.ContentBlock second =
+                software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.fromText("line two");
+        Message twoText = Message.builder()
+                .role(ConversationRole.ASSISTANT)
+                .content(List.of(first, second))
+                .build();
+        ConverseResponse twoTextTurn = ConverseResponse.builder()
+                .output(ConverseOutput.builder().message(twoText).build())
+                .stopReason("end_turn")
+                .usage(u -> u.inputTokens(40).outputTokens(8).totalTokens(48))
+                .build();
+        AgentLoop loop = loopWith(new ScriptedBedrockClient().then(twoTextTurn),
+                ToolRegistry.of(List.of()), PermissionMode.ASK_EVERY_TIME, alwaysApprove(),
+                EventLog.over(new StringWriter(), "t"));
+
+        LoopOutcome outcome = loop.run("speak");
+
+        assertEquals("line one\nline two", outcome.finalText(),
+                "§ 3.1: both text blocks of the final turn are rendered (joined)");
+    }
+
+    @Test
+    @DisplayName("CT-SM-1: the loop iterates multiple tool-use cycles until end_turn")
+    void multipleSequentialCycles() {
+        // Oracle: state machine A loop body — "LOOP until stopReason == end_turn". Two
+        // sequential tool_use turns then end_turn drives three model calls.
+        RecordingTool tool = new RecordingTool("read_file", OperationClass.READ, "data");
+        ToolRegistry tools = ToolRegistry.of(List.of(tool));
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("step 1", "tu_1", "read_file", Map.of("path", "a")))
+                .then(toolUseTurn("step 2", "tu_2", "read_file", Map.of("path", "b")))
+                .then(textTurn("complete", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME, alwaysApprove(),
+                EventLog.over(new StringWriter(), "t"));
+
+        LoopOutcome outcome = loop.run("multi-step task");
+
+        assertEquals(3, bedrock.callCount(), "the loop re-calls after each tool_use turn until end_turn");
+        assertEquals("complete", outcome.finalText());
+    }
+
+    // --- Construction + input validation --------------------------------------------
+
+    @Test
+    @DisplayName("the loop requires all of its collaborators (composition contract)")
+    void constructorRejectsNullCollaborators() {
+        ModelClient client = new ModelClient(new ScriptedBedrockClient().then(textTurn("x", "end_turn")));
+        ToolRegistry tools = ToolRegistry.of(List.of());
+        PermissionGate gate = new PermissionGate(
+                PermissionMode.ASK_EVERY_TIME, GrantStore.forSession("root"), alwaysApprove());
+        EventLog log = EventLog.over(new StringWriter(), "t");
+
+        assertThrows(NullPointerException.class, () -> new AgentLoop(
+                null, tools, gate, log, () -> TS, BudgetGuard.NONE, MODEL_ID, null));
+        assertThrows(NullPointerException.class, () -> new AgentLoop(
+                client, null, gate, log, () -> TS, BudgetGuard.NONE, MODEL_ID, null));
+        assertThrows(NullPointerException.class, () -> new AgentLoop(
+                client, tools, null, log, () -> TS, BudgetGuard.NONE, MODEL_ID, null));
+        assertThrows(NullPointerException.class, () -> new AgentLoop(
+                client, tools, gate, null, () -> TS, BudgetGuard.NONE, MODEL_ID, null));
+        assertThrows(NullPointerException.class, () -> new AgentLoop(
+                client, tools, gate, log, null, BudgetGuard.NONE, MODEL_ID, null));
+        assertThrows(NullPointerException.class, () -> new AgentLoop(
+                client, tools, gate, log, () -> TS, null, MODEL_ID, null));
+        assertThrows(IllegalArgumentException.class, () -> new AgentLoop(
+                client, tools, gate, log, () -> TS, BudgetGuard.NONE, "  ", null));
+    }
+
+    @Test
+    @DisplayName("run rejects a null or blank prompt")
+    void runRejectsBlankPrompt() {
+        AgentLoop loop = loopWith(new ScriptedBedrockClient().then(textTurn("x", "end_turn")),
+                ToolRegistry.of(List.of()), PermissionMode.ASK_EVERY_TIME, alwaysApprove(),
+                EventLog.over(new StringWriter(), "t"));
+
+        assertThrows(NullPointerException.class, () -> loop.run(null));
+        assertThrows(IllegalArgumentException.class, () -> loop.run("   "));
+    }
+
+    @Test
+    @DisplayName("ADR-0005: every appended event carries the injected clock's timestamp, never Instant.now()")
+    void usesInjectedClockForTimestamps() {
+        // Oracle: ADR-0005 — the loop accepts an injected timestamp source and never calls
+        // Instant.now(); every event it emits carries the injected ts verbatim. Assert the
+        // emitted lines all carry the fixed clock value and none carry a different ts.
+        ToolRegistry tools = ToolRegistry.of(List.of());
+        StringWriter sink = new StringWriter();
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient().then(textTurn("hi", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME, alwaysApprove(),
+                EventLog.over(sink, "t"));
+
+        loop.run("hello");
+
+        List<String> lines = sink.toString().lines().toList();
+        assertTrue(lines.stream().allMatch(l -> l.contains("\"ts\":\"" + TS + "\"")),
+                "ADR-0005: every event carries the injected clock timestamp, not a derived one");
+    }
+
+    @Test
+    @DisplayName("state machine A T13: a budget guard signalling COMPACT surfaces (compaction is T-2.x)")
+    void budgetGuardCompactSurfaces() {
+        // Oracle: state machine A T13 — usage crossing the budget threshold hands to the
+        // compaction machine (S6). Compaction is out of scope at T-0.8; the loop consults the
+        // injected BudgetGuard seam after a turn and, on COMPACT, surfaces rather than running
+        // tools or implementing compaction. A guard that always says COMPACT must make a
+        // tool_use turn surface (not dispatch the tool).
+        RecordingTool tool = new RecordingTool("read_file", OperationClass.READ, "data");
+        ToolRegistry tools = ToolRegistry.of(List.of(tool));
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("reading", "tu_1", "read_file", Map.of("path", "x")));
+        ModelClient modelClient = new ModelClient(bedrock);
+        PermissionGate gate = new PermissionGate(
+                PermissionMode.ASK_EVERY_TIME, GrantStore.forSession("root"), alwaysApprove());
+        AgentLoop loop = new AgentLoop(modelClient, tools, gate, EventLog.over(new StringWriter(), "t"),
+                () -> TS, usage -> BudgetGuard.Decision.COMPACT, MODEL_ID, null);
+
+        LoopOutcome outcome = loop.run("read x");
+
+        assertEquals(1, bedrock.callCount(), "T13: the loop hands off after the turn, not after a re-call");
+        assertFalse(tool.ran.get(), "T13: on COMPACT the loop surfaces before dispatching tools");
+        assertEquals(LoopOutcome.Kind.SURFACED, outcome.kind(),
+                "T13 -> S6: a budget-threshold hit is surfaced (compaction is T-2.1/T-2.2)");
+    }
+
+    @Test
+    @DisplayName("§ 2: the system prompt is sent on the model call when provided")
+    void systemPromptIsSent() {
+        // Oracle: 02-architecture.md § 2 — the loop calls Converse(messages, system,
+        // toolConfig). A configured system prompt must reach the request the model client
+        // builds. Verify against the captured request, not impl state.
+        ToolRegistry tools = ToolRegistry.of(List.of());
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient().then(textTurn("hi", "end_turn"));
+        ModelClient modelClient = new ModelClient(bedrock);
+        PermissionGate gate = new PermissionGate(
+                PermissionMode.ASK_EVERY_TIME, GrantStore.forSession("root"), alwaysApprove());
+        AgentLoop loop = new AgentLoop(modelClient, tools, gate, EventLog.over(new StringWriter(), "t"),
+                () -> TS, BudgetGuard.NONE, MODEL_ID, List.of("You are a coding agent."));
+
+        loop.run("hi");
+
+        assertTrue(bedrock.requests.get(0).hasSystem(),
+                "§ 2: the system prompt reaches the Converse request");
+        assertEquals("You are a coding agent.", bedrock.requests.get(0).system().get(0).text());
+    }
+}

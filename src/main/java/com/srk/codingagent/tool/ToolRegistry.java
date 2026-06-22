@@ -83,6 +83,29 @@ public final class ToolRegistry {
     }
 
     /**
+     * The {@link com.srk.codingagent.persistence.OperationClass} of the named tool, so the
+     * agent loop (T-0.8) can build the right permission {@code GateRequest} for a model
+     * {@code toolUse} without keeping a parallel classifier: the registry is the single
+     * source of each tool's read/side-effecting class (the handler's own
+     * {@link ToolHandler#operationClass()}).
+     *
+     * @param toolName the tool name from a model {@code toolUse.name}; must not be
+     *                 {@code null}.
+     * @return the tool's operation class, or {@link java.util.Optional#empty()} when no
+     *         tool by that name is registered (an unknown tool — the loop routes its
+     *         {@code toolUse} to {@link #dispatch} which produces the structured-error
+     *         result).
+     * @throws NullPointerException if {@code toolName} is {@code null}.
+     */
+    public java.util.Optional<com.srk.codingagent.persistence.OperationClass> operationClass(
+            String toolName) {
+        Objects.requireNonNull(toolName, "toolName");
+        ToolHandler handler = handlers.get(toolName);
+        return handler == null ? java.util.Optional.empty()
+                : java.util.Optional.of(handler.operationClass());
+    }
+
+    /**
      * Renders the registered tools to a Converse {@link ToolConfiguration}: each tool
      * becomes a {@code toolSpec {name, description, inputSchema}} (ADR-0001). The result
      * is what {@link com.srk.codingagent.model.converse.ConverseWireMapper#toRequest}
