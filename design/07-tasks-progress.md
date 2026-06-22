@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: pending
+last_updated_at_commit: 218da28
 total_resolved_count: 10
 
 last_resolved:
   task: T-0.2-RD1
   title: "Regression fix (DEFECT D1): default model id -> us. inference-profile form"
   resolved_at: 2026-06-22
-  commit: pending
+  commit: 218da28
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -99,7 +99,7 @@ in_flight: null
 - notes: 04-apis §1 + cli-exit-codes.md under com.srk.codingagent.cli (C1). Main.run(String[]) extended: CliArguments.parse dispatches by shape (one-shot -p / info / interactive); usage/config faults map to exit 2 BEFORE any model call (ADR-0009 fail-fast preserved, CT-EX-1). OneShotRunner runs the AgentLoop (T-0.8) on the -p prompt and maps LoopOutcome + thrown exceptions to ExitCode honoring cli-exit-codes §2 precedence enforced structurally by catch order: InterruptedRunException->130 caught FIRST (always wins, CT-EX-4), then CredentialResolutionException/ModelBackendException->4 (CT-EX-2 preserved, names paths), UserAbortedException->3, catch-all->1; completed outcome->0 (CT-EX-6). Exit 3 (blocking denial, CT-EX-3) realized via the existing Approver seam: NonInteractiveApprover throws UserAbortedException when a non-interactive one-shot gate must prompt (AC-10.2 'gated op the run cannot proceed without'; the loop never surfaces a denial, so this is the spec-faithful blocking signal). SIGINT->130 is a logic-only mapping seam at M0 (InterruptedRunException; interrupt status re-asserted) asserted without OS signal delivery — the signal handler + stream/subprocess cancellation are T-1.1; event log flushes per event (T-0.4) so resumability needs no special M0 teardown. Surfaced edge reasons: model_context_window_exceeded->5 CONTEXT_EXHAUSTED (no compaction at M0), guardrail/content_filtered/malformed_*->1 INTERNAL (contract pins no other code). run-and-map (OneShotRunner, fully unit-tested via injected loop + scripted Bedrock double) split from the live-AWS composition root (AgentLoopFactory, JaCoCo-excluded like Main bootstrap). 421 tests green under mvn clean verify (+41; 91.9% bundle line; OneShotRunner 100% line; 0.80 floor met). CT-EX-3/4/6 satisfied; CT-EX-1/2 preserved. Self-checks: oracle-traceability=passed, reuse=passed. 1 Minor (non-blocking). 1 Discussion item (D1: SIGINT->130 logic-only seam at M0, no production thrower yet — T-1.1 scope, not a defect; suggested_amendment_kind=none).
 
 ## T-0.2-RD1 — Regression fix (DEFECT D1): default model id -> us. inference-profile form
-- commit: PLACEHOLDER_D1_SHA
+- commit: 218da28
 - review: design/reviews/code/T-0.2-RD1-r1.md
 - resolved: 2026-06-22
 - context_mode: narrow
