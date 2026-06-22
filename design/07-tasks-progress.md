@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: pending
+last_updated_at_commit: 0fa658d
 total_resolved_count: 9
 
 last_resolved:
   task: T-0.9
   title: "CLI one-shot (-p), exit codes, SIGINT->130 (C1)"
   resolved_at: 2026-06-22
-  commit: pending
+  commit: 0fa658d
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -90,7 +90,7 @@ in_flight: null
 - notes: ADR-0001 owned-loop C2 under com.srk.codingagent.loop. AgentLoop drives state-machine A: T1 append USER_MESSAGE -> seed transcript; per turn S1 ModelClient.converse -> T2/T3 append MODEL_RESPONSE+MODEL_USAGE before acting (INV-2); dispatch on StopReason. tool_use (T2->S2): per toolUse block log TOOL_USE digest -> PermissionGate.evaluate -> append PERMISSION_DECISION before exec (INV-8 gate-in-the-middle) -> on approve ToolRegistry.dispatch + TOOL_RESULT (INV-6 toolUseId pairing); on deny TOOL_RESULT(denied), no handler run (CT-SM-2/T8); batch results as one user msg, re-call (T10). end_turn/stop_sequence -> LoopOutcome.completed(finalText); edge reasons (max_tokens, ctx-exceeded, guardrail, content_filtered, malformed_*) -> LoopOutcome.surfaced(stopReason) — compaction body (S6/machine B), bounded repair-retry (CT-SM-3), SIGINT (T18), exit dispatch (S8/T-0.9) deferred to clean seams. BudgetGuard T13 seam injected (NONE = no-compaction prod wiring). ADR-0005 injected clock Supplier — loop never calls Instant.now(). Fail-closed gating: unknown/coarse toolUse gated SIDE_EFFECTING (never auto-approved as read) before dispatch. ToolRegistry.operationClass(name) accessor added so the loop builds the right GateRequest without a parallel classifier. Pure composition of T-0.4 EventLog / T-0.5 ModelClient / T-0.6 ToolRegistry / T-0.7 PermissionGate (no reimplementation). Scripted hand-rolled BedrockRuntimeClient double — no live AWS call. 380 tests green under mvn clean verify (93.1% bundle line, 100% loop line / 89.7% loop branch). CT-SM-1, CT-SM-2, CT-INV-2 satisfied. Self-checks: oracle-traceability=passed, reuse=passed. 1 Minor, 1 Nit (non-blocking). 1 Discussion item (D1: loop folds differentiated max_tokens/malformed_* handling into uniform SURFACED — exactly the deferred scope, not a defect; suggested_amendment_kind=none).
 
 ## T-0.9 — CLI one-shot (-p), exit codes, SIGINT->130 (C1)
-- commit: pending
+- commit: 0fa658d
 - review: design/reviews/code/T-0.9-r1.md
 - resolved: 2026-06-22
 - context_mode: narrow
