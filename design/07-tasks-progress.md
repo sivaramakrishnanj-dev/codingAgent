@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: 50f65f3
+last_updated_at_commit: pending
 total_resolved_count: 17
 
 last_resolved:
@@ -12,8 +12,31 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-2.1
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-22T17:10:00-07:00
+  last_updated_at: 2026-06-22T17:10:00-07:00
 ---
+
+## In-flight
+
+- task: T-2.1
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  files_in_working_tree: []
+  dcrs_consumed: []
+  started_at: 2026-06-22T17:10:00-07:00
+  last_updated_at: 2026-06-22T17:10:00-07:00
 
 ## Milestone gates
 
