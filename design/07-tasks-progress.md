@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: 0fa658d
+last_updated_at_commit: pending
 total_resolved_count: 9
 
 last_resolved:
@@ -12,8 +12,45 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-0.2-RD1
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-22T00:00:00+00:00
+  last_updated_at: 2026-06-22T00:00:00+00:00
 ---
+
+## In-flight
+
+- task: T-0.2-RD1
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  files_in_working_tree:
+    - (none yet)
+  dcrs_consumed:
+    - (none)
+  started_at: 2026-06-22T00:00:00+00:00
+  last_updated_at: 2026-06-22T00:00:00+00:00
+  note: |
+    Regression fix to resolved M0 task T-0.2 (DEFECT D1). A manual real-Bedrock
+    smoke test (the G0 assertion automated mocked tests structurally cannot make)
+    found the default model id ConfigDefaults.MODEL_ID = "anthropic.claude-opus-4-8"
+    (bare id) is rejected by on-demand Converse with a ValidationException
+    ("Invocation of model ID ... with on-demand throughput isn't supported. Retry
+    ... with the ID or ARN of an inference profile ..."). Fix: set the default to the
+    cross-region inference-profile id "us.anthropic.claude-opus-4-8" (verified ACTIVE
+    via aws bedrock list-inference-profiles; ADR-0001 already names this form as
+    preferred for availability). Plus a regression test asserting the default is an
+    inference-profile form (region-prefixed), not a bare anthropic. id. Not a DCR —
+    the spec already supports the fix.
 
 ## Resolved tasks
 
