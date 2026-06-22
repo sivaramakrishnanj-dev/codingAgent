@@ -1,5 +1,6 @@
 package com.srk.codingagent.loop;
 
+import com.srk.codingagent.context.OutputDisposer;
 import com.srk.codingagent.model.converse.ConverseMessage;
 import com.srk.codingagent.model.converse.ModelClient;
 import com.srk.codingagent.permission.GateDecision;
@@ -31,7 +32,8 @@ import org.slf4j.LoggerFactory;
  * Converse client-side tool-use cycle (state machine A) with the permission gate inline
  * and every block logged before it acts, composing the four collaborators it is handed:
  * the {@link ModelClient} (T-0.5), the {@link ToolRegistry} (T-0.6), the
- * {@link PermissionGate} (T-0.7), and the {@link EventLog} (T-0.4).
+ * {@link PermissionGate} (T-0.7), the {@link EventLog} (T-0.4), and the
+ * {@link OutputDisposer} (T-1.5).
  *
  * <p><b>The cycle (state machine A, 02-architecture.md § 2/§ 3.1).</b> Given an initial
  * user prompt, the loop appends a {@code USER_MESSAGE} (T1), then repeats: call
@@ -41,8 +43,10 @@ import org.slf4j.LoggerFactory;
  *   <li><b>{@link StopReason#TOOL_USE} (T2 → S2).</b> For each {@code toolUse} block in
  *       the response, the loop logs a {@code TOOL_USE} digest, routes a
  *       {@link GateRequest} through the gate and logs the {@code PERMISSION_DECISION}
- *       (T6/T7/T8), and — only on approve — dispatches the tool and logs its
- *       {@code TOOL_RESULT} (T9). A denial logs a {@code TOOL_RESULT(denied)} and runs no
+ *       (T6/T7/T8), and — only on approve — dispatches the tool, logs its
+ *       {@code TOOL_RESULT} with the <em>full</em> output (T9), and reduces an oversized
+ *       result for context via the {@link OutputDisposer} (US-19, ADR-0006). A denial logs
+ *       a {@code TOOL_RESULT(denied)} and runs no
  *       handler (T8, CT-SM-2). After every block, the batched tool results are sent back
  *       as one user message and the loop re-calls (T10).</li>
  *   <li><b>{@link StopReason#END_TURN} / {@link StopReason#STOP_SEQUENCE} (T3 → S5).</b>
@@ -95,6 +99,7 @@ public final class AgentLoop {
     private final EventLog log;
     private final Supplier<String> clock;
     private final BudgetGuard budgetGuard;
+    private final OutputDisposer disposer;
     private final String modelId;
     private final List<String> system;
 
@@ -113,6 +118,10 @@ public final class AgentLoop {
      * @param budgetGuard the budget-check seam consulted after each turn (state machine A
      *                    T13); use {@link BudgetGuard#NONE} for the no-compaction wiring;
      *                    must not be {@code null}.
+     * @param disposer    the output disposer (C6, US-19) consulted between persisting a tool
+     *                    result and returning it to the model context: it reduces an oversized
+     *                    result (head+tail) for context while the full output stays in the log
+     *                    (AC-19.1/19.2); must not be {@code null}.
      * @param modelId     the Bedrock model id sent on every Converse call; non-blank.
      * @param system      the system-prompt blocks, or {@code null} for none.
      * @throws NullPointerException     if any required argument is {@code null}.
@@ -125,6 +134,7 @@ public final class AgentLoop {
             EventLog log,
             Supplier<String> clock,
             BudgetGuard budgetGuard,
+            OutputDisposer disposer,
             String modelId,
             List<String> system) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient");
@@ -133,6 +143,7 @@ public final class AgentLoop {
         this.log = Objects.requireNonNull(log, "log");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.budgetGuard = Objects.requireNonNull(budgetGuard, "budgetGuard");
+        this.disposer = Objects.requireNonNull(disposer, "disposer");
         if (Objects.requireNonNull(modelId, "modelId").isBlank()) {
             throw new IllegalArgumentException("modelId must be non-blank");
         }
@@ -241,8 +252,15 @@ public final class AgentLoop {
             // T7 -> S4 -> T9: the loop is the only caller of dispatch, only after approve
             // (INV-8). The result carries the toolUseId (INV-6).
             ContentBlock.ToolResult result = tools.dispatch(toolUse);
-            append(ToolResultPayload.of(toolUse.toolUseId(), statusOf(result), result.content()));
-            return result;
+            // Output disposal (US-19, ADR-0006): persist the FULL output to the log first —
+            // the log is the durable full store (AC-19.2) and append returns the stamped seq —
+            // then reduce what enters the model context (AC-19.1). The full TOOL_RESULT event
+            // is the un-truncated copy (truncated=false); the model-context block is reduced
+            // (head+tail) only when the output exceeds the cap, pointing back to the persisted
+            // full output by its seq so the model can retrieve it (AC-19.3) rather than re-run.
+            Event logged = append(
+                    ToolResultPayload.of(toolUse.toolUseId(), statusOf(result), result.content()));
+            return disposer.reduceForContext(result, logged.seq());
         }
 
         // T8 -> S2: a denial logs a TOOL_RESULT(denied) event and runs no handler (CT-SM-2).

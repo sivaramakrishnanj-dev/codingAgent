@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.srk.codingagent.config.PermissionMode;
+import com.srk.codingagent.context.OutputDisposer;
 import com.srk.codingagent.loop.AgentLoop;
 import com.srk.codingagent.loop.BudgetGuard;
 import com.srk.codingagent.loop.LoopOutcome;
@@ -204,7 +205,7 @@ class OneShotRunnerTest {
         ModelClient modelClient = new ModelClient(bedrock);
         PermissionGate gate = new PermissionGate(mode, GrantStore.forSession("test"), approver);
         return new AgentLoop(modelClient, tools, gate, EventLog.over(new StringWriter(), "t"),
-                () -> TS, BudgetGuard.NONE, MODEL_ID, null);
+                () -> TS, BudgetGuard.NONE, new OutputDisposer(16384), MODEL_ID, null);
     }
 
     // --- CT-EX-6 : a completed one-shot exits 0 -------------------------------------

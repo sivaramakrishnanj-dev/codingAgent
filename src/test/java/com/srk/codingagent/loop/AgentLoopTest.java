@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.srk.codingagent.config.PermissionMode;
+import com.srk.codingagent.context.OutputDisposer;
+import com.srk.codingagent.context.OutputRetrieval;
 import com.srk.codingagent.model.converse.ModelClient;
 import com.srk.codingagent.permission.Approver;
 import com.srk.codingagent.permission.GrantStore;
@@ -13,10 +15,12 @@ import com.srk.codingagent.permission.PermissionGate;
 import com.srk.codingagent.persistence.EventLog;
 import com.srk.codingagent.persistence.OperationClass;
 import com.srk.codingagent.persistence.PermissionDecisionOutcome;
+import com.srk.codingagent.persistence.SessionStore;
 import com.srk.codingagent.persistence.StopReason;
 import com.srk.codingagent.tool.ToolHandler;
 import com.srk.codingagent.tool.ToolRegistry;
 import java.io.StringWriter;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -25,6 +29,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import software.amazon.awssdk.core.document.Document;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
@@ -68,6 +73,15 @@ class AgentLoopTest {
 
     private static final String MODEL_ID = "anthropic.claude-opus-4-8";
     private static final String TS = "2026-06-17T09:00:00Z";
+
+    /**
+     * The default-cap disposer (NFR-OUTPUT-MAX-INLINE = 16384). The small outputs these
+     * loop tests produce ("file contents", "ran", ...) are far under the cap, so disposal is
+     * a no-op pass-through for them — the existing event-order and re-call assertions are
+     * unaffected. Output-disposal behaviour itself is exercised in {@code OutputDisposerTest}
+     * and the disposal-wiring tests below.
+     */
+    private static final OutputDisposer DISPOSER = new OutputDisposer(16384);
 
     /** A minimal valid JSON-Schema input document for a test tool (independent of the tool package). */
     private static Document minimalSchema() {
@@ -197,7 +211,8 @@ class AgentLoopTest {
             PermissionMode mode, Approver approver, EventLog log) {
         ModelClient modelClient = new ModelClient(bedrock);
         PermissionGate gate = new PermissionGate(mode, GrantStore.forSession("root"), approver);
-        return new AgentLoop(modelClient, tools, gate, log, () -> TS, BudgetGuard.NONE, MODEL_ID, null);
+        return new AgentLoop(
+                modelClient, tools, gate, log, () -> TS, BudgetGuard.NONE, DISPOSER, MODEL_ID, null);
     }
 
     private static Approver alwaysApprove() {
@@ -735,19 +750,21 @@ class AgentLoopTest {
         EventLog log = EventLog.over(new StringWriter(), "t");
 
         assertThrows(NullPointerException.class, () -> new AgentLoop(
-                null, tools, gate, log, () -> TS, BudgetGuard.NONE, MODEL_ID, null));
+                null, tools, gate, log, () -> TS, BudgetGuard.NONE, DISPOSER, MODEL_ID, null));
         assertThrows(NullPointerException.class, () -> new AgentLoop(
-                client, null, gate, log, () -> TS, BudgetGuard.NONE, MODEL_ID, null));
+                client, null, gate, log, () -> TS, BudgetGuard.NONE, DISPOSER, MODEL_ID, null));
         assertThrows(NullPointerException.class, () -> new AgentLoop(
-                client, tools, null, log, () -> TS, BudgetGuard.NONE, MODEL_ID, null));
+                client, tools, null, log, () -> TS, BudgetGuard.NONE, DISPOSER, MODEL_ID, null));
         assertThrows(NullPointerException.class, () -> new AgentLoop(
-                client, tools, gate, null, () -> TS, BudgetGuard.NONE, MODEL_ID, null));
+                client, tools, gate, null, () -> TS, BudgetGuard.NONE, DISPOSER, MODEL_ID, null));
         assertThrows(NullPointerException.class, () -> new AgentLoop(
-                client, tools, gate, log, null, BudgetGuard.NONE, MODEL_ID, null));
+                client, tools, gate, log, null, BudgetGuard.NONE, DISPOSER, MODEL_ID, null));
         assertThrows(NullPointerException.class, () -> new AgentLoop(
-                client, tools, gate, log, () -> TS, null, MODEL_ID, null));
+                client, tools, gate, log, () -> TS, null, DISPOSER, MODEL_ID, null));
+        assertThrows(NullPointerException.class, () -> new AgentLoop(
+                client, tools, gate, log, () -> TS, BudgetGuard.NONE, null, MODEL_ID, null));
         assertThrows(IllegalArgumentException.class, () -> new AgentLoop(
-                client, tools, gate, log, () -> TS, BudgetGuard.NONE, "  ", null));
+                client, tools, gate, log, () -> TS, BudgetGuard.NONE, DISPOSER, "  ", null));
     }
 
     @Test
@@ -796,7 +813,7 @@ class AgentLoopTest {
         PermissionGate gate = new PermissionGate(
                 PermissionMode.ASK_EVERY_TIME, GrantStore.forSession("root"), alwaysApprove());
         AgentLoop loop = new AgentLoop(modelClient, tools, gate, EventLog.over(new StringWriter(), "t"),
-                () -> TS, usage -> BudgetGuard.Decision.COMPACT, MODEL_ID, null);
+                () -> TS, usage -> BudgetGuard.Decision.COMPACT, DISPOSER, MODEL_ID, null);
 
         LoopOutcome outcome = loop.run("read x");
 
@@ -818,12 +835,138 @@ class AgentLoopTest {
         PermissionGate gate = new PermissionGate(
                 PermissionMode.ASK_EVERY_TIME, GrantStore.forSession("root"), alwaysApprove());
         AgentLoop loop = new AgentLoop(modelClient, tools, gate, EventLog.over(new StringWriter(), "t"),
-                () -> TS, BudgetGuard.NONE, MODEL_ID, List.of("You are a coding agent."));
+                () -> TS, BudgetGuard.NONE, DISPOSER, MODEL_ID, List.of("You are a coding agent."));
 
         loop.run("hi");
 
         assertTrue(bedrock.requests.get(0).hasSystem(),
                 "§ 2: the system prompt reaches the Converse request");
         assertEquals("You are a coding agent.", bedrock.requests.get(0).system().get(0).text());
+    }
+
+    // --- T-1.5 output disposal wired into the loop (US-19, ADR-0006) ------------------
+
+    /** The {@code text} of the first toolResult content block carried on the re-call request. */
+    private static String reCallToolResultText(ScriptedBedrockClient bedrock) {
+        ConverseRequest recall = bedrock.requests.get(1);
+        return recall.messages().stream()
+                .flatMap(m -> m.content().stream())
+                .filter(b -> b.toolResult() != null)
+                .flatMap(b -> b.toolResult().content().stream())
+                .map(c -> c.text())
+                .filter(t -> t != null)
+                .findFirst()
+                .orElse(null);
+    }
+
+    @Test
+    @DisplayName("US-19/AC-19.1: a >16KB tool output is reduced (head+tail) on the re-call, not inlined whole")
+    void oversizedOutputReducedForContext() {
+        // Oracle: AC-19.1 — output exceeding NFR-OUTPUT-MAX-INLINE (16384 bytes default) must be
+        // reduced before entering context. A read_file returning >16KB must reach the model as a
+        // head+tail reduction with a truncation marker, not the whole output. Assert against the
+        // captured re-call request (what enters context), not impl state.
+        String head = "FILE-HEAD-SENTINEL";
+        String tail = "FILE-TAIL-SENTINEL";
+        String huge = head + "z".repeat(20_000) + tail; // > 16384 bytes
+        RecordingTool tool = new RecordingTool("read_file", OperationClass.READ, huge);
+        ToolRegistry tools = ToolRegistry.of(List.of(tool));
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("reading", "tu_big", "read_file", Map.of("path", "big.txt")))
+                .then(textTurn("read it", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysApprove(), EventLog.over(new StringWriter(), "t"));
+
+        loop.run("read big.txt");
+
+        String contextText = reCallToolResultText(bedrock);
+        assertTrue(contextText != null, "the re-call must carry the tool result as a text block");
+        assertTrue(contextText.length() < huge.length(),
+                "AC-19.1: the output entering context must be reduced, not the whole 20KB output");
+        assertTrue(contextText.startsWith(head),
+                "ADR-0006: the reduction keeps the head of the output");
+        assertTrue(contextText.endsWith(tail),
+                "ADR-0006: the reduction keeps the tail (failures are legible from the tail)");
+        assertTrue(contextText.contains("truncated") && contextText.contains("evt:"),
+                "AC-19.1/19.2: the reduction carries a truncated marker pointing at the fullRef");
+    }
+
+    @Test
+    @DisplayName("US-19/AC-19.1: a small (<16KB) tool output enters context whole (not reduced)")
+    void smallOutputNotReduced() {
+        // Oracle: AC-19.1 only reduces output EXCEEDING the cap; a small output must reach the
+        // model unchanged. Assert the re-call carries the exact small output, with no truncation
+        // marker.
+        String small = "small file contents";
+        RecordingTool tool = new RecordingTool("read_file", OperationClass.READ, small);
+        ToolRegistry tools = ToolRegistry.of(List.of(tool));
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("reading", "tu_s", "read_file", Map.of("path", "s.txt")))
+                .then(textTurn("done", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysApprove(), EventLog.over(new StringWriter(), "t"));
+
+        loop.run("read s.txt");
+
+        String contextText = reCallToolResultText(bedrock);
+        assertEquals(small, contextText,
+                "AC-19.1: a small output (under the cap) enters context whole, unchanged");
+        assertFalse(contextText.contains("truncated"),
+                "a small output carries no truncation marker (nothing was reduced)");
+    }
+
+    @Test
+    @DisplayName("AC-19.2/19.3: a reduced output is full-persisted to the log and retrievable via its fullRef")
+    void oversizedOutputFullPersistedAndRetrievable(@TempDir Path dir) {
+        // Oracle: AC-19.2 — the FULL output is persisted to the session log; AC-19.3 — it is
+        // retrievable from the log via the fullRef rather than re-running the command. This is
+        // the G1-cycle round-trip the live smoke test depends on: dispose -> persist -> retrieve
+        // -> equals the original. Drive the loop over a real SessionStore-backed log so the full
+        // output is on disk, then resolve the fullRef the model received against that same log.
+        String head = "BIG-OUT-HEAD";
+        String tail = "BUILD FAILED at the very end";
+        String huge = head + "Q".repeat(30_000) + tail; // > 16384 bytes
+        RecordingTool tool = new RecordingTool("run_command", OperationClass.SIDE_EFFECTING, huge);
+        ToolRegistry tools = ToolRegistry.of(List.of(tool));
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("building", "tu_b", "run_command", Map.of("command", "mvn test")))
+                .then(textTurn("checked", "end_turn"));
+
+        SessionStore store = new SessionStore(dir);
+        String repoKey = "repo-1";
+        String sessionId = "one-shot";
+        ModelClient modelClient = new ModelClient(bedrock);
+        PermissionGate gate = new PermissionGate(
+                PermissionMode.ASK_EVERY_TIME, GrantStore.forSession(sessionId), alwaysApprove());
+        try (EventLog log = store.openLog(repoKey, sessionId)) {
+            AgentLoop loop = new AgentLoop(modelClient, tools, gate, log,
+                    () -> TS, BudgetGuard.NONE, DISPOSER, MODEL_ID, null);
+            loop.run("run the build");
+        }
+
+        // The fullRef the model received in the reduced content (extracted from the marker).
+        String contextText = reCallToolResultText(bedrock);
+        String fullRef = extractFullRef(contextText);
+        assertTrue(fullRef != null, "the reduced content must name a fullRef (evt:<seq>) to retrieve");
+
+        Object retrieved = new OutputRetrieval(store).retrieve(repoKey, sessionId, fullRef).orElse(null);
+        assertEquals(huge, retrieved,
+                "AC-19.2/19.3: the full output is persisted and retrievable byte-for-byte via the fullRef");
+    }
+
+    /** Pulls the {@code evt:<seq>} pointer out of a reduction's truncation marker, or null. */
+    private static String extractFullRef(String reduced) {
+        if (reduced == null) {
+            return null;
+        }
+        int at = reduced.indexOf("evt:");
+        if (at < 0) {
+            return null;
+        }
+        int end = at + "evt:".length();
+        while (end < reduced.length() && Character.isDigit(reduced.charAt(end))) {
+            end++;
+        }
+        return reduced.substring(at, end);
     }
 }

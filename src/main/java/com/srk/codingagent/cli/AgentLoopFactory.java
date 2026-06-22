@@ -1,6 +1,7 @@
 package com.srk.codingagent.cli;
 
 import com.srk.codingagent.config.ResolvedConfig;
+import com.srk.codingagent.context.OutputDisposer;
 import com.srk.codingagent.loop.AgentLoop;
 import com.srk.codingagent.loop.BudgetGuard;
 import com.srk.codingagent.model.converse.ModelClient;
@@ -110,8 +111,11 @@ public final class AgentLoopFactory {
                 config.permissionMode(), GrantStore.forSession(sessionLineage), approver);
 
         // ADR-0005: the loop draws every event's timestamp from this boundary clock.
+        // US-19/ADR-0006: the disposer reduces oversized tool/command output for context at
+        // the configured inline cap (NFR-OUTPUT-MAX-INLINE) while the log keeps the full copy.
         return new AgentLoop(modelClient, tools, gate, log,
-                () -> Instant.now().toString(), BudgetGuard.NONE, config.modelId(), null);
+                () -> Instant.now().toString(), BudgetGuard.NONE,
+                OutputDisposer.forConfig(config), config.modelId(), null);
     }
 
     private static ToolRegistry toolRegistry(ResolvedConfig config, Path workspaceRoot) {
