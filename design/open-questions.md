@@ -151,3 +151,41 @@ auto-invokes the designer.
   T-1.4 CT-SM-5) — the three are candidates for one consolidated post-G1 amendment if the
   user chooses.
 - status: open (informational; no action required to proceed)
+
+## Discussion items from T-2.1 — 2026-06-22
+
+### D1 — concrete context-window figures are not pinned by any spec symbol (suggested: data-model-update)
+- task: T-2.1
+- spec_refs: ADR-0002 (capability profile carries contextWindowTokens), NFR-MODEL-CONTEXT-WINDOW
+- suggested_amendment_kind: data-model-update
+- finding: T-2.1 needs a concrete contextWindowTokens per model to compute the 0.85xwindow
+  threshold, but no spec symbol pins the actual integers. The task-builder used Claude=200K
+  and a safe-minimum fallback=100K as documented choices in ModelCapabilityProfile /
+  AgentLoopFactory. ADR-0002 specifies the *mechanism* (prefix registry + conservative
+  default) and NFR-MODEL-CONTEXT-WINDOW says "model-dependent; read from config at startup",
+  but neither fixes the numbers.
+- coordinator note: non-blocking; T-2.1 resolved cleanly (0 Blocker/Major). If the team wants
+  the per-family window figures pinned (a small per-family table in 03-data-model or an NFR
+  value), that is a data-model-update / nfr-update amendment — user's call. Naturally bundles
+  with T-4.3 (the full capability-profile registry task) which owns CT-SCH-15 and the profile
+  schema. No action required to proceed.
+- status: open (informational; no action required to proceed)
+
+### D2 — conservative-default window "read from config" deferred to T-4.3 (suggested: schema-update)
+- task: T-2.1
+- spec_refs: ADR-0002 ("conservative default profile ... safe minimum context window read from config NFR-MODEL-CONTEXT-WINDOW"), NFR-MODEL-CONTEXT-WINDOW
+- suggested_amendment_kind: schema-update
+- finding: ADR-0002 says the unknown-id default window should be read from config
+  (NFR-MODEL-CONTEXT-WINDOW). T-2.1 deferred adding that config key — adding it would touch
+  design/06-formal/resolved-config.schema.json + the CT-SCH-13/14 contract + ConfigKeys/
+  ConfigDefaults/ConfigResolver, work that overlaps T-4.3 (the full capability registry) and
+  sits outside T-2.1's minimal-viable-shape mandate and one-review-file write scope. The
+  safe-minimum is currently a documented compiled-in constant
+  (AgentLoopFactory.CONSERVATIVE_DEFAULT_CONTEXT_WINDOW_TOKENS = 100000) in the JaCoCo-excluded
+  composition root, and the live default model resolves to a real Claude window via the registry,
+  so the fallback path is off the production happy path today.
+- coordinator note: non-blocking; defensible scoping. When T-4.3 lands the full
+  ModelCapabilityProfile registry + schema (CT-SCH-15), add the contextWindowTokens config key
+  there so the conservative default is config-sourced per ADR-0002. If the user wants the config
+  key pulled in earlier, that is a schema-update amendment — user's call. No action required to proceed.
+- status: open (informational; no action required to proceed)
