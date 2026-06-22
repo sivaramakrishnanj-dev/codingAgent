@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: 218da28
+last_updated_at_commit: pending
 total_resolved_count: 10
 
 last_resolved:
@@ -12,8 +12,47 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-0.5-RD2
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-22T00:00:00+00:00
+  last_updated_at: 2026-06-22T00:00:00+00:00
 ---
+
+## In-flight
+
+- task: T-0.5-RD2
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  files_in_working_tree:
+    - (none yet)
+  dcrs_consumed:
+    - (none)
+  started_at: 2026-06-22T00:00:00+00:00
+  last_updated_at: 2026-06-22T00:00:00+00:00
+  note: |
+    Regression fix to resolved M0 task T-0.5 (DEFECT D2). After D1 was fixed, the
+    real-Bedrock smoke test ran the FULL cycle (call 1 -> TOOL_USE read_file -> tool
+    approved+executed -> tool result appended -> call 2), and the SECOND call failed:
+    ValidationException "The format of the value at
+    messages.2.content.0.toolResult.content.0.json is invalid. Provide a json object
+    for the field and try again." (HTTP 400). Root cause: ConverseWireMapper.toWireToolResult
+    unconditionally puts the (string) tool output into a Converse toolResult.content[].json
+    member, but Converse requires json to be a JSON OBJECT. For a plain-text tool result it
+    must use the text member instead. Fix: map a string/plain tool result to a toolResult
+    content text member; only use json when the payload is a structured object. Add a
+    regression test that a plain-text tool output round-trips to a text member (not a
+    malformed json), so the second-call ValidationException can't recur. Not a DCR —
+    content-block.schema.json already says content is "text, or a structured object."
 
 ## Resolved tasks
 
