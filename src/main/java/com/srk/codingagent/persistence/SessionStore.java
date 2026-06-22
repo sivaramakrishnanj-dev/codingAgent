@@ -8,9 +8,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,9 +38,15 @@ import org.slf4j.LoggerFactory;
  *
  * <p><b>Read-in-seq-order (AC-7.2 capability).</b> {@link #readEvents} returns a
  * session's events parsed in the order written; INV-1 guarantees that order is the
- * gap-free {@code seq} order. Replaying those events into a {@code messages[]} for
- * resume is a later task (T-1.2); this store provides the ordered read, not the
- * reconstruction.
+ * gap-free {@code seq} order. The replay reconstruction itself (events &rarr;
+ * {@code messages[]}) lives in {@link SessionReplay}; this store provides the ordered
+ * read it consumes.
+ *
+ * <p><b>Listing (AC-7.1 / AC-15.2).</b> {@link #listSessions} enumerates a
+ * repository's sessions most-recent-first (by log modification time), so {@code resume}
+ * and {@code sessions} can offer a developer their resumable sessions; {@link #readMeta}
+ * reads a session's derived {@code .meta.json} summary (its lineage edge feeds the
+ * latest-continuation-default walk, AC-7.4).
  */
 public final class SessionStore {
 
@@ -47,6 +57,14 @@ public final class SessionStore {
     private static final String SESSIONS_DIR_NAME = "sessions";
     private static final String LOG_SUFFIX = ".jsonl";
     private static final String META_SUFFIX = ".meta.json";
+
+    /**
+     * Most-recent-first listing order (AC-7.1): newest log modification time first, ties
+     * broken by session id descending so the order is total and deterministic.
+     */
+    private static final Comparator<SessionListing> MOST_RECENT_FIRST =
+            Comparator.comparing(SessionListing::lastModified).reversed()
+                    .thenComparing(Comparator.comparing(SessionListing::sessionId).reversed());
 
     private final Path storeRoot;
     private final EventCodec codec;
@@ -160,6 +178,69 @@ public final class SessionStore {
     }
 
     /**
+     * Lists a repository's sessions, most-recent-first (AC-7.1 / AC-15.2). Each entry
+     * carries the session id, the session log's last-modified time (the ordering key),
+     * and the lineage edge read from the session's {@code .meta.json} summary when one is
+     * present (so a continuation can be recognized for the latest-continuation-default
+     * walk, AC-7.4).
+     *
+     * <p><b>Ordering.</b> Sessions are ordered by log modification time, newest first —
+     * the directly observable most-recent-activity signal, which is robust whether or not
+     * a session id is timestamp-prefixed (the timestamp-prefixed ids of 03-data-model §
+     * 2.1 sort the same way, but the M0 one-shot lineage id {@code "one-shot"} is not
+     * timestamp-prefixed, so modification time is the defensible total order). Ties (two
+     * logs with the same modification time) break by session id descending, so the order
+     * is total and deterministic.
+     *
+     * @param repoKey the repository key; non-blank.
+     * @return the sessions under {@code repoKey}, most-recent-first; an empty list when
+     *         the repository has no sessions directory or no session logs. Never
+     *         {@code null}.
+     * @throws IllegalArgumentException if {@code repoKey} is blank.
+     * @throws PersistenceException     if the sessions directory cannot be listed.
+     */
+    public List<SessionListing> listSessions(String repoKey) {
+        Path dir = sessionsDir(repoKey);
+        if (!Files.isDirectory(dir)) {
+            return List.of();
+        }
+        List<SessionListing> listings = new ArrayList<>();
+        try (Stream<Path> entries = Files.list(dir)) {
+            entries.filter(SessionStore::isSessionLog)
+                    .forEach(log -> listings.add(toListing(repoKey, log)));
+        } catch (IOException e) {
+            throw new PersistenceException("failed to list sessions directory: " + dir, e);
+        }
+        listings.sort(MOST_RECENT_FIRST);
+        LOGGER.debug("listed {} session(s) under {}", listings.size(), dir);
+        return listings;
+    }
+
+    /**
+     * Reads a session's derived {@code .meta.json} summary, if one has been written.
+     *
+     * @param repoKey   the repository key; non-blank.
+     * @param sessionId the session id; non-blank.
+     * @return the persisted summary, or {@link Optional#empty()} when no meta file exists
+     *         for the session.
+     * @throws IllegalArgumentException if {@code repoKey} or {@code sessionId} is blank.
+     * @throws PersistenceException     if the meta file exists but cannot be read or
+     *                                  parsed (surfaced, not a crash).
+     */
+    public Optional<SessionMeta> readMeta(String repoKey, String sessionId) {
+        Path path = metaPath(repoKey, sessionId);
+        if (!Files.exists(path)) {
+            return Optional.empty();
+        }
+        try {
+            String json = Files.readString(path, StandardCharsets.UTF_8);
+            return Optional.of(metaMapper.readValue(json, SessionMeta.class));
+        } catch (IOException e) {
+            throw new PersistenceException("failed to read session meta: " + path, e);
+        }
+    }
+
+    /**
      * Writes the session's {@code .meta.json} summary, overwriting any existing one.
      * The meta file is a derived cache; this method does not touch the JSONL log.
      *
@@ -239,6 +320,31 @@ public final class SessionStore {
             return (int) lines.filter(line -> !line.isBlank()).count();
         } catch (IOException e) {
             throw new PersistenceException("failed to count events in session log: " + log, e);
+        }
+    }
+
+    private static boolean isSessionLog(Path path) {
+        String name = path.getFileName().toString();
+        // A session log ends in .jsonl but is not the .meta.json sibling (which does not).
+        return name.endsWith(LOG_SUFFIX) && Files.isRegularFile(path);
+    }
+
+    /** Builds a listing for one session log: id from the file name, mtime, meta lineage. */
+    private SessionListing toListing(String repoKey, Path log) {
+        String name = log.getFileName().toString();
+        String sessionId = name.substring(0, name.length() - LOG_SUFFIX.length());
+        Instant lastModified = lastModifiedOf(log);
+        Optional<SessionMeta> meta = readMeta(repoKey, sessionId);
+        String parent = meta.map(SessionMeta::parentSessionId).orElse(null);
+        EdgeType edge = meta.map(SessionMeta::edgeType).orElse(null);
+        return new SessionListing(sessionId, lastModified, parent, edge);
+    }
+
+    private static Instant lastModifiedOf(Path log) {
+        try {
+            return Files.getLastModifiedTime(log).toInstant();
+        } catch (IOException e) {
+            throw new PersistenceException("failed to stat session log: " + log, e);
         }
     }
 }

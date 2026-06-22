@@ -124,14 +124,84 @@ class CliArgumentsTest {
     }
 
     @Test
-    @DisplayName("cli-exit-codes 2: a bare positional argument is a usage error")
+    @DisplayName("cli-exit-codes 2: an unrecognized bare positional argument is a usage error")
     void positionalArgumentIsUsageError() {
-        // Oracle: § 3.2 "bad CLI args → exit 2". A bare positional argument is not part of this
-        // task's scope (no subcommands here); reject it as a usage error naming it.
+        // Oracle: § 3.2 "bad CLI args → exit 2". A bare positional that is not a recognized
+        // subcommand (resume/sessions are; an arbitrary word is not) is rejected naming it.
         UsageException thrown = assertThrows(UsageException.class,
-                () -> CliArguments.parse(new String[] {"resume"}));
+                () -> CliArguments.parse(new String[] {"frobnicate"}));
+
+        assertEquals("frobnicate", thrown.offendingArgument(),
+                "the usage error names the unexpected positional argument");
+    }
+
+    @Test
+    @DisplayName("04-apis § 1.2: bare `resume` is the resume-list shape (no session id)")
+    void bareResumeIsResumeListShape() {
+        // Oracle: 04-apis § 1.2 — "codingagent resume [<session-id>]: list resumable sessions
+        // ... or resume one". With no id, resume is the list shape (AC-7.1).
+        CliArguments parsed = CliArguments.parse(new String[] {"resume"});
+
+        assertEquals(CliArguments.Kind.RESUME, parsed.kind(), "resume selects the RESUME shape");
+        assertTrue(parsed.sessionId().isEmpty(), "bare resume carries no session id (list mode)");
+    }
+
+    @Test
+    @DisplayName("04-apis § 1.2: `resume <id>` carries the session id to resume (AC-7.2)")
+    void resumeWithIdCarriesSessionId() {
+        // Oracle: 04-apis § 1.2 — "resume one"; AC-7.2 reconstructs the selected session. The id
+        // after `resume` is the session to resume.
+        CliArguments parsed = CliArguments.parse(new String[] {"resume", "2026-06-17T090000Z-abc"});
+
+        assertEquals(CliArguments.Kind.RESUME, parsed.kind());
+        assertEquals("2026-06-17T090000Z-abc", parsed.sessionId().orElseThrow(),
+                "resume <id> selects the session to resume");
+    }
+
+    @Test
+    @DisplayName("04-apis § 1.2: `sessions` is the session-list shape (AC-15.2)")
+    void sessionsIsListShape() {
+        // Oracle: 04-apis § 1.2 — "codingagent sessions: list past sessions for this repo". The
+        // sessions subcommand selects the SESSIONS shape.
+        CliArguments parsed = CliArguments.parse(new String[] {"sessions"});
+
+        assertEquals(CliArguments.Kind.SESSIONS, parsed.kind(), "sessions selects the SESSIONS shape");
+        assertTrue(parsed.sessionId().isEmpty(), "sessions carries no session id");
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: `sessions` with an extra argument is a usage error")
+    void sessionsWithExtraArgIsUsageError() {
+        // Oracle: § 3.2 "bad CLI args → exit 2". `sessions` takes no arguments; an extra word is
+        // a malformed invocation, named for G2.
+        UsageException thrown = assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"sessions", "extra"}));
+
+        assertEquals("extra", thrown.offendingArgument(),
+                "the usage error names the unexpected argument after sessions");
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: `resume` with a blank id is a usage error naming resume")
+    void resumeWithBlankIdIsUsageError() {
+        // Oracle: § 3.2 "bad CLI args → exit 2". A `resume ""` / `resume "   "` names no runnable
+        // session; reject it as a usage error (fail fast) naming the subcommand for G2.
+        UsageException thrown = assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"resume", "   "}));
 
         assertEquals("resume", thrown.offendingArgument(),
-                "the usage error names the unexpected positional argument");
+                "the usage error names the resume subcommand for the blank id");
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: `resume <id> <extra>` is a usage error (resume takes at most one id)")
+    void resumeWithExtraArgIsUsageError() {
+        // Oracle: § 3.2 "bad CLI args → exit 2". resume takes at most one id; a second positional
+        // is malformed.
+        UsageException thrown = assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"resume", "id-1", "id-2"}));
+
+        assertEquals("id-2", thrown.offendingArgument(),
+                "the usage error names the unexpected extra argument after the resume id");
     }
 }

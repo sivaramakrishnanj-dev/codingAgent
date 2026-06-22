@@ -253,4 +253,120 @@ class SessionStoreTest {
         assertThrows(IllegalArgumentException.class, () -> store.logPath(REPO_KEY, "  "),
                 "a blank session id must be rejected");
     }
+
+    @Test
+    @DisplayName("listSessions returns the repo's sessions most-recent-first (AC-7.1 / AC-15.2)")
+    void listSessions_mostRecentFirst(@TempDir Path root) throws IOException {
+        // Oracle: AC-7.1 — "list resumable sessions for the current repository, most-recent
+        // first" (AC-15.2: same list for `sessions`). Three sessions written oldest->newest must
+        // list newest-first (by log modification time, the observable most-recent-activity signal).
+        SessionStore store = new SessionStore(root);
+        writeSession(store, "2026-06-17T090000Z-oldest");
+        writeSession(store, "2026-06-17T100000Z-middle");
+        writeSession(store, "2026-06-17T110000Z-newest");
+        // Make modification times strictly increasing oldest->newest so the order is unambiguous.
+        setMtime(store, "2026-06-17T090000Z-oldest", "2026-06-17T09:00:00Z");
+        setMtime(store, "2026-06-17T100000Z-middle", "2026-06-17T10:00:00Z");
+        setMtime(store, "2026-06-17T110000Z-newest", "2026-06-17T11:00:00Z");
+
+        List<SessionListing> listed = store.listSessions(REPO_KEY);
+
+        assertEquals(List.of("2026-06-17T110000Z-newest", "2026-06-17T100000Z-middle",
+                        "2026-06-17T090000Z-oldest"),
+                listed.stream().map(SessionListing::sessionId).toList(),
+                "AC-7.1: sessions must list most-recent-first (newest modification time first)");
+    }
+
+    @Test
+    @DisplayName("listSessions on a repo with no sessions returns empty (list nothing cleanly)")
+    void listSessions_noSessions_returnsEmpty(@TempDir Path root) {
+        // Oracle: AC-7.1 — listing a repo that has no sessions is a legitimate empty result, not
+        // an error (the `resume`/`sessions` empty case is "list nothing cleanly").
+        SessionStore store = new SessionStore(root);
+
+        assertTrue(store.listSessions("repo-with-nothing").isEmpty(),
+                "a repo with no sessions directory must list as empty, not throw");
+    }
+
+    @Test
+    @DisplayName("listSessions ignores the .meta.json siblings (only session logs are sessions)")
+    void listSessions_ignoresMetaFiles(@TempDir Path root) {
+        // Oracle: NFR-LOG-LOCATION — a session is its .jsonl log; the .meta.json beside it is a
+        // derived cache, not a separate session. Listing must count the log once, not also its meta.
+        SessionStore store = new SessionStore(root);
+        writeSession(store, SESSION_ID);
+        store.writeMeta(store.deriveMeta(REPO_KEY, SESSION_ID, SessionStatus.COMPLETED));
+
+        List<SessionListing> listed = store.listSessions(REPO_KEY);
+
+        assertEquals(1, listed.size(), "the .meta.json sibling must not be listed as a session");
+        assertEquals(SESSION_ID, listed.get(0).sessionId());
+    }
+
+    @Test
+    @DisplayName("listSessions carries the lineage edge from a session's meta (AC-7.4 input)")
+    void listSessions_carriesLineageEdgeFromMeta(@TempDir Path root) {
+        // Oracle: AC-7.4 — the latest-continuation default needs to recognize a DERIVED_FROM
+        // continuation. listSessions surfaces the lineage edge recorded on the session's meta so
+        // the lineage walk can find it. INV-3: edgeType non-null iff parentSessionId non-null.
+        SessionStore store = new SessionStore(root);
+        writeSession(store, "child");
+        store.writeMeta(new SessionMeta("child", REPO_KEY, SessionStatus.ACTIVE, 1, 0, 0,
+                "parent", EdgeType.DERIVED_FROM, null));
+
+        SessionListing child = store.listSessions(REPO_KEY).stream()
+                .filter(l -> l.sessionId().equals("child")).findFirst().orElseThrow();
+
+        assertEquals("parent", child.parentSessionId(), "the parent edge must come from the meta");
+        assertEquals(EdgeType.DERIVED_FROM, child.edgeType());
+        assertTrue(child.isDerivedContinuation(), "a DERIVED_FROM child is a continuation (AC-7.4)");
+    }
+
+    @Test
+    @DisplayName("listSessions leaves lineage null for a meta-less root session (INV-3)")
+    void listSessions_noMeta_lineageNull(@TempDir Path root) {
+        // Oracle: INV-3 — a root has no parent edge. A session with no .meta.json (or a root meta)
+        // lists with null lineage; it is not a continuation.
+        SessionStore store = new SessionStore(root);
+        writeSession(store, SESSION_ID);
+
+        SessionListing only = store.listSessions(REPO_KEY).get(0);
+
+        assertEquals(null, only.parentSessionId(), "a meta-less session has no parent edge");
+        assertEquals(null, only.edgeType());
+        assertFalse(only.isDerivedContinuation(), "a root session is not a continuation");
+    }
+
+    @Test
+    @DisplayName("readMeta returns the written summary; empty when no meta exists (INV-15 cache)")
+    void readMeta_roundTripAndAbsent(@TempDir Path root) {
+        // Oracle: ADR-0005 / INV-15 — the .meta.json is a derived cache read back as a summary.
+        // Reading a session with no meta yields empty (not an error); after writeMeta it round-trips.
+        SessionStore store = new SessionStore(root);
+        writeSession(store, SESSION_ID);
+        assertTrue(store.readMeta(REPO_KEY, SESSION_ID).isEmpty(),
+                "a session with no meta file reads back as empty");
+
+        store.writeMeta(new SessionMeta(SESSION_ID, REPO_KEY, SessionStatus.COMPACTED, 2, 100, 50,
+                "parent-1", EdgeType.DERIVED_FROM, Boolean.TRUE));
+
+        SessionMeta read = store.readMeta(REPO_KEY, SESSION_ID).orElseThrow();
+        assertEquals(SessionStatus.COMPACTED, read.status(), "the written status must round-trip");
+        assertEquals("parent-1", read.parentSessionId(), "the lineage parent must round-trip");
+        assertEquals(EdgeType.DERIVED_FROM, read.edgeType(), "the lineage edge must round-trip");
+        assertEquals(Boolean.TRUE, read.outcomeSuccess(), "the outcome flag must round-trip");
+    }
+
+    private static void writeSession(SessionStore store, String sessionId) {
+        try (EventLog log = store.openLog(REPO_KEY, sessionId)) {
+            log.append(new Event(0, "2026-06-17T09:00:05Z",
+                    new UserMessagePayload(List.of(ContentBlock.text("hi")))));
+        }
+    }
+
+    private static void setMtime(SessionStore store, String sessionId, String instant)
+            throws IOException {
+        Files.setLastModifiedTime(store.logPath(REPO_KEY, sessionId),
+                java.nio.file.attribute.FileTime.from(java.time.Instant.parse(instant)));
+    }
 }

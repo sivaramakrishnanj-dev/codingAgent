@@ -8,6 +8,8 @@ import com.srk.codingagent.loop.AgentLoop;
 import com.srk.codingagent.model.credentials.CredentialResolutionException;
 import com.srk.codingagent.permission.Approver;
 import com.srk.codingagent.persistence.EventLog;
+import com.srk.codingagent.persistence.SessionLineage;
+import com.srk.codingagent.persistence.SessionReplay;
 import com.srk.codingagent.persistence.SessionStore;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -90,10 +92,12 @@ public final class Main {
      * {@link ExitCode#USAGE_CONFIG} ({@code 2}) before any model call (fail-fast, ADR-0009).
      * For a one-shot prompt it builds the agent loop and delegates the run-and-map to
      * {@link OneShotRunner}. For {@code --help} / {@code --version} it prints the requested
-     * information and returns {@code 0}. For the interactive REPL shape (no {@code -p}) it
-     * builds the agent loop with an interactive approver, installs the SIGINT handler, and
-     * delegates the read-eval loop to {@link ReplRunner}, returning the session's exit code
-     * (clean {@code 0} on {@code /exit} / EOF, {@code 130} on Ctrl-C).
+     * information and returns {@code 0}. For the {@code resume} / {@code sessions}
+     * subcommands it delegates to {@link ResumeCommand} (pure persistence + replay — no
+     * config or model call). For the interactive REPL shape (no {@code -p}) it builds the
+     * agent loop with an interactive approver, installs the SIGINT handler, and delegates
+     * the read-eval loop to {@link ReplRunner}, returning the session's exit code (clean
+     * {@code 0} on {@code /exit} / EOF, {@code 130} on Ctrl-C).
      *
      * @param args command-line arguments; may be {@code null} (treated as no arguments).
      * @return the process exit code per the exit-code contract.
@@ -114,6 +118,18 @@ public final class Main {
             return printInfo(parsed.infoFlag().orElseThrow());
         }
 
+        // Session subcommands (resume / sessions) are pure persistence + replay: they list
+        // and reconstruct from the on-disk session store and need no config resolution or
+        // model call (04-apis § 1.2). They run before the config gate so listing/resume work
+        // even when no model is reachable.
+        if (parsed.kind() == CliArguments.Kind.SESSIONS) {
+            return resumeCommand().list();
+        }
+        if (parsed.kind() == CliArguments.Kind.RESUME) {
+            ResumeCommand command = resumeCommand();
+            return parsed.sessionId().map(command::resume).orElseGet(command::list);
+        }
+
         ResolvedConfig config;
         try {
             config = resolveConfig();
@@ -132,6 +148,23 @@ public final class Main {
         }
         // Interactive REPL shape (no -p): enter the read-eval loop (04-apis § 1.1).
         return runInteractive(config);
+    }
+
+    /**
+     * Builds the {@link ResumeCommand} for the session subcommands over the user-home
+     * session store, scoped to the same repository key the rest of the system writes
+     * sessions under today ({@link #ONE_SHOT_LINEAGE}). Real git-remote repo-key derivation
+     * (03-data-model § 2.1) is a later session task; scoping the listing to the key the
+     * one-shot/REPL paths write to is what makes {@code resume}/{@code sessions} list the
+     * sessions that actually exist on disk rather than an empty unrelated key.
+     */
+    private static ResumeCommand resumeCommand() {
+        return new ResumeCommand(
+                SessionStore.forUserHome(),
+                new SessionReplay(),
+                new SessionLineage(),
+                ONE_SHOT_LINEAGE,
+                System.out);
     }
 
     /**
