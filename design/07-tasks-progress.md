@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-22
-last_updated_at_commit: pending
+last_updated_at_commit: 26b2944
 total_resolved_count: 12
 
 last_resolved:
   task: T-1.1
   title: "REPL: interactive loop, inline approval prompts, slash-commands, real SIGINT->130"
   resolved_at: 2026-06-22
-  commit: pending
+  commit: 26b2944
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -127,7 +127,7 @@ in_flight: null
 - notes: Correction to resolved M0 task T-0.5, found by the real-Bedrock smoke test full cycle once D1 was fixed. The SECOND Converse call failed with a 400 ValidationException ("The format of the value at messages.2.content.0.toolResult.content.0.json is invalid. Provide a json object for the field and try again."). Root cause: ConverseWireMapper.toWireToolResult unconditionally wrapped the tool output in a Converse toolResult content json member via ToolResultContentBlock.fromJson(...), but Converse requires json to be a JSON OBJECT; a plain-text (String) tool result (e.g. read_file contents) must use the text member. Fix: toWireToolResult now branches on the domain content runtime type — a Map (structured object, e.g. CommandResult) maps to the json member; any other non-null content maps to the text member via String.valueOf (conservative: a non-object json would re-trigger the same 400). null content still adds no content block. content-block.schema.json already sanctions content as "text, or a structured object", so this is spec-faithful, NOT a DCR. Two explicit regression tests added (mapsStringToolResultContentToTextMember: String -> text member, json() absent; mapsStructuredObjectToolResultContentToJsonMember: Map -> json object member, text() absent) — exactly the content-member assertions the structurally-blind existing tests (toolUseId/status only) never made, which is why the bug shipped. INV-6 pairing (CT-INV-5) preserved. 424 tests green under mvn clean verify (+2; 91.91% bundle line; ConverseWireMapper 98.18% line; 0.80 gate met). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor. 1 Nit (non-blocking). 0 Discussion items.
 
 ## T-1.1 — REPL: interactive loop, inline approval prompts, slash-commands, real SIGINT->130
-- commit: pending
+- commit: 26b2944
 - review: design/reviews/code/T-1.1-r1.md
 - resolved: 2026-06-22
 - context_mode: narrow
