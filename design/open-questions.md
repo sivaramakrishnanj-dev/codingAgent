@@ -447,6 +447,7 @@ auto-invokes the designer.
   - design/07-tasks.md (T-3.x rows: note multi-turn phase dialogue + approve-to-finalize)
 - designer_status: amended
 - amendment_commit: a9644b4
+- resumed_task_commit: 8786a13
 - ripple_unresolved: |
     Designer flagged two ripple_unresolved items, BOTH pre-existing and BOTH explicitly NOT part of DCR-2:
     (1) the D8 discussion item (AC-9.4 / ADR-0004 gate-decision-table write_artifact auto-approve carve-out)
