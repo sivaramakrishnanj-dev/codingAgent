@@ -1,10 +1,11 @@
 ---
 doc: tasks
-last_reviewed: 2026-06-17
+last_reviewed: 2026-06-23
 phase: resolved
 status: resolved
-review: reviews/2026-06-17-tasks-r1.md
+review: reviews/2026-06-23-amendment-greenfield-driver-authored-persistence-r1.md
 approved_in: 6e1d54f
+amended_by: [DCR-1]
 ---
 
 # Tasks — codingAgent
@@ -82,7 +83,7 @@ Component refs are `C*` (`02-architecture.md` § 1.2). Deps are task ids. Gate c
 | Task | Title | Component | Refs | Size | Deps | Verify |
 |------|-------|-----------|------|------|------|--------|
 | T-3.1 | Greenfield driver: phase state machine (requirements→design→tasks→implement) + per-phase approval gates | C3 | ADR-0012, US-1/2/3, AC-1.1/1.3/2.3 | L | T-1.6, T-2.4 | **phase-gating CT** (fills §6 gap); no source write pre-approval (AC-1.4) |
-| T-3.2 | Artifact authoring: requirements/design/tasks markdown into the target repo, approval timestamps | C3 | RD-7, AC-1.2/1.5/2.1/2.5 | M | T-3.1 | artifacts written; traceability AC→task |
+| T-3.2 | Artifact authoring: requirements/design/tasks markdown into the target repo, approval timestamps. **Driver-authored persistence (DCR-1):** the driver writes each phase artifact in code from the phase END_TURN output via `GreenfieldArtifactStore.write()`, not via a model `write_artifact` tool call; later phases inject approved earlier artifacts into their prompt; AC-1.4 design/-confinement preserved (source-write tools withheld). | C3 | RD-7, AC-1.2/1.4/1.5/2.1/2.5, ADR-0012 | M | T-3.1 | artifacts written (driver-guaranteed); traceability AC→task verified against the written tasks artifact |
 | T-3.3 | Greenfield implement loop: one task at a time, verify each before next | C3, C2 | US-3, AC-3.1/3.3 | M | T-3.1, T-1.4 | tasks done in order, each verified |
 
 ### M4 — Knowledge + polish

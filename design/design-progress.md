@@ -1,11 +1,11 @@
 ---
 doc: design-progress
-last_updated: 2026-06-17
-last_updated_at_commit: 6e1d54f
+last_updated: 2026-06-23
+last_updated_at_commit: pending
 current_phase: 5
 current_sub_phase: handed-off-to-coordinator
 current_sub_phase_status: resolved
-next_action: spec-driven-coordinator runs Phase 5; design-progress.md is frozen until amendment or Phase 5 ends. First task T-0.1 (project skeleton). Coordinator runs single-agent topology, autonomous, stops at milestone gates G0-G4.
+next_action: spec-driven-coordinator resumes T-3.2-RD-D10 after the DCR-1 amendment (greenfield driver-authored phase-deliverable persistence). design-progress.md returns to frozen until the next amendment or Phase 5 ends.
 next_artifact_to_touch: design/07-tasks-progress.md
 ---
 
@@ -87,6 +87,7 @@ _(none yet)_
 - 3-formal batch 1 (cli-exit-codes + state-machine) — resolved (review: `reviews/2026-06-17-formal-batch1-r1.md`) — `296e3e2`
 - 3-formal batch 2 (schemas + contract-tests + fixtures) — resolved, **PHASE 3 COMPLETE** (review: `reviews/2026-06-17-formal-batch2-r1.md`) — `2518fee`
 - 4-tasks (07-tasks.md + .kiro/spec-driven.yaml) — resolved, **PHASE 4 COMPLETE — DESIGN BASELINE DONE, handed off to coordinator** (review: `reviews/2026-06-17-tasks-r1.md`) — `6e1d54f`
+- DCR-1 amendment for T-3.2-RD-D10 — greenfield driver-authored phase-deliverable persistence (AC-1.2/1.4/1.5/2.1/2.5, ADR-0012, C3/C7 in 02-architecture, T-3.2 in 07-tasks; review: `reviews/2026-06-23-amendment-greenfield-driver-authored-persistence-r1.md`) — `<pending-sha>`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 

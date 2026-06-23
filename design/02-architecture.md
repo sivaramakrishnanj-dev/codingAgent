@@ -1,10 +1,11 @@
 ---
 doc: architecture
-last_reviewed: 2026-06-15
+last_reviewed: 2026-06-23
 phase: 2-design
 status: resolved
-review: reviews/2026-06-15-architecture-r1.md
+review: reviews/2026-06-23-amendment-greenfield-driver-authored-persistence-r1.md
 approved_in: 2f5a25b
+amended_by: [DCR-1]
 ---
 
 # Architecture — codingAgent
@@ -87,11 +88,11 @@ Each component, what it owns, and the invariant it must preserve. The **Refs** c
 | --- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------- | ------------------ |
 | C1  | **CLI / REPL**             | Parse args, render output, host the interactive prompt, collect approvals                                                                       | Never executes a tool directly — only via the loop                                        | US-6, AC-6.*                           | —                  |
 | C2  | **Agent Loop**             | Drive the Converse cycle: send → parse blocks → dispatch tools → append results → repeat on `stopReason`                                        | One in-flight model call per conversation; every block logged before acting               | US-3/5/20                              | ADR-0001           |
-| C3  | **Workflow drivers**       | Greenfield (discuss→design→tasks→implement) and brownfield (understand→change) playbooks over C2                                                | Mode is fixed for a session; greenfield gates on approval before writing source           | US-1/2/3/4/5                           | ADR-0012           |
+| C3  | **Workflow drivers**       | Greenfield (discuss→design→tasks→implement) and brownfield (understand→change) playbooks over C2. Greenfield **authors each pre-approval phase deliverable deterministically in code**: on the phase's END_TURN it captures the model's final deliverable prose and writes the target-repo artifact via `GreenfieldArtifactStore.write()` (ADR-0012); persistence does not depend on a model-emitted tool call. Later phases inject approved earlier-phase artifact content into their phase prompt (fresh-conversation transcript continuity). | Mode is fixed for a session; greenfield gates on approval before writing source; **phase-deliverable persistence is driver-guaranteed, not model-tool-dependent** (ADR-0012) | US-1/2/3/4/5                           | ADR-0012           |
 | C4  | **Model Client**           | One adapter over Bedrock Converse: build request, stream response, surface `stopReason`/`usage`; honor credential chain                         | Provider-agnostic surface; no business logic; read/invoke only                            | US-8, NFR-MODEL-*, NFR-AWS-CREDENTIALS | ADR-0002, ADR-0011 |
 | C5  | **Capability profile**     | Resolve `modelId` → capabilities (extended thinking, prompt-cache mins, context window, tool-use)                                               | Loop degrades gracefully when a capability is absent                                      | NFR-MODEL-PROVIDER, OQ-J               | ADR-0002           |
 | C6  | **Context Manager**        | Track token usage; trigger compaction at threshold; dispose oversized tool output                                                               | Never mutate prior turns in place (signature-safe); compaction derives a new conversation | US-18/19, NFR-CONTEXT-*                | ADR-0006           |
-| C7  | **Tool Registry**          | Hold tool definitions (`name`, description, JSON inputSchema); render them to Converse `toolConfig`; dispatch `toolUse` to handlers             | A tool's schema and its handler agree; unknown tool → structured error                    | OQ-A, AC-?                             | ADR-0001           |
+| C7  | **Tool Registry**          | Hold tool definitions (`name`, description, JSON inputSchema); render them to Converse `toolConfig`; dispatch `toolUse` to handlers. Note: the greenfield `write_artifact` design-doc tool stays **registered/available** in the pre-approval registry but is **optional — not the persistence path** (C3 driver-authored persistence via `GreenfieldArtifactStore.write()` is the guaranteed mechanism; ADR-0012). | A tool's schema and its handler agree; unknown tool → structured error                    | OQ-A, AC-?                             | ADR-0001           |
 | C8  | **Permission Gate**        | Classify every tool call (Class R / X), apply the active `PermissionMode`, enforce the destructive denylist, collect approvals, remember grants | No Class X side effect executes without a gate decision; denylist always prompts          | US-9/10, RD-1..RD-6                    | ADR-0004           |
 | C9  | **File tools**             | read, grep/glob search, write, edit within the workspace                                                                                        | Class R never gated; writes go through C8                                                 | US-4/5, AC-4.*/5.*                     | —                  |
 | C10 | **Command Executor**       | Run named/ad-hoc commands as subprocesses; capture `{exit, stdout, stderr, duration}`; enforce timeout                                          | Every command passes C8; output over cap goes to C6 disposal                              | US-20, NFR-CMD-*, RD-10                | ADR-0003           |

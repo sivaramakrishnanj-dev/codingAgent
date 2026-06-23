@@ -1,10 +1,11 @@
 ---
 doc: requirements
-last_reviewed: 2026-06-14
+last_reviewed: 2026-06-23
 phase: resolved
 status: resolved
-review: reviews/2026-06-14-nfrs-1c-r1.md
+review: reviews/2026-06-23-amendment-greenfield-driver-authored-persistence-r1.md
 approved_in: e03b032
+amended_by: [DCR-1]
 ---
 
 # Requirements — codingAgent
@@ -204,20 +205,20 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 | AC | Type | Criterion | Refs |
 |----|------|-----------|------|
 | **AC-1.1** | Ev | When the developer starts the agent in greenfield mode, the agent shall begin a requirements-gathering dialogue before creating or editing any source file. | US-1 |
-| **AC-1.2** | U | The agent shall persist the agreed requirements as a markdown artifact in the target project. | RD-7 |
+| **AC-1.2** | U | The agent shall persist the agreed requirements as a markdown artifact in the target project. The persistence is **driver-guaranteed**: the greenfield workflow driver writes the artifact in code from the phase's settled output (ADR-0012), not via a model-emitted tool call. | RD-7, ADR-0012 |
 | **AC-1.3** | Un | If the developer requests implementation while requirements are unconfirmed, then the agent shall ask for confirmation rather than writing source code. | US-1 |
-| **AC-1.4** | St | While in the requirements dialogue, the agent shall not execute any Class X operation against source files. | RD-4 |
+| **AC-1.4** | St | While in the requirements dialogue, the agent shall not execute any Class X operation against source files. (Preserved under ADR-0012's driver-authored persistence: the driver's in-code artifact write is confined to the target project's `design/` markdown; source-write Class X tools stay withheld until the breakdown is approved.) | RD-4, ADR-0012 |
 | **AC-1.5** | Ev | When the developer confirms the requirements, the agent shall record the approval with a timestamp in the requirements artifact. | RD-7 |
 
 #### US-2 — Design + task breakdown
 
 | AC | Type | Criterion | Refs |
 |----|------|-----------|------|
-| **AC-2.1** | Ev | When requirements are confirmed, the agent shall produce a design artifact and a task-breakdown artifact as markdown in the target project. | RD-7 |
+| **AC-2.1** | Ev | When requirements are confirmed, the agent shall produce a design artifact and a task-breakdown artifact as markdown in the target project. As with AC-1.2, the persistence is **driver-guaranteed**: the workflow driver writes each artifact in code from the phase's settled output (ADR-0012), not via a model-emitted tool call. | RD-7, ADR-0012 |
 | **AC-2.2** | U | The agent shall express the task breakdown as an ordered list of discrete tasks, each with a stable identifier. | US-2 |
 | **AC-2.3** | Ev | When the design or task breakdown is presented, the agent shall request developer approval before implementation begins. | US-2 |
 | **AC-2.4** | Un | If the developer requests design changes, then the agent shall revise the artifact and re-request approval. | US-2 |
-| **AC-2.5** | U | The agent shall ensure every task in the breakdown traces to at least one stated requirement. | US-2 |
+| **AC-2.5** | U | The agent shall ensure every task in the breakdown traces to at least one stated requirement. Traceability is verified against the driver-written task-breakdown artifact (AC-2.1, ADR-0012). | US-2, ADR-0012 |
 
 #### US-3 — Implement tasks one at a time
 
