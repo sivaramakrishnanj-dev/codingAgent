@@ -445,5 +445,15 @@ auto-invokes the designer.
   - design/00-requirements.md (AC-1.1 multi-turn dialogue within the requirements phase; AC-1.5 approval=finalize; AC-2.3; AC-2.4 revise-and-re-request maps to a non-approve refining turn; keep EARS form + traceability)
   - design/02-architecture.md § 1.2 (C3 greenfield driver: multi-turn phase loop, approve-to-finalize, in-phase transcript continuity)
   - design/07-tasks.md (T-3.x rows: note multi-turn phase dialogue + approve-to-finalize)
-- designer_status: (pending)
+- designer_status: amended
+- amendment_commit: a9644b4
+- ripple_unresolved: |
+    Designer flagged two ripple_unresolved items, BOTH pre-existing and BOTH explicitly NOT part of DCR-2:
+    (1) the D8 discussion item (AC-9.4 / ADR-0004 gate-decision-table write_artifact auto-approve carve-out)
+    — with persistence driver-authored (DCR-1) and the phase now multi-turn (DCR-2), write_artifact is even
+    more clearly a vestigial-tool concern; left as a separate ac-update candidate (constraints forbade
+    editing ADR-0004's gate-decision table in this amendment). (2) the design/07-tasks-progress.md
+    historical single-turn/first-END_TURN narrative — an intentional, correctly-frozen audit trail
+    (coordinator-owned), not a live spec cross-reference; must not be retro-edited. Neither is a NEW ripple
+    introduced by DCR-2; both surfaced to the user before code resume. Neither blocks DCR-2 resume.
 

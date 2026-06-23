@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: pending
+last_updated_at_commit: 87fd436
 total_resolved_count: 36
 
 last_resolved:
@@ -14,8 +14,8 @@ last_resolved:
 
 in_flight:
   task: T-3.2-RD-D11
-  phase: AWAITING_AMENDMENT
-  loop_iter: 0
+  phase: TASK_BUILDER
+  loop_iter: 1
   round: null
   last_handoff_kind: null
   last_handoff_status: null
@@ -27,8 +27,8 @@ in_flight:
 ## In-flight
 
 - task: T-3.2-RD-D11
-  phase: AWAITING_AMENDMENT
-  loop_iter: 0
+  phase: TASK_BUILDER
+  loop_iter: 1
   round: null
   last_handoff_kind: null
   last_handoff_status: null
@@ -36,12 +36,16 @@ in_flight:
   files_in_working_tree: []
   dcrs_consumed:
     - DCR-2
+  amendment_commit: a9644b4
   note: |
-    DCR-2 (greenfield multi-turn phase dialogue + approve-to-finalize) user-approved; OQ-design-2 logged.
-    Designer invoked in amendment mode. On status: amended, reset loop counters, flip phase to TASK_BUILDER,
-    and re-run the single-agent task-builder to implement the multi-turn greenfield phase loop against the
-    amended spec (folds in the D1 output-token-cap fix on the same Converse request path). Do NOT proceed
-    into M4 after resolution — stop and surface for the live G3 smoke test.
+    DCR-2 amended at a9644b4 (greenfield multi-turn phase dialogue + approve-to-finalize). Loop counters
+    reset; phase flipped to TASK_BUILDER. Re-running the single-agent task-builder against the amended spec
+    to implement: (1) each pre-approval greenfield phase as a MULTI-TURN conversation (in-phase transcript
+    carry); (2) approve = finalize — capture the converged deliverable at phase approval and persist via
+    GreenfieldArtifactStore.write() (DCR-1 path kept), stamp AC-1.5, advance; non-approve = another refining
+    turn (AC-2.4), not persist-and-stop; (3) D1 fix — inferenceConfig.maxTokens=16384 on the greenfield
+    Converse request. Follow-on code commit must reference a9644b4 (Spec amendment: a9644b4 (DCR-2)). Do NOT
+    proceed into M4 after resolution — stop and surface for the live G3 smoke test.
   started_at: 2026-06-23T00:00:00+00:00
   last_updated_at: 2026-06-23T00:00:00+00:00
 
