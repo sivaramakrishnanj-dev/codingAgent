@@ -210,6 +210,26 @@ auto-invokes the designer.
   matches the schema) — user's call. Could bundle with the deferred M1 consolidated amendment.
 - status: open (informational; no action required to proceed)
 
+## Discussion items from T-3.3 — 2026-06-23
+
+### D1 — AC-3.5 (single-specific-task request) is type Op and not implemented as a distinct request shape (suggested: ac-update)
+- task: T-3.3
+- spec_refs: AC-3.5 (US-3, type Op: "Where the developer requested a single specific task, the agent shall implement only that task and then stop.")
+- suggested_amendment_kind: ac-update
+- finding: T-3.3's GreenfieldImplementLoop implements the full approved task breakdown one task at a
+  time in order (AC-3.1/3.2/3.3/3.4). AC-3.5 is an OPTIONAL ("Op" / "Where ...") criterion for the
+  case where the developer asked for a single specific task; the minimal-viable implement loop does
+  not model a distinct "single specific task" request shape — it runs the approved breakdown. The
+  task-builder surfaced this as a Discussion (the disposition the task guidance prescribed for AC-3.5)
+  rather than absorbing the extra request-shape scope into T-3.3.
+- coordinator note: non-blocking; T-3.3 resolved cleanly (0 Blocker/Major/Minor). AC-3.5 is type Op
+  (optional), so leaving it as a future request-shape enhancement is spec-faithful — the loop's
+  seams (GreenfieldImplementLoop.run reads the tasks artifact + a per-task turn) would accept a
+  single-task driver with no structural change. If the team later wants `--task <id>` / a single
+  specific-task greenfield request to implement-only-that-one-and-stop, promote AC-3.5 to mandatory
+  and pin a request shape (an ac-update / small CliArguments + driver enhancement). User's call.
+- status: open (informational; no action required to proceed)
+
 ## Discussion items from T-2.8 — 2026-06-23
 
 ### D1 — AC-18.5 live learning-harvest seam is now wired but inert at v1 (suggested: ac-update)
