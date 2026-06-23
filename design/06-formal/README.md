@@ -9,7 +9,7 @@ Phase 3 artifacts: the machine-checkable contracts that the prose design (Phases
 | `cli-exit-codes.md` | Authoritative exit-code contract (0–5, 130) | ✅ resolved (batch 1, `formal-batch1-r1`) |
 | `state-machine.md` | Agent-loop (`stopReason`) + compaction lifecycle state machines, numbered states + transitions | ✅ resolved (batch 1, `formal-batch1-r1`) |
 | `*.schema.json` | JSON Schemas (Draft 2020-12): `event`, `content-block` (incl Image/Document), `command-result`, `memory-entry`, `resolved-config`, `model-capability-profile` | ✅ resolved (batch 2, `formal-batch2-r1`) — all pass meta-schema |
-| `contract-tests.md` | Index: schema (CT-SCH-*), invariant (CT-INV-*), state-machine (CT-SM-*), exit-code (CT-EX-*) tests; each traces to an AC | ✅ resolved (batch 2, `formal-batch2-r1`) |
+| `contract-tests.md` | Index: schema (CT-SCH-*), invariant (CT-INV-*), state-machine (CT-SM-*), exit-code (CT-EX-*), greenfield-workflow (CT-GF-*, § 7) tests; each traces to an AC | ✅ resolved (batch 2, `formal-batch2-r1`; § 7 CT-GF-* amended DCR-3) |
 | `fixtures/` | `session-tool-use-cycle.jsonl`, `config.global.yaml`, `memory-entry.example.md` — all validated against their schemas | ✅ resolved (batch 2, `formal-batch2-r1`) |
 
 ## Conventions

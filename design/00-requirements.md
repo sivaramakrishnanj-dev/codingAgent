@@ -3,9 +3,9 @@ doc: requirements
 last_reviewed: 2026-06-23
 phase: resolved
 status: resolved
-review: reviews/2026-06-23-amendment-greenfield-multiturn-phase-dialogue-r1.md
+review: reviews/2026-06-23-amendment-greenfield-resume-r1.md
 approved_in: e03b032
-amended_by: [DCR-1, DCR-2]
+amended_by: [DCR-1, DCR-2, DCR-3]
 ---
 
 # Requirements — codingAgent
@@ -208,7 +208,7 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 | **AC-1.2** | U | The agent shall persist the agreed requirements as a markdown artifact in the target project. The persistence is **driver-guaranteed**: the greenfield workflow driver writes the artifact in code from the phase's settled output (ADR-0012), not via a model-emitted tool call. | RD-7, ADR-0012 |
 | **AC-1.3** | Un | If the developer requests implementation while requirements are unconfirmed, then the agent shall ask for confirmation rather than writing source code. | US-1 |
 | **AC-1.4** | St | While in the requirements dialogue, the agent shall not execute any Class X operation against source files. (Preserved under ADR-0012's driver-authored persistence: the driver's in-code artifact write is confined to the target project's `design/` markdown; source-write Class X tools stay withheld until the breakdown is approved.) | RD-4, ADR-0012 |
-| **AC-1.5** | Ev | When the developer confirms the requirements, the agent shall record the approval with a timestamp in the requirements artifact. The confirmation is the **finalize** signal for the multi-turn phase (ADR-0012): on approval the driver captures the converged deliverable from the phase conversation, persists it (AC-1.2), records this timestamp, and advances; a non-approval keeps the dialogue going rather than finalizing. | RD-7, ADR-0012 |
+| **AC-1.5** | Ev | When the developer confirms the requirements, the agent shall record the approval with a timestamp in the requirements artifact. The confirmation is the **finalize** signal for the multi-turn phase (ADR-0012): on approval the driver captures the converged deliverable from the phase conversation, persists it (AC-1.2), records this timestamp, and advances; a non-approval keeps the dialogue going rather than finalizing. The recorded approval stamp is the durable on-disk fact that also serves as both the **resume marker** (an approval-stamped phase is treated as approved on a later greenfield run — AC-7.6) and the **clobber-protection marker** (a stamped artifact is not silently truncated by a fresh run — AC-1.2, ADR-0012). | RD-7, ADR-0012 |
 
 #### US-2 — Design + task breakdown
 
@@ -266,6 +266,7 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 | **AC-7.3** | U | The agent shall key stored sessions to the repository (git remote URL when present, else normalized absolute path). | US-7 |
 | **AC-7.4** | Ev | When resuming a session that has compaction-derived continuations, the agent shall resume the latest continuation in the lineage by default. | RD-8 |
 | **AC-7.5** | Un | If a session's persisted events are corrupt or unreadable, then the agent shall report it and offer to start a new session rather than crashing. | US-7 |
+| **AC-7.6** | Ev | When the developer starts greenfield mode against a target project that already holds approval-stamped phase artifacts, the agent shall reconstruct its phase-state from those on-disk artifacts and resume at the first phase whose artifact is unstamped or absent, rather than restarting at requirements. A phase whose artifact bears the AC-1.5 approval stamp is treated as approved; an interrupted mid-phase (whose artifact is unstamped) is re-entered, so a transient failure is retryable in place. Resumable greenfield sessions are keyed to the target project by the AC-7.3 repo key. The in-phase multi-turn transcript is **not** preserved across the interruption — resume re-enters at the phase boundary and re-converses (accepted tradeoff, ADR-0012). | US-1, US-2, US-7, ADR-0012 |
 
 #### US-8 — Configure
 

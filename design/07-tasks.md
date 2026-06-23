@@ -3,9 +3,9 @@ doc: tasks
 last_reviewed: 2026-06-23
 phase: resolved
 status: resolved
-review: reviews/2026-06-23-amendment-greenfield-multiturn-phase-dialogue-r1.md
+review: reviews/2026-06-23-amendment-greenfield-resume-r1.md
 approved_in: 6e1d54f
-amended_by: [DCR-1, DCR-2]
+amended_by: [DCR-1, DCR-2, DCR-3]
 ---
 
 # Tasks — codingAgent
@@ -83,8 +83,9 @@ Component refs are `C*` (`02-architecture.md` § 1.2). Deps are task ids. Gate c
 | Task | Title | Component | Refs | Size | Deps | Verify |
 |------|-------|-----------|------|------|------|--------|
 | T-3.1 | Greenfield driver: phase state machine (requirements→design→tasks→implement) + per-phase approval gates. **Multi-turn phase dialogue (DCR-2):** each pre-approval phase is a multi-turn conversation (the phase transcript carries across turns *within* the phase, so the model sees its own prior turns); the approval prompt is offered each round and **approve = finalize** (advance + persist), while a non-approve answer keeps the phase conversation going (another refining turn — also the AC-2.4 revise path), not persist-and-stop. | C3 | ADR-0012, US-1/2/3, AC-1.1/1.3/2.3/2.4 | L | T-1.6, T-2.4 | **phase-gating CT** (fills §6 gap); multi-turn phase converges before finalize; no source write across any pre-approval turn (AC-1.4) |
-| T-3.2 | Artifact authoring: requirements/design/tasks markdown into the target repo, approval timestamps. **Driver-authored persistence (DCR-1) + approve-to-finalize capture (DCR-2):** the driver writes each phase artifact in code via `GreenfieldArtifactStore.write()`, not via a model `write_artifact` tool call; the capture-and-persist trigger is **phase approval** (DCR-2), so the *converged* multi-turn deliverable is written (not a single-turn first draft); later phases inject approved earlier artifacts into their conversation; AC-1.4 design/-confinement preserved (source-write tools withheld every turn). **Output-token budget (DCR-2, D1 follow-on):** set `inferenceConfig.maxTokens = 16384` (configurable) on the greenfield Converse request so a large deliverable is not truncated at the default 4096 cap. | C3, C4 | RD-7, AC-1.1/1.2/1.4/1.5/2.1/2.3/2.4/2.5, ADR-0012 | M | T-3.1 | artifacts written (driver-guaranteed, captured at approval from the converged dialogue); no MAX_TOKENS truncation of a full deliverable; traceability AC→task verified against the written tasks artifact |
+| T-3.2 | Artifact authoring: requirements/design/tasks markdown into the target repo, approval timestamps. **Driver-authored persistence (DCR-1) + approve-to-finalize capture (DCR-2):** the driver writes each phase artifact in code via `GreenfieldArtifactStore.write()`, not via a model `write_artifact` tool call; the capture-and-persist trigger is **phase approval** (DCR-2), so the *converged* multi-turn deliverable is written (not a single-turn first draft); later phases inject approved earlier artifacts into their conversation; AC-1.4 design/-confinement preserved (source-write tools withheld every turn). **Output-token budget (DCR-2, D1 follow-on):** set `inferenceConfig.maxTokens = 16384` (configurable) on the greenfield Converse request so a large deliverable is not truncated at the default 4096 cap. **Clobber protection (DCR-3, D13):** `GreenfieldArtifactStore.write()` refuses to truncate an already-approval-stamped artifact (`ApprovedArtifactProtectedException`) — the AC-1.5 stamp protects the approved deliverable and (per T-3.4) marks the phase resumable. | C3, C4 | RD-7, AC-1.1/1.2/1.4/1.5/2.1/2.3/2.4/2.5, ADR-0012 | M | T-3.1 | artifacts written (driver-guaranteed, captured at approval from the converged dialogue); no MAX_TOKENS truncation of a full deliverable; traceability AC→task verified against the written tasks artifact; a stamped artifact is not silently clobbered by a fresh run |
 | T-3.3 | Greenfield implement loop: one task at a time, verify each before next (over the breakdown converged + approved via the multi-turn phase dialogue, DCR-2) | C3, C2 | US-3, AC-3.1/3.3 | M | T-3.1, T-1.4 | tasks done in order, each verified |
+| T-3.4 | **Greenfield mid-flow resume + AC-7.3 repo-keying-forward (DCR-3).** On greenfield session start, reconstruct phase-state from the target repo's on-disk artifacts — an AC-1.5-stamped phase artifact = approved; resume at the first unstamped/absent phase rather than restarting at requirements; a transient mid-phase failure left the failed phase unstamped, so it is retryable in place. Bring the real AC-7.3 repo-keying forward (git remote URL else normalized abs path, ADR-0005) to scope the resumable session, **replacing the `Main.ONE_SHOT_LINEAGE` M0 placeholder** (the run-collision root cause). The AC-1.5 stamp is both the resume marker and the D13 clobber-protection signal (one durable on-disk fact). In-phase transcript is not preserved across an interruption (resume at phase boundary, re-converse — accepted tradeoff). | C3, C15 | AC-7.6, AC-7.3, ADR-0012, ADR-0005, US-1/2/7 | M | T-3.2 | CT-GF-1 (resume at design over a stamped requirements artifact, no restart), CT-GF-2 (no-clobber of a stamped artifact); a fresh greenfield run over a project keyed to its real repo key resumes at the first unstamped phase |
 
 ### M4 — Knowledge + polish
 
@@ -103,7 +104,7 @@ Component refs are `C*` (`02-architecture.md` § 1.2). Deps are task ids. Gate c
 | **G0** | M0 | One-shot tool-use cycle works end-to-end; gated; JSONL written; exit codes correct. CT-SCH-1..4/9/10/13/14, CT-INV-1/7/8/9, CT-EX-1/2/3/4/6 green. |
 | **G1** | M1 | Brownfield usable: explore→edit→verify→resume. CT-SM-1/2/5, CT-INV-2/3/14 green. |
 | **G2** | M2 | Survives long tasks: compaction + sub-agent + memory. CT-SM-6/7, CT-INV-3/4/9/10/11/12, CT-SCH-11/12 green. |
-| **G3** | M3 | Greenfield end-to-end with phase gates; greenfield-phase-gating CT green (closes §6 gap). |
+| **G3** | M3 | Greenfield end-to-end with phase gates; greenfield-phase-gating CT green (closes §6 gap); CT-GF-1 (mid-flow resume from stamped artifacts) + CT-GF-2 (no-clobber of a stamped artifact) green (DCR-3). |
 | **G4** | M4 | Web lookup + multimodal + model swap. CT-SCH-5/6/7/8/15, CT-INV-15/16 green. Coverage gaps from `contract-tests.md` §6 closed. |
 
 ## 4. Risk register
@@ -126,10 +127,10 @@ Per `00-requirements.md` OOS + the ADRs: non-Claude provider *validation* (seam 
 
 | US | Tasks |
 |----|-------|
-| US-1/2/3 greenfield | T-3.1, T-3.2, T-3.3 |
+| US-1/2/3 greenfield | T-3.1, T-3.2, T-3.3, T-3.4 |
 | US-4/5 brownfield | T-1.3, T-1.6, T-0.6 |
 | US-6 CLI | T-0.9, T-1.1 |
-| US-7 resume | T-1.2 |
+| US-7 resume | T-1.2, T-3.4 (greenfield mid-flow resume, AC-7.6) |
 | US-8 configure | T-0.2, T-4.5 |
 | US-9/10 permission | T-0.7 |
 | US-11 web lookup | T-4.1 |

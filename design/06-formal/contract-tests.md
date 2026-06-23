@@ -1,10 +1,11 @@
 ---
 doc: formal-contract-tests
-last_reviewed: 2026-06-17
+last_reviewed: 2026-06-23
 phase: 3-formal
 status: resolved
-review: ../reviews/2026-06-17-formal-batch2-r1.md
+review: ../reviews/2026-06-23-amendment-greenfield-resume-r1.md
 approved_in: 2518fee
+amended_by: [DCR-3]
 ---
 
 # Contract Tests — Index
@@ -97,4 +98,15 @@ Run with `jsonschema` (Draft 2020-12) + `pyyaml` on 2026-06-17:
 
 ## 6. Traceability summary
 
-Every CT cites an AC or a pinned symbol. Coverage spans: persistence/observability (US-13), permission/safety (US-9/10, RD-1/2), verification (US-20, RD-10), context (US-18/19), memory (US-12/14/21), multimodal (INV-18/19), credentials (AC-8.8), and the exit-code contract. Gaps to revisit at Phase 4 task breakdown: greenfield-workflow phase-gating (ADR-0012) and sub-agent summary-only propagation (INV-11) have loop-level CTs implied by CT-SM-* / CT-INV-* but may warrant dedicated tests when those milestones are scoped.
+Every CT cites an AC or a pinned symbol. Coverage spans: persistence/observability (US-13), permission/safety (US-9/10, RD-1/2), verification (US-20, RD-10), context (US-18/19), memory (US-12/14/21), multimodal (INV-18/19), credentials (AC-8.8), the exit-code contract, and (§ 7, DCR-3) greenfield mid-flow resume + clobber-protection (US-1/2/7, ADR-0012). Remaining gap to revisit when the milestone is scoped: sub-agent summary-only propagation (INV-11) has loop-level CTs implied by CT-INV-* but may warrant a dedicated test. *(The greenfield-workflow phase-gating gap previously flagged here is now addressed by T-3.1's phase-gating CT and § 7's CT-GF-* — see `07-tasks.md` M3 / G3.)*
+
+## 7. Greenfield-workflow contract tests (DCR-3)
+
+Pin the greenfield mid-flow resume contract (ADR-0012, AC-7.6) and the D13 clobber-protection guard (AC-1.2/AC-1.5). Both are ⚙ (need the greenfield driver + a target-repo `design/` tree on disk); exercised in Phase 5 (M3, T-3.4) with JUnit 5 + AssertJ over a temp target repo and a mocked Bedrock client.
+
+| CT | Element | Kind | Assertion | Traces |
+|----|---------|------|-----------|--------|
+| CT-GF-1 | C3 greenfield resume ⚙ | + | a fresh `--mode greenfield` run over a target project whose `design/00-requirements.md` is present **and AC-1.5 approval-stamped** reconstructs phase-state from the on-disk artifacts and **resumes at the design phase** — it does **not** restart at requirements; symmetrically, an unstamped/absent requirements artifact starts (or re-enters) requirements (retry-in-place) | AC-7.6, ADR-0012, AC-1.5 |
+| CT-GF-2 | C3 / `GreenfieldArtifactStore.write()` no-clobber ⚙ | − | a new greenfield run **refuses to truncate** a prior approved + AC-1.5-stamped phase artifact (raises `ApprovedArtifactProtectedException`); the approved deliverable on disk survives unchanged | AC-1.2, AC-1.5, ADR-0012 |
+
+> CT-GF-1 keys the resumable session to the target project by the real AC-7.3 repo key (git remote URL else normalized abs path) — the M0 `ONE_SHOT_LINEAGE` placeholder is replaced (T-3.4). The two CTs share one durable on-disk fact: the AC-1.5 approval stamp is simultaneously the resume marker (CT-GF-1) and the clobber-protection marker (CT-GF-2).
