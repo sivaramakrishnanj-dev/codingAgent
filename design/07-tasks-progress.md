@@ -1,59 +1,19 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: pending
-total_resolved_count: 26
+last_updated_at_commit: 1fc2709
+total_resolved_count: 27
 
 last_resolved:
-  task: T-2.2-RD-D3
-  title: "Compaction summarizer Converse call must carry the session's toolConfig (live-only D3 fix; regression-of-T-2.2)"
+  task: T-2.8-RD-D4
+  title: "Defer budget-guard COMPACT until transcript is tool_use/tool_result-paired (live-only D4 fix; regression-of-T-2.8)"
   resolved_at: 2026-06-23
-  commit: af7a32e
+  commit: 1fc2709
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-2.8-RD-D4
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-23T10:00:00+05:30
-  last_updated_at: 2026-06-23T10:00:00+05:30
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-2.8-RD-D4
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree:
-    - src/main/java/com/srk/codingagent/loop/AgentLoop.java
-    - src/test/java/com/srk/codingagent/loop/AgentLoopTest.java
-  dcrs_consumed: []
-  started_at: 2026-06-23T10:00:00+05:30
-  last_updated_at: 2026-06-23T10:00:00+05:30
-  note: |
-    Live-only D4 regression fix (regression-of-T-2.8), surfaced by the G2 real-Bedrock smoke
-    test after D3 was fixed. ROOT CAUSE: AgentLoop.drive() evaluates the budget-guard COMPACT
-    decision after appending MODEL_RESPONSE/MODEL_USAGE but BEFORE the switch(stopReason) where
-    `case TOOL_USE -> transcript.add(dispatchTools(...))` appends the matching tool_result. So a
-    COMPACT on a TOOL_USE turn hands the compaction seam a transcript ending in a dangling
-    tool_use (no following tool_result) → Bedrock 400 ValidationException (violates the
-    tool_use/tool_result pairing rule, INV-6 / § 6.A.1). Same live-only class as D1/D2/D3 — the
-    mocked tests never replayed a dangling-tool_use transcript to a Bedrock that enforces pairing.
-    USER-CHOSEN FIX: defer the COMPACT evaluation until the transcript is well-formed (tool_use/
-    tool_result-paired) — i.e. on a TOOL_USE turn, append the tool_result FIRST, then evaluate the
-    guard at the next valid boundary. The budget signal must not be lost (compaction still happens
-    at the next well-formed boundary). Do NOT fix by silently dropping the trailing tool_use.
-    Preserve: INV-2 log-before-act order of MODEL_RESPONSE/MODEL_USAGE; T14 continue-in-derived-
-    session; T15 surface-on-failure → exit 5; CT-SM-1/2/6/7.
 
 ## Milestone gates
 
@@ -327,3 +287,14 @@ in_flight:
 - milestone: M2 (regression/integration task; NOT a 07-tasks.md row — tracked here with full traceability like T-2.7/T-2.8 and the M0 D1/D2 regression tasks T-0.2-RD1/T-0.5-RD2. Coordinator does not edit the designer-owned tasks table.)
 - task_type: regression — closes the THIRD live-vs-mocked gap (D3) found by the G2 real-Bedrock smoke test (same class as M0 D1/D2 and the now-live-path defects: green against the mocked Bedrock, broken live). T-2.8 correctly wired compaction INTO the loop (compaction is now INVOKED — big progress), so the summarizer Converse call itself then fired live and surfaced this.
 - notes: VERIFIED DEFECT (D3), confirmed by the coordinator against the source before dispatch. Trace: TokenBudgetGuard fired COMPACT -> AgentLoop invoked the (T-2.8-wired) compaction seam -> Compactor.summarize() made its summarizer Converse call -> live HTTP 400 ValidationException "The toolConfig field must be defined when using toolUse and toolResult content blocks." ROOT CAUSE: Compactor.summarize() (context/Compactor.java) replays the ORIGINAL transcript verbatim (which CONTAINS toolUse/toolResult blocks from the summarized coding session — the point of summarizing a real session) but passed `null` as the toolConfig arg on `modelClient.converse(summarizerModelId, transcript, List.of(COMPACTION_SYSTEM_PROMPT), null)`. Per the verified Bedrock wire rule (design-progress §6.A.1): when messages[] carry tool blocks, the request MUST present toolConfig. The original "no tool config" summarizer assumption (in the summarize Javadoc) was wrong against the wire; it passed only because the in-test ScriptedBedrockClient double never enforced that rule. USER-CHOSEN FIX (smallest, most spec-faithful — keep the tool blocks verbatim, just satisfy the wire rule): thread the session's ToolConfiguration (the tools available in the session being summarized) into the Compactor and pass it on the summary call instead of null. The summarizer still sees the real transcript verbatim (best summary fidelity, ADR-0006/AC-18.4 unchanged); it just carries the tool defs. FIX: (1) Compactor gained a nullable ToolConfiguration field set via the constructor — placed before harvester so the no-harvest convenience ctor naturally carries it; preserved the 6->7->8-arg delegation chain (one delegating to the next with LearningHarvester.NONE). toolConfig is null-tolerant ONLY for a genuinely-no-tools session (the §6.A.1 rule only bites when the transcript carries tool blocks); the live path always threads the real registry's toolConfig. summarize(...) now passes the field instead of null; the stale "no tool config" Javadoc (class-level step 1 + the summarize method) corrected to cite the §6.A.1 wire rule and that the tool blocks are kept verbatim. (2) AgentLoopFactory.create (JaCoCo-excluded composition root) threads the already-built parent ToolRegistry's toToolConfiguration() into compactionSeam(...) -> the live Compactor (no second registry, no duplicate render). REGRESSION TEST (the D2-class lesson — the test that WOULD have caught this): the new CompactorTest case seeds a transcript WITH toolUse/toolResult blocks, runs compaction, captures the summary ConverseRequest, and asserts request.toolConfig() is non-null AND carries the expected tool definitions (tool names in request.toolConfig().tools() match the wired toolConfig) — asserting the actual request CONTRACT the live ValidationException enforces (oracle = §6.A.1 wire rule), not merely that summarize returns text. Plus a null-tolerance test for the genuinely-no-tools session. 846 tests green under mvn clean verify (JaCoCo 0.80 BUNDLE gate met; Compactor 90.4% line / 89.3% branch). Self-checks: oracle-traceability=passed (expected values trace to §6.A.1 wire rule + ADR-0006/AC-18.4 + the live ValidationException, never to impl behavior), reuse=passed (reused ToolRegistry.toToolConfiguration() + the existing ScriptedBedrockClient request-capture pattern; updated all 4 `new Compactor(` test call sites via the shared helper rather than duplicating). 0 Blocker/Major/Minor/Nit, 0 Discussion. NO live AWS/Bedrock call made (fix exercised entirely against the in-test double); the stray ~/.codingagent/config.yaml smoke-test config was ignored as instructed. >>> G2 SMOKE-TEST NOTE: a live codingagent run that crosses the compaction threshold now makes a summarizer Converse call carrying the session's toolConfig, so a transcript with tool blocks is wire-valid — the live compact+continue path (which T-2.8 wired) should now reach a derived session and keep going instead of dying on the ValidationException. Main agent re-runs the real-Bedrock G2 smoke test to confirm: live compact+continue reaches a derived session and the loop keeps going (not exit 5), plus the already-working sub-agent spawn and propose->approve->recall memory cycle.
+
+## T-2.8-RD-D4 — Defer budget-guard COMPACT until transcript is tool_use/tool_result-paired (live-only D4 fix; regression-of-T-2.8)
+- commit: 1fc2709
+- review: design/reviews/code/T-2.8-RD-D4-r1.md
+- resolved: 2026-06-23
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M2 (regression/integration task; NOT a 07-tasks.md row — tracked here with full traceability like T-2.7/T-2.8/T-2.2-RD-D3 and the M0 D1/D2 regression tasks. Coordinator does not edit the designer-owned tasks table.)
+- task_type: regression — closes the FOURTH live-vs-mocked gap (D4) found by the G2 real-Bedrock smoke test (same class as M0 D1/D2 and D3: green against the mocked Bedrock, broken live). D3 fixed the summarizer's missing toolConfig; the G2 re-run got past D3 (toolConfig now present) and surfaced D4, the next layer in the live compaction path.
+- notes: VERIFIED DEFECT (D4), confirmed by the coordinator against the source (loop/AgentLoop.java drive(), ~L242-295) before dispatch. Trace: TokenBudgetGuard fired COMPACT on a TOOL_USE turn -> Compactor.summarize() replayed the transcript to Bedrock -> live HTTP 400 ValidationException "messages.2: tool_use ids were found without tool_result blocks immediately after: tooluse_xxx. Each tool_use block must have a corresponding tool_result block in the next message." ROOT CAUSE (ordering bug in AgentLoop.drive()): the loop did append(response); append(usage); transcript.add(assistant) then evaluated budgetGuard.evaluate(usage)==COMPACT and (if so) compacted -- BEFORE the switch(stopReason) where `case TOOL_USE -> transcript.add(dispatchTools(...))` appends the matching tool_result. So a COMPACT on a TOOL_USE turn handed the compaction seam a transcript ending in a dangling toolUse with no following toolResult -> Bedrock rejects it (violates the tool_use/tool_result pairing rule, INV-6 / §6.A.1 / CT-INV-5). A REAL latent bug, not a test artifact: the smoke test used contextCompactThreshold=0.001 to force it deterministically, but at the real 0.85 threshold the same break happens whenever measured usage crosses 85% on a tool_use turn (common mid-task). The mocked tests never replayed a dangling-tool_use transcript to a Bedrock that enforces pairing. USER-CHOSEN FIX (defer the COMPACT check until the transcript is in a VALID paired state; do NOT silently drop the trailing tool_use; do not lose the budget signal): on a TOOL_USE turn, dispatch the tool(s) and append the batched toolResult BEFORE consulting the budget guard, so the compaction seam always summarizes a well-formed (toolUse/toolResult-paired) transcript at every stop reason. A tool_use turn is not complete until its toolResult is appended (state machine B LT1; T13's source S1/S0->S6 is a between-complete-turns boundary). FIX (AgentLoop.drive() ONLY): added a guarded `if (response.stopReason()==StopReason.TOOL_USE) { transcript.add(dispatchTools(response.content())); }` immediately after the assistant turn is logged+appended and BEFORE the budget-guard/compaction block; the switch's TOOL_USE arm is now a no-op falling through to the re-call. Preserved: INV-2 log-before-act (append(response); append(usage) still first, before any dispatch); the budget signal (evaluated once per turn's usage at the now-paired boundary -- not dropped, not double-evaluated); T14 continue-in-derived-session; T15 surface-on-failure -> exit 5; CT-SM-1/2/6/7, CT-INV-2. No public API or collaborator signature changed (BudgetGuard/CompactionSeam/Compactor/ModelClient/ToolRegistry untouched); no design/ file touched except the review file. REGRESSION TEST (the test that WOULD have caught this -- D2/D3-class lesson, the mock must enforce what live Bedrock enforces): compactionOnToolUseTurnReceivesWellFormedTranscript drives COMPACT on a tool_use turn over a controllable REAL CompactionSeam lambda that captures the transcript it is handed (AtomicReference) then returns CONTINUED; the new assertToolUseToolResultPaired helper asserts the §6.A.1/INV-6 wire rule (every toolUse immediately followed by its matching toolResult, no dangling trailing toolUse) -- the actual structural contract, not merely that compaction was invoked. Proven to FAIL against the pre-fix ordering (temporary revert) and PASS after. ONE EXISTING-TEST ORACLE CORRECTED: compactionSeamNoneSurfaces previously asserted assertFalse(tool.ran) ("surfaces before dispatching tools") -- that pinned the pre-fix ordering that IS the D4 defect; corrected to assertTrue(tool.ran), tracing to state machine B LT1 / §6.A.1 (the tool_use turn completes before the budget seam runs), with SURFACED(TOOL_USE) and call-count 1 unchanged; also proven to fail against pre-fix. 847 tests green under mvn clean verify (JaCoCo 0.80 BUNDLE gate met; actual 92.21%); shaded codingagent.jar builds. Self-checks: oracle-traceability=passed (expected values trace to §6.A.1/INV-6/CT-INV-5 wire rule, state-machine A T13/T14/T15 + B LT1, CT-SM-1/2/6/7, the live ValidationException -- never to impl behavior), reuse=passed (no new public method/helper class on the production side -- the fix reuses the existing dispatchTools(...) helper, invoked once per TOOL_USE turn as before; the test adds one private assertion helper consistent with the test file's existing local-helper convention). 0 Blocker/Major/Minor/Nit, 0 Discussion. NO live AWS/Bedrock call made (fix exercised entirely against the in-test ScriptedBedrockClient double per ADR-0001); the stray ~/.codingagent/config.yaml smoke-test config (threshold 0.001) was ignored as instructed -- the fix is correct at the real default 0.85 threshold and depends on nothing in that file. >>> G2 SMOKE-TEST NOTE: a live codingagent run that crosses the compaction threshold ON A TOOL_USE TURN now completes the turn (appends the toolResult, pairing the transcript) BEFORE summarizing, so the summarizer's verbatim replay is wire-valid -- the live compact+continue path should now reach a derived session and keep driving (not exit 5) even when the threshold fires mid-tool-cycle. Main agent re-runs the real-Bedrock G2 smoke test to confirm: compact+continue reaches a derived session and the loop keeps going (not exit 5), plus the working sub-agent spawn and propose->approve->recall memory cycle.
