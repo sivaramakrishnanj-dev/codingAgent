@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: af7a32e
+last_updated_at_commit: pending
 total_resolved_count: 26
 
 last_resolved:
@@ -12,8 +12,48 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-2.8-RD-D4
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-23T10:00:00+05:30
+  last_updated_at: 2026-06-23T10:00:00+05:30
 ---
+
+## In-flight
+
+- task: T-2.8-RD-D4
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  files_in_working_tree:
+    - src/main/java/com/srk/codingagent/loop/AgentLoop.java
+    - src/test/java/com/srk/codingagent/loop/AgentLoopTest.java
+  dcrs_consumed: []
+  started_at: 2026-06-23T10:00:00+05:30
+  last_updated_at: 2026-06-23T10:00:00+05:30
+  note: |
+    Live-only D4 regression fix (regression-of-T-2.8), surfaced by the G2 real-Bedrock smoke
+    test after D3 was fixed. ROOT CAUSE: AgentLoop.drive() evaluates the budget-guard COMPACT
+    decision after appending MODEL_RESPONSE/MODEL_USAGE but BEFORE the switch(stopReason) where
+    `case TOOL_USE -> transcript.add(dispatchTools(...))` appends the matching tool_result. So a
+    COMPACT on a TOOL_USE turn hands the compaction seam a transcript ending in a dangling
+    tool_use (no following tool_result) → Bedrock 400 ValidationException (violates the
+    tool_use/tool_result pairing rule, INV-6 / § 6.A.1). Same live-only class as D1/D2/D3 — the
+    mocked tests never replayed a dangling-tool_use transcript to a Bedrock that enforces pairing.
+    USER-CHOSEN FIX: defer the COMPACT evaluation until the transcript is well-formed (tool_use/
+    tool_result-paired) — i.e. on a TOOL_USE turn, append the tool_result FIRST, then evaluate the
+    guard at the next valid boundary. The budget signal must not be lost (compaction still happens
+    at the next well-formed boundary). Do NOT fix by silently dropping the trailing tool_use.
+    Preserve: INV-2 log-before-act order of MODEL_RESPONSE/MODEL_USAGE; T14 continue-in-derived-
+    session; T15 surface-on-failure → exit 5; CT-SM-1/2/6/7.
 
 ## Milestone gates
 
