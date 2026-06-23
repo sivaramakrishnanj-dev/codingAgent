@@ -14,12 +14,12 @@ last_resolved:
 
 in_flight:
   task: T-3.2-RD-D12-D13
-  phase: TASK_BUILDER
+  phase: AWAITING_AMENDMENT
   loop_iter: 1
   round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
+  last_handoff_kind: TASK-BUILDER-HANDOFF-v1
+  last_handoff_status: design-change-needed
+  last_review_file: design/reviews/code/T-3.2-RD-D12-D13-r1.md
   started_at: 2026-06-23T00:00:00+00:00
   last_updated_at: 2026-06-23T00:00:00+00:00
 ---
@@ -27,16 +27,29 @@ in_flight:
 ## In-flight
 
 - task: T-3.2-RD-D12-D13
-  phase: TASK_BUILDER
+  phase: AWAITING_AMENDMENT
   loop_iter: 1
   round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
+  last_handoff_kind: TASK-BUILDER-HANDOFF-v1
+  last_handoff_status: design-change-needed
+  last_review_file: design/reviews/code/T-3.2-RD-D12-D13-r1.md
+  files_in_working_tree:
+    - src/main/java/com/srk/codingagent/tool/GreenfieldArtifactStore.java
+    - src/main/java/com/srk/codingagent/tool/ApprovedArtifactProtectedException.java
+    - src/test/java/com/srk/codingagent/tool/GreenfieldArtifactStoreTest.java
+    - src/test/java/com/srk/codingagent/workflow/GreenfieldArtifactAuthoringTest.java
+    - src/test/java/com/srk/codingagent/workflow/ApprovalStampTest.java
+    - src/test/java/com/srk/codingagent/cli/GreenfieldSharedStdinArtifactPersistenceTest.java
+    - design/reviews/code/T-3.2-RD-D12-D13-r1.md
   dcrs_consumed: []
-  started_at: 2026-06-23T00:00:00+00:00
-  last_updated_at: 2026-06-23T00:00:00+00:00
+  awaiting: |
+    DCR-3 (D12 greenfield mid-flow resume) raised by spec-driven-task-builder; awaiting user
+    approve / reject / revise. D13 (destructive overwrite of an approved artifact) was FIXED in code
+    this round as a safety stopgap (uncommitted, in the working tree) — GreenfieldArtifactStore.write()
+    now refuses to truncate an already-approval-stamped artifact (new ApprovedArtifactProtectedException).
+    mvn clean verify green (1039 tests, JaCoCo 0.80 met). The D13 code is NOT committed; per the DCR
+    flow the D13 fix + the DCR-driven D12 code land together in the resumed-task commit after the
+    amendment. OQ-design-3 logged in design/open-questions.md.
   note: |
     Resilience-cluster fix on the greenfield path (regression-of-T-3.1/T-3.2), surfaced by the live
     G3 interactive greenfield smoke test after DCR-2. A transient Bedrock Read-timeout mid-flow

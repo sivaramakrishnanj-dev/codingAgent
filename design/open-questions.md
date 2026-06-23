@@ -501,3 +501,70 @@ auto-invokes the designer.
   paste block (`"""` … `"""`) or a `.`-on-its-own-line terminator — so a pasted multi-line prompt
   is one turn. Greenfield-relevant but applies to the whole REPL.
 - status: open (deferred to M4 polish; non-blocking — does not gate G3)
+
+## OQ-design-3 — T-3.2-RD-D12-D13 design-change requested (greenfield mid-flow resume, D12) — 2026-06-23
+
+- kind: architecture-update
+- raised_by: spec-driven-task-builder
+- request_id: DCR-3 (proposed; awaiting user decision)
+- spec_refs_touched: ADR-0012, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-2.3, 02-architecture.md § 1.2 (C3 greenfield driver, C15 session/lineage store), Main.ONE_SHOT_LINEAGE (M0 placeholder)
+- problem_statement: |
+    D12: a transient model-backend failure (or any non-approval interruption) mid-greenfield does NOT
+    resume the in-flight greenfield session at the failed phase — the next REPL prompt restarts
+    greenfield from the requirements phase. Root cause: GreenfieldDriver.run() is a pure in-memory
+    phase state machine that always begins at GreenfieldPhase.initial(); greenfield phase-state (which
+    phases were approved, the current phase, the approved-artifact content) is never persisted in a
+    resumable form. The existing resume machinery (T-1.2: SessionStore, SessionReplay, SessionLineage,
+    ResumeCommand) reconstructs the BROWNFIELD conversation transcript (events -> messages[]), per
+    AC-7.2 and SessionReplay's contract — it is NOT a greenfield phase-state projection. There is no
+    EventType for "phase approved"/"phase advanced"/"current phase", so there is nothing on disk from
+    which to reconstruct the greenfield phase machine. No AC/INV/ADR pins how greenfield phase-state is
+    persisted or resumed; ADR-0012 says greenfield "inherits persistence for free" but is silent on
+    resuming an interrupted greenfield session. Implementing D12 without a spec decision would require
+    inventing: (1) the contract for "resume at the failed phase" vs "retry-in-place on the next prompt";
+    (2) how phase-state is reconstructed (re-derive approved phases from the on-disk approval-stamped
+    artifacts? add greenfield phase events to the log? both?); (3) the real session/repo identity that
+    scopes a resumable greenfield session — today every run shares the fixed Main.ONE_SHOT_LINEAGE M0
+    placeholder (a known stand-in for AC-7.3 git-remote/abs-path repo-keying), so runs collide.
+    (D13, the destructive sibling — silent overwrite of an approved artifact — was FIXED in code this
+    round as a safety stopgap, derivable from AC-1.2/AC-1.5: GreenfieldArtifactStore.write() refuses to
+    truncate an already-approval-stamped artifact, throwing the new ApprovedArtifactProtectedException.
+    The D13 fix also independently mitigates the worst observed D12 symptom: a restart-from-scratch run
+    can no longer silently destroy the prior run's approved requirements — it now fails loud instead.
+    The D13 code is in the working tree, uncommitted, pending the resumed-task commit after this DCR.)
+- options_considered:
+  - id: A
+    summary: |
+      Per-greenfield-project resume by re-deriving phase-state from the on-disk approved artifacts.
+      Introduce a greenfield-resume contract (a new resume AC + ADR-0012 amendment): a greenfield
+      session is keyed to the target project (AC-7.3 repo-keying brought forward to replace
+      ONE_SHOT_LINEAGE), and on a fresh `codingagent --mode greenfield` the driver reconstructs its
+      phase-state from the target repo's design/ artifacts — a phase whose artifact bears the AC-1.5
+      approval stamp is "approved"; the current phase is the first unstamped/absent one — and resumes
+      there rather than restarting at requirements. A transient timeout mid-phase is retryable in
+      place: because the failed phase's artifact is not yet stamped, the next prompt re-enters that
+      same phase. Pairs with the D13 refuse-to-clobber guard already shipped (the stamp is the resume
+      signal AND the clobber-protection signal — one durable on-disk fact serves both).
+    pros: Reuses what is already on disk (the approval-stamped artifacts) as the resume state — minimal new persistence; the D13 stamp already shipped doubles as the resume marker; gives both retry-in-place (unstamped failed phase) and resume-a-prior-project (stamped earlier phases) from one mechanism; advances AC-7.3 repo-keying which is overdue.
+    cons: Re-derives only phase boundaries from artifacts, not the in-phase multi-turn transcript (an interrupted mid-phase conversation loses its in-phase turns — acceptable since AC-1.1's in-phase carry is within one process run, but a design choice to confirm); requires bringing AC-7.3 repo-keying forward (replacing ONE_SHOT_LINEAGE), a non-trivial wiring change touching C15/Main.
+  - id: B
+    summary: |
+      First-class greenfield phase events in the session log + replay into phase-state. Add
+      GREENFIELD_PHASE_APPROVED / GREENFIELD_PHASE_ADVANCED (or a single phase-state) EventType, append
+      them at each gate approval/advance, and extend the resume path (a greenfield analogue of
+      SessionReplay) to reconstruct the phase machine from the log (AC-7.2-shaped, but for phase-state
+      rather than messages[]). Greenfield resume then lists + selects a session like brownfield (AC-7.1)
+      and continues at the recorded current phase.
+    pros: Phase-state is explicitly persisted (not re-derived), so it is robust to artifact edits and carries richer state (e.g. in-phase progress); fits the existing event-log/AC-7.2 replay model and the C15 lineage store directly; unifies greenfield resume under the same list-and-replay UX as brownfield (AC-7.1/7.2/7.4).
+    cons: More new surface — a new EventType (touches event.schema.json + CT-SCH-2 + the EventType taxonomy), a new replay projection, and gate/driver wiring to emit the events; larger blast radius than re-deriving from artifacts; still needs the same AC-7.3 repo-keying to scope sessions (ONE_SHOT_LINEAGE today).
+- recommended_option: A
+- scope_of_design_edit:
+  - design/adr/0012-greenfield-workflow-formality.md (add a greenfield-resume clause: phase-state is resumable; an approval-stamped artifact marks an approved phase; resume at the first unstamped/absent phase; transient mid-phase failure is retryable-in-place; keyed to the target project)
+  - design/00-requirements.md (a new greenfield-resume AC under US-1/US-2 or a greenfield-scoped clause on US-7; EARS form, traced to US-1/US-2/US-7 + ADR-0012)
+  - design/02-architecture.md § 1.2 (C3 greenfield driver: phase-state reconstruction on session start; C15 / repo-keying note replacing the ONE_SHOT_LINEAGE M0 placeholder per AC-7.3)
+  - design/07-tasks.md (a follow-on task row for greenfield mid-flow resume + AC-7.3 repo-keying-forward, M3 scope)
+  - design/06-formal/contract-tests.md (a greenfield-resume CT: a fresh greenfield run over a target project with an approved requirements artifact resumes at the design phase and does not restart at requirements)
+- user_decision: (pending)
+- designer_status: (pending)
+- budget: amendment #1 of 3 for T-3.2-RD-D12-D13; DCR-3, amendment #3 of 10 for milestone M3
+- status: open (AWAITING USER DECISION — coordinator stopped; no auto-amend)
