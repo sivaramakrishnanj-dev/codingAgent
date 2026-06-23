@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: f0f5305
+last_updated_at_commit: pending
 total_resolved_count: 34
 
 last_resolved:
@@ -12,8 +12,53 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-3.2-RD-D9
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-23T16:10:00+05:30
+  last_updated_at: 2026-06-23T16:10:00+05:30
 ---
+
+## In-flight
+
+- task: T-3.2-RD-D9
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  files_in_working_tree: []
+  dcrs_consumed: []
+  started_at: 2026-06-23T16:10:00+05:30
+  last_updated_at: 2026-06-23T16:10:00+05:30
+  note: |
+    Regression-of-T-3.2 (label T-3.2-RD-D9). INVESTIGATE-then-fix the
+    write_artifact CONTENT-write path. Live evidence (3rd attempt): after D7
+    (prompt steering) + D8 (gate auto-approve) a clean real-Bedrock G3
+    greenfield REPL run STILL produces design/00-requirements.md +
+    design/01-design.md containing ONLY the approval stamp ("Approved: ... at
+    <ts>."), no content; design/02-tasks.md never created -> AC-2.5 gate
+    correctly refuses implement. Stderr has NO "Wrote greenfield artifact"
+    success line — only GreenfieldArtifactStore "Appended approval line"
+    (the gate's stamp). So GreenfieldArtifactStore.write() (truncating content
+    write) is apparently never called; only append() (the stamp) runs. The
+    model emits TOOL_USE turns and write_artifact is in the registered toolset,
+    but the content write never lands. Task-builder must instrument the
+    dispatch->tool->store->disk path end-to-end through PRODUCTION wiring,
+    confirm the root cause (registry/dispatch miss / WriteArtifactTool not
+    calling store.write / write throwing swallowed / malformed-empty input
+    failing validation silently / other), fix it, and add a test exercising
+    the SAME production dispatch+registry+store path that's failing live
+    (prior D7/D8 tests passed yet live broke -> those tests miss the real path).
+    Refs: RD-7, AC-1.2, AC-2.1, AC-2.5. Stop after; do NOT enter M4. If the
+    investigation reveals the spec is ambiguous about write_artifact content vs
+    approval-stamp coexistence in one file, raise design-change-needed.
 
 ## Milestone gates
 
