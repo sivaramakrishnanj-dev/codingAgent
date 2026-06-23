@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: pending
+last_updated_at_commit: 9b15572
 total_resolved_count: 24
 
 last_resolved:
   task: T-2.7
   title: "Wire sub-agent + memory tools into the live tool registry (M2 integration; regression-of-T-2.3/T-2.4)"
   resolved_at: 2026-06-23
-  commit: pending
+  commit: 9b15572
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -256,7 +256,7 @@ in_flight: null
 - notes: The outcome-signal PRODUCER (C14, US-16) — the derivation+append the OUTCOME event type (already present from T-0.4: OutcomePayload {taskRef,success,iterations}, EventCodec-mapped, event.schema.json $defs.outcome, read by SessionStore.deriveMeta) had no writer for. New OutcomeRecorder (com.srk.codingagent.persistence) takes an EventLog + injected clock Supplier + taskRef and, given the terminal T-1.4 VerifyOutcome, DERIVES success = VerifyOutcome.verified() (true ONLY for Kind.VERIFIED = a zero exit from the configured test command within the bound; EXHAUSTED incl. the 124 timeout = failure) and iterations = VerifyOutcome.iterations(), then appends an OUTCOME event with a boundary-captured timestamp (AC-16.1/16.2, RD-10/INV-17/AC-20.4). Success lives in ONE place: derived from VerifyOutcome.verified(), never by re-checking result().exitCode(), so the zero-exit rule cannot drift from the verify loop. NO_TEST_COMMAND disposition (stated_assumption): record(VerifyOutcome) returns Optional.empty and appends NOTHING when no verification ran (Kind.NO_TEST_COMMAND) — AC-16.2 derives the signal from the verification command's exit status, so with no command there is no exit status and no signal; chose record-nothing over fabricating success or failure (both rejected; recordIfVerificationRan(Optional) is the convenience entry). AC-16.3 aggregatability: the on-disk JSONL OUTCOME line is the aggregatable form (the existing $defs.outcome shape SessionStore.deriveMeta folds into SessionMeta.outcomeSuccess); a test asserts the producer-emitted line round-trips and validates against event.schema.json via the same networknt validator EventSchemaContractTest uses (D2-guard: the emitted shape is checked on disk, not just success=true). WIRED into the live run path via a thin tested seam on BrownfieldRunner (2-arg ctor adding an optional OutcomeRecorder; old 1-arg ctor retained delegating with null — additive, no public-API break, run-path exit-code mapping unchanged); the un-unit-testable composition (recorder from the live EventLog + clock + taskRef) lives in JaCoCo-excluded Main.runOneShot/runInteractive. Brownfield is free-form (not task-numbered) at M2, so the live taskRef defaults to the session lineage id (Main.ONE_SHOT_LINEAGE "one-shot"); OutcomeRecorder carries whatever taskRef the caller supplies verbatim, so a real task-numbered caller (greenfield T-3.3) supplies a real id with no code change. +20 tests (OutcomeRecorderTest 15 incl. the schema-validation CT + the VERIFIED->true / EXHAUSTED->false / iterations / no-test-command truth table; BrownfieldRunnerTest +5 recording/wiring incl. taskRef="one-shot"). 825 tests green under mvn clean verify (JaCoCo 0.80 BUNDLE gate met; OutcomeRecorder 100% line+branch; BrownfieldRunner 36/37 line, the 1 missed = pre-existing T-1.6 verify-exhausted report formatting). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor, 1 Nit, 0 Discussion. >>> G2 SMOKE-TEST NOTE: a live codingagent -p / REPL brownfield run that verifies now records an OUTCOME event (taskRef=one-shot, success from the verify exit) into the session JSONL — exercisable + inspectable at G2.
 
 ## T-2.7 — Wire sub-agent + memory tools into the live tool registry (M2 integration; regression-of-T-2.3/T-2.4)
-- commit: pending
+- commit: 9b15572
 - review: design/reviews/code/T-2.7-r1.md
 - resolved: 2026-06-23
 - context_mode: narrow
