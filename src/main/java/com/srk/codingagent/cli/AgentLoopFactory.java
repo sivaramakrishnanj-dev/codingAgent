@@ -19,14 +19,17 @@ import com.srk.codingagent.permission.PermissionGate;
 import com.srk.codingagent.persistence.EventLog;
 import com.srk.codingagent.persistence.SessionReplay;
 import com.srk.codingagent.persistence.SessionStore;
+import com.srk.codingagent.tool.GreenfieldArtifactStore;
 import com.srk.codingagent.tool.ToolRegistry;
 import com.srk.codingagent.tool.memory.LearningApprover;
 import com.srk.codingagent.tool.memory.LearningExtractor;
 import com.srk.codingagent.tool.memory.LearningProposer;
 import com.srk.codingagent.tool.memory.MemoryLearningHarvester;
 import com.srk.codingagent.workflow.ArtifactApprovalGate;
+import com.srk.codingagent.workflow.GreenfieldArtifact;
 import com.srk.codingagent.workflow.GreenfieldDriver;
 import com.srk.codingagent.workflow.GreenfieldPhase;
+import com.srk.codingagent.workflow.GreenfieldPhaseState;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -247,8 +250,37 @@ public final class AgentLoopFactory {
                 sessionLineage);
         GreenfieldDriver.PhaseLoopFactory phaseLoops =
                 phaseLoopFactory(composer, config, log, sessionLineage, approver, sessions);
+        // DCR-3 / AC-7.6: the production mid-flow-resume seam re-derives the resumable phase-state
+        // from the target repo's on-disk approval-stamped artifacts at the start of each run, sharing
+        // the SAME AC-1.5 stamp-detection the D13 clobber guard uses (GreenfieldArtifactStore over the
+        // target workspaceRoot — one durable on-disk fact). The re-derivation LOGIC itself lives in
+        // the coverage-counted GreenfieldPhaseState; this excluded factory only wires the probe.
+        GreenfieldArtifactStore artifactStore = new GreenfieldArtifactStore(workspaceRoot);
+        GreenfieldDriver.PhaseStateReconstructor reconstructor =
+                () -> GreenfieldPhaseState.reconstruct(resumeProbe(artifactStore));
         return new GreenfieldDriver(phaseLoops, composer.greenfieldArtifactWriter(),
-                composer.greenfieldApprovalGate(decision), turnSource);
+                composer.greenfieldApprovalGate(decision), turnSource, reconstructor);
+    }
+
+    /**
+     * The production mid-flow-resume probe (DCR-3, AC-7.6): reads, per greenfield artifact, whether
+     * it carries the AC-1.5 approval stamp and its current content, from the target repo's
+     * {@link GreenfieldArtifactStore}. {@link GreenfieldArtifactStore#isApprovalStamped(String)} is
+     * the SAME stamp-detection the D13 clobber guard uses, so resume re-derivation and clobber
+     * protection share one durable on-disk fact rather than duplicating the detection.
+     */
+    private static GreenfieldPhaseState.Probe resumeProbe(GreenfieldArtifactStore store) {
+        return new GreenfieldPhaseState.Probe() {
+            @Override
+            public boolean isApproved(GreenfieldArtifact artifact) {
+                return store.isApprovalStamped(artifact.relativePath());
+            }
+
+            @Override
+            public String content(GreenfieldArtifact artifact) {
+                return store.read(artifact.relativePath()).orElse("");
+            }
+        };
     }
 
     /**

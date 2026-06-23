@@ -563,8 +563,38 @@ auto-invokes the designer.
   - design/00-requirements.md (a new greenfield-resume AC under US-1/US-2 or a greenfield-scoped clause on US-7; EARS form, traced to US-1/US-2/US-7 + ADR-0012)
   - design/02-architecture.md § 1.2 (C3 greenfield driver: phase-state reconstruction on session start; C15 / repo-keying note replacing the ONE_SHOT_LINEAGE M0 placeholder per AC-7.3)
   - design/07-tasks.md (a follow-on task row for greenfield mid-flow resume + AC-7.3 repo-keying-forward, M3 scope)
-  - design/06-formal/contract-tests.md (a greenfield-resume CT: a fresh greenfield run over a target project with an approved requirements artifact resumes at the design phase and does not restart at requirements)
-- user_decision: (pending)
-- designer_status: (pending)
+  - design/06-formal/contract-tests.md (a greenfield-resume CT: a fresh greenfield run over a target project with an approved requirements artifact resumes at the design phase and does not restart at requirements; plus the D13 no-clobber CT)
+- chosen_option: A
+- user_decision: approved
+- user_approval:
+    approved_at: 2026-06-23T00:00:00+00:00
+    approver_note: |
+      Approve Option A — resume greenfield by re-deriving phase-state from on-disk artifacts: a
+      greenfield AC-1.5 approval-stamped artifact = that phase approved; resume at the first
+      unstamped/absent phase. A fresh `--mode greenfield` against a project with approved phases
+      resumes there rather than restarting; transient mid-phase failure is retryable in place (the
+      failed phase is unstamped). Bring AC-7.3 real repo-keying forward to replace the
+      ONE_SHOT_LINEAGE placeholder (the root cause of run collisions). Accept the tradeoff that an
+      interrupted mid-phase conversation loses its in-phase turns (resume at the phase boundary and
+      re-converse).
+    revised_from_original: false
+- designer_status: amended
+- amendment_commit: 7a10d31
+- resumed_task_commit: (pending — lands with the T-3.2-RD-D12-D13 resolution commit)
+- ripple_unresolved: |
+    Designer reported ripple_unresolved: [] (none). The two pre-existing DCR-1/DCR-2 ripple items
+    (the D8 AC-9.4 / ADR-0004 gate-decision-table write_artifact carve-out; the 07-tasks-progress.md
+    historical narrative) were NOT touched by DCR-3 and are not re-litigated — neither is a new ripple
+    DCR-3 introduces.
+- amendment_summary: |
+    AC-7.6 added (EARS Ev, under US-7; traced US-1/US-2/US-7 + ADR-0012): greenfield resume re-derives
+    phase-state from on-disk approval-stamped artifacts; resume at first unstamped/absent phase; transient
+    mid-phase failure retryable in place. AC-1.5 augmented (stamp = dual resume + clobber-protection
+    marker). C3 phase-state reconstruction on session start; C15 brings real AC-7.3 repo-keying forward
+    (git remote else normalized abs path, ADR-0005), replacing Main.ONE_SHOT_LINEAGE. New M3 task T-3.4
+    (greenfield mid-flow resume + AC-7.3 repo-keying-forward, deps T-3.2). New CT-GF-1 (resume at design
+    over stamped requirements, no restart) + CT-GF-2 (no-clobber of a stamped artifact), § 7 of
+    contract-tests.md. ADR-0012 resume clause + Option B (first-class phase events) recorded as rejected.
+    Review: design/reviews/2026-06-23-amendment-greenfield-resume-r1.md.
 - budget: amendment #1 of 3 for T-3.2-RD-D12-D13; DCR-3, amendment #3 of 10 for milestone M3
-- status: open (AWAITING USER DECISION — coordinator stopped; no auto-amend)
+- status: open (amended — coordinator resuming the task-builder to implement D12 + AC-7.3 repo-keying on top of the shipped D13 fix; resumed_task_commit backfilled on resolution)

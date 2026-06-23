@@ -2,10 +2,14 @@ package com.srk.codingagent.workflow;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.srk.codingagent.loop.LoopOutcome;
+import com.srk.codingagent.tool.ApprovedArtifactProtectedException;
 import com.srk.codingagent.tool.GreenfieldArtifactStore;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -189,6 +193,54 @@ class GreenfieldArtifactAuthoringTest {
             }
             return true;
         }
+    }
+
+    // --- D13 (AC-1.2/AC-1.5) : a NEW greenfield run does not clobber a PRIOR run's approved artifact -
+
+    @Test
+    @DisplayName("D13 (AC-1.2/AC-1.5): a new greenfield run against a repo with a prior APPROVED requirements artifact does NOT silently overwrite it")
+    void newRunDoesNotClobberAPriorApprovedArtifact(@TempDir Path targetRepo) throws Exception {
+        // Oracle: AC-1.2 (the approved requirements ARE a persisted, guaranteed deliverable) + AC-1.5
+        // (the approval is stamped INTO the artifact). The field report's destructive D13 defect: a
+        // NEW greenfield run treated "retry" as a fresh idea and the driver's truncating round-write
+        // OVERWROTE the prior approved requirements with a ~1500-byte "what do you want to build?"
+        // draft. The D13 contract (a): a new/second greenfield run must NOT silently overwrite a prior
+        // APPROVED artifact. Here a PRIOR run leaves an approved + stamped requirements artifact; a
+        // NEW driver.run() over the SAME target repo must not destroy it. The driver's first-round
+        // write to 00-requirements.md is refused (fail loud, not silent loss), and the approved
+        // deliverable survives on disk. Expectation traces to AC-1.2/AC-1.5 + the D13 contract.
+        GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
+        // A PRIOR finalized run: approved requirements persisted (AC-1.2) and stamped (AC-1.5).
+        store.write(GreenfieldArtifact.REQUIREMENTS.relativePath(),
+                "# Requirements\n\nThe APPROVED 5180-byte-equivalent requirements deliverable.\n");
+        store.appendLine(GreenfieldArtifact.REQUIREMENTS.relativePath(),
+                ApprovalStamp.line(GreenfieldArtifact.REQUIREMENTS, TS));
+        String approvedOnDisk = Files.readString(
+                targetRepo.resolve(GreenfieldArtifact.REQUIREMENTS.relativePath()),
+                StandardCharsets.UTF_8);
+
+        // A NEW greenfield run (fresh store/driver over the SAME target repo) starting over from
+        // requirements with a brand-new "what do you want to build?" draft — the live D13 clobber.
+        GreenfieldArtifactStore newRunStore = new GreenfieldArtifactStore(targetRepo);
+        GreenfieldDriver.PhaseLoopFactory loops = phase -> prompt ->
+                LoopOutcome.completed("# New project\n\nWhat do you want to build?\n");
+        ArtifactApprovalGate gate =
+                new ArtifactApprovalGate(completedPhase -> false, newRunStore, () -> TS);
+        GreenfieldDriver newRun = new GreenfieldDriver(
+                loops, writerOver(newRunStore), gate, noFurtherTurns());
+
+        assertThrows(ApprovedArtifactProtectedException.class, () -> newRun.run("retry"),
+                "D13: the new run's truncating write over the prior APPROVED requirements artifact is "
+                        + "refused (fail loud) rather than silently destroying approved work");
+
+        String afterNewRun = Files.readString(
+                targetRepo.resolve(GreenfieldArtifact.REQUIREMENTS.relativePath()),
+                StandardCharsets.UTF_8);
+        assertEquals(approvedOnDisk, afterNewRun,
+                "D13/AC-1.2: the prior approved requirements deliverable is preserved unchanged — the "
+                        + "new run did not overwrite it");
+        assertFalse(afterNewRun.contains("What do you want to build?"),
+                "D13: the new run's fresh draft did NOT replace the approved deliverable");
     }
 
     // --- DCR-1 (kept) cross-phase continuity : later phase prompts inject approved earlier artifacts -

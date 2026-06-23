@@ -316,6 +316,14 @@ class GreenfieldSharedStdinArtifactPersistenceTest {
         // to AC-2.1 + the scripted END_TURN deliverable, not to gate/driver code.
         for (GreenfieldArtifact artifact : List.of(GreenfieldArtifact.DESIGN, GreenfieldArtifact.TASKS)) {
             GreenfieldPhase phase = artifact.phase();
+            // Each iteration is an INDEPENDENT full greenfield run; give it its own target repo so the
+            // two runs do not collide. (Reusing one target repo across two runs would, correctly, trip
+            // the D13 per-session artifact-isolation guard: the second run's REQUIREMENTS phase would
+            // refuse to overwrite the first run's already-approved+stamped 00-requirements.md. That
+            // refusal is the intended D13 protection, not this test's subject — this test pins AC-2.1
+            // content persistence, so each run gets a fresh target project, exactly as two separate
+            // greenfield projects would in production.)
+            Path runWorkspace = newWorkspace(workspace, artifact);
             // A traceable tasks body so the tasks gate (AC-2.5) does not refuse; a plain design body
             // otherwise.
             String body = phase == GreenfieldPhase.TASKS
@@ -329,11 +337,11 @@ class GreenfieldSharedStdinArtifactPersistenceTest {
             // the single shared stdin.
             Supplier<String> sharedStdin = answers(repeatY(phase.ordinal() + 1));
             GreenfieldDriver driver = liveSharedStdinDriver(
-                    bedrock, workspace, storeRoot, sharedStdin, phase);
+                    bedrock, runWorkspace, storeRoot, sharedStdin, phase);
 
             driver.run("build me a URL shortener");
 
-            String persisted = new GreenfieldArtifactStore(workspace).read(path).orElseThrow();
+            String persisted = new GreenfieldArtifactStore(runWorkspace).read(path).orElseThrow();
             assertTrue(persisted.contains(body),
                     "AC-2.1/RD-7 (DCR-1): the " + artifact.heading() + " END_TURN deliverable content "
                             + "is driver-persisted through the real ASK_EVERY_TIME shared-stdin wiring "
@@ -346,5 +354,21 @@ class GreenfieldSharedStdinArtifactPersistenceTest {
         String[] lines = new String[count];
         java.util.Arrays.fill(lines, "y");
         return lines;
+    }
+
+    /**
+     * Creates a fresh per-run target-repo subdirectory under the test's temp dir, so each independent
+     * greenfield run in a loop writes its artifacts into its own target project (two greenfield runs do
+     * not share one target repo — and so do not trip the D13 cross-run clobber guard, which is not this
+     * test's subject).
+     */
+    private static Path newWorkspace(Path parent, GreenfieldArtifact artifact) {
+        Path workspace = parent.resolve("run-" + artifact.name().toLowerCase(java.util.Locale.ROOT));
+        try {
+            java.nio.file.Files.createDirectories(workspace);
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+        return workspace;
     }
 }

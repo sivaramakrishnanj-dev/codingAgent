@@ -3,6 +3,7 @@ package com.srk.codingagent.workflow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.srk.codingagent.tool.GreenfieldArtifactStore;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -41,6 +42,26 @@ class ApprovalStampTest {
                 "AC-1.5: the line records that an approval was given; was: " + line);
         assertTrue(line.contains(GreenfieldArtifact.REQUIREMENTS.heading()),
                 "AC-1.5: the line names the approved artifact (the requirements artifact); was: " + line);
+    }
+
+    @Test
+    @DisplayName("D13: the approval stamp the gate writes is recognized by the store's clobber-protection marker")
+    void approvalStampIsRecognizedByTheStoreClobberGuard() {
+        // Oracle: D13 (AC-1.5) — the store's refuse-to-clobber guard detects a prior-approved artifact
+        // by the approval STAMP it carries on disk. The store keeps its own marker copy
+        // (GreenfieldArtifactStore.APPROVAL_STAMP_MARKER) because a tool->workflow back-dependency on
+        // ApprovalStamp would be circular. This test pins the cross-package contract that the two
+        // cannot drift: the line ApprovalStamp actually writes MUST begin with the marker the store's
+        // guard scans for, so a real AC-1.5 stamp is reliably recognized as "approved". Expectation
+        // traces to the D13 protection contract (the stamp the gate writes == the stamp the store
+        // guards on), not to either marker's literal text.
+        for (GreenfieldArtifact artifact : GreenfieldArtifact.values()) {
+            String stampLine = ApprovalStamp.line(artifact, "2026-06-23T09:00:00Z");
+            assertTrue(stampLine.startsWith(GreenfieldArtifactStore.APPROVAL_STAMP_MARKER),
+                    "D13: the AC-1.5 approval stamp the gate writes for " + artifact
+                            + " must begin with the marker the store's clobber-guard recognizes ('"
+                            + GreenfieldArtifactStore.APPROVAL_STAMP_MARKER + "'); was: " + stampLine);
+        }
     }
 
     @Test

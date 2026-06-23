@@ -48,6 +48,23 @@ public final class GreenfieldArtifactStore {
      */
     public static final String ARTIFACT_DIR = "design";
 
+    /**
+     * The line prefix the greenfield approval gate stamps into a phase's artifact when the developer
+     * confirms it (AC-1.5). On disk, an artifact carrying a line that starts with this marker is a
+     * <em>prior finalized</em> deliverable: the gate appends the stamp only after the developer
+     * approved the phase and the session advanced (ADR-0012, AC-1.5). This store treats that stamp as
+     * the durable "this artifact was approved" signal and refuses to clobber such an artifact with a
+     * truncating {@link #write} (D13 — per-session artifact isolation).
+     *
+     * <p><b>Why the store keeps its own copy of the marker.</b> The stamp itself is formatted by the
+     * workflow-layer {@code ApprovalStamp}; the {@code workflow} package depends on this {@code tool}
+     * package (the greenfield driver writes through this store), so a {@code tool}&rarr;{@code workflow}
+     * back-dependency would be circular. The store therefore detects the stamp by this self-contained
+     * marker; a unit test pins that the workflow's {@code ApprovalStamp.line(...)} produces a line this
+     * marker recognizes, so the two cannot drift.
+     */
+    public static final String APPROVAL_STAMP_MARKER = "Approved:";
+
     private final WorkspacePaths paths;
     private final Path artifactRoot;
 
@@ -88,19 +105,68 @@ public final class GreenfieldArtifactStore {
      * Writes {@code content} to the artifact at {@code relativePath}, creating or replacing it
      * (creating the artifact directory if absent), and returns the artifact's absolute path.
      *
+     * <p><b>Refuses to clobber a prior-approved artifact (D13 — per-session artifact isolation).</b>
+     * The write is a truncating overwrite — within one greenfield run it is how a phase refines its
+     * current (unstamped) deliverable each round (DCR-2, ADR-0012), which is correct. But if the
+     * target artifact already carries a greenfield approval stamp ({@link #APPROVAL_STAMP_MARKER},
+     * AC-1.5), that artifact is a deliverable a <em>prior, finalized</em> run already approved (the
+     * gate stamps only after approval + advance, and one run never re-truncates an artifact it
+     * stamped). Truncating it would silently destroy approved work, so the write is refused with an
+     * {@link ApprovedArtifactProtectedException}. The approval stamp itself and the implement-loop
+     * completion mark are appended via {@link #appendLine}, not this method, so they are unaffected.
+     *
      * @param relativePath the target-repo-relative artifact path; non-blank.
      * @param content      the full artifact content; must not be {@code null}.
      * @return the absolute path the artifact was written to.
-     * @throws NullPointerException     if {@code content} is {@code null}.
-     * @throws ToolInvocationException  if the path escapes the artifact directory or the write fails.
+     * @throws NullPointerException               if {@code content} is {@code null}.
+     * @throws ApprovedArtifactProtectedException  if the target artifact already carries a prior
+     *                                            greenfield approval stamp (AC-1.5; D13).
+     * @throws ToolInvocationException            if the path escapes the artifact directory or the
+     *                                            write fails.
      */
     public Path write(String relativePath, String content) {
         Objects.requireNonNull(content, "content");
         Path file = resolveArtifact(relativePath);
+        refuseClobberOfApprovedArtifact(relativePath, file);
         writeString(file, content);
         LOGGER.info("Wrote greenfield artifact {} ({} bytes)", file,
                 content.getBytes(StandardCharsets.UTF_8).length);
         return file;
+    }
+
+    /**
+     * Refuses a truncating {@link #write} that would overwrite an artifact already carrying a prior
+     * greenfield approval stamp (AC-1.5; D13). An artifact gains its stamp only after the developer
+     * approved its phase and the session advanced, and a single greenfield run never re-truncates an
+     * artifact it stamped — so an already-stamped artifact on disk belongs to a prior finalized run,
+     * and overwriting it would silently destroy approved work.
+     */
+    private void refuseClobberOfApprovedArtifact(String relativePath, Path file) {
+        if (carriesApprovalStamp(file)) {
+            LOGGER.warn("Refusing to overwrite greenfield artifact {} ({}): it already carries a "
+                    + "prior approval stamp (AC-1.5) — overwriting it would silently destroy an "
+                    + "approved deliverable (D13)", relativePath, file);
+            throw new ApprovedArtifactProtectedException(
+                    "refusing to overwrite '" + relativePath + "': it already holds an approved "
+                            + "greenfield deliverable (it carries an '" + APPROVAL_STAMP_MARKER
+                            + "' approval stamp, AC-1.5). A new run must not silently overwrite a "
+                            + "prior approved artifact; resume the existing session or write to a "
+                            + "different target project (D13).");
+        }
+    }
+
+    /**
+     * Whether the artifact on disk carries a greenfield approval stamp — a line beginning with
+     * {@link #APPROVAL_STAMP_MARKER} (AC-1.5). An absent artifact carries none.
+     */
+    private boolean carriesApprovalStamp(Path file) {
+        return readIfPresent(file)
+                .map(GreenfieldArtifactStore::hasApprovalStampLine)
+                .orElse(false);
+    }
+
+    private static boolean hasApprovalStampLine(String content) {
+        return content.lines().anyMatch(line -> line.stripLeading().startsWith(APPROVAL_STAMP_MARKER));
     }
 
     /**
@@ -139,6 +205,26 @@ public final class GreenfieldArtifactStore {
      */
     public Optional<String> read(String relativePath) {
         return readIfPresent(resolveArtifact(relativePath));
+    }
+
+    /**
+     * Whether the artifact at {@code relativePath} carries a greenfield approval stamp on disk &mdash;
+     * a line beginning with {@link #APPROVAL_STAMP_MARKER} (AC-1.5). An absent artifact carries none.
+     *
+     * <p><b>One durable on-disk fact, two readers (AC-1.5; DCR-3).</b> The AC-1.5 approval stamp is
+     * the single durable signal that a phase's deliverable was approved. This accessor exposes the
+     * <em>same</em> stamp-detection the D13 clobber guard ({@link #refuseClobberOfApprovedArtifact})
+     * keys on, so the greenfield mid-flow resume re-derivation (which treats a stamped phase artifact
+     * as approved and resumes at the first unstamped/absent phase, AC-7.6) and the clobber guard
+     * share one detection rather than duplicating it.
+     *
+     * @param relativePath the target-repo-relative artifact path; non-blank.
+     * @return {@code true} if the artifact exists and carries an approval stamp; {@code false} if it
+     *         is unstamped or absent.
+     * @throws ToolInvocationException if the path escapes the artifact directory or the read fails.
+     */
+    public boolean isApprovalStamped(String relativePath) {
+        return carriesApprovalStamp(resolveArtifact(relativePath));
     }
 
     private Optional<String> readIfPresent(Path file) {

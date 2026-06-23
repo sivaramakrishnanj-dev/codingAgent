@@ -4,7 +4,6 @@ import com.srk.codingagent.loop.AgentLoop;
 import com.srk.codingagent.loop.LoopOutcome;
 import com.srk.codingagent.tool.GreenfieldArtifactStore;
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -102,9 +101,14 @@ public final class GreenfieldDriver {
     private final PhaseArtifactWriter artifactWriter;
     private final ApprovalGate approvalGate;
     private final DeveloperTurnSource turnSource;
+    private final PhaseStateReconstructor phaseStateReconstructor;
 
     /**
-     * Creates a greenfield driver over its four injected seams.
+     * Creates a greenfield driver over its four injected seams that always begins a fresh session at
+     * {@link GreenfieldPhase#initial()}. Equivalent to the five-seam constructor with a
+     * {@link PhaseStateReconstructor} that returns {@link GreenfieldPhaseState#fresh()} &mdash; the
+     * shape for a session with no resumable phase-state (e.g. a unit test scripting only the
+     * orchestration, or a run that does not re-derive on-disk state).
      *
      * @param phaseLoopFactory yields the phase-scoped agent-loop turn for each phase (the
      *                         pre-approval phases' loops withhold the Class-X source tools, AC-1.4);
@@ -122,10 +126,39 @@ public final class GreenfieldDriver {
      */
     public GreenfieldDriver(PhaseLoopFactory phaseLoopFactory, PhaseArtifactWriter artifactWriter,
             ApprovalGate approvalGate, DeveloperTurnSource turnSource) {
+        this(phaseLoopFactory, artifactWriter, approvalGate, turnSource, GreenfieldPhaseState::fresh);
+    }
+
+    /**
+     * Creates a greenfield driver over its four orchestration seams plus a
+     * {@link PhaseStateReconstructor} (DCR-3, AC-7.6): on each {@link #run(String)} the driver first
+     * re-derives the resumable phase-state from the target repo's on-disk approval-stamped artifacts
+     * and resumes at the first unstamped/absent phase rather than always restarting at requirements.
+     *
+     * @param phaseLoopFactory        yields the phase-scoped agent-loop turn for each phase (the
+     *                                pre-approval phases' loops withhold the Class-X source tools,
+     *                                AC-1.4); must not be {@code null}.
+     * @param artifactWriter          persists each pre-approval phase's deliverable prose to its
+     *                                design-doc artifact in code (DCR-1; AC-1.2/AC-2.1); must not be
+     *                                {@code null}.
+     * @param approvalGate            the per-round approval seam consulted before advancing each
+     *                                non-terminal phase (ADR-0012, AC-2.3); must not be {@code null}.
+     * @param turnSource              the source of each refining developer turn within a pre-approval
+     *                                phase (DCR-2); must not be {@code null}.
+     * @param phaseStateReconstructor re-derives the resume phase + approved upstream from the target
+     *                                repo's on-disk stamped artifacts at the start of each run
+     *                                (AC-7.6, ADR-0012); must not be {@code null}.
+     * @throws NullPointerException if any argument is {@code null}.
+     */
+    public GreenfieldDriver(PhaseLoopFactory phaseLoopFactory, PhaseArtifactWriter artifactWriter,
+            ApprovalGate approvalGate, DeveloperTurnSource turnSource,
+            PhaseStateReconstructor phaseStateReconstructor) {
         this.phaseLoopFactory = Objects.requireNonNull(phaseLoopFactory, "phaseLoopFactory");
         this.artifactWriter = Objects.requireNonNull(artifactWriter, "artifactWriter");
         this.approvalGate = Objects.requireNonNull(approvalGate, "approvalGate");
         this.turnSource = Objects.requireNonNull(turnSource, "turnSource");
+        this.phaseStateReconstructor =
+                Objects.requireNonNull(phaseStateReconstructor, "phaseStateReconstructor");
     }
 
     /**
@@ -167,16 +200,28 @@ public final class GreenfieldDriver {
         if (Objects.requireNonNull(request, "request").isBlank()) {
             throw new IllegalArgumentException("request must be non-blank");
         }
-        LOGGER.info("Greenfield session started: requirements->design->tasks->implement "
-                + "(ADR-0012; multi-turn phase dialogue + approve-to-finalize per DCR-2)");
+        // DCR-3 / AC-7.6: re-derive the resumable phase-state from the target repo's on-disk
+        // approval-stamped artifacts. The session resumes at the first phase whose artifact is
+        // unstamped/absent (a fresh project / a never-interrupted run reconstructs to requirements
+        // with no approved upstream); a transient mid-phase failure left the failed phase unstamped,
+        // so this re-enters that same phase (retry-in-place). The already-approved phases' artifacts
+        // are pre-seeded so the resume phase still sees the approved upstream (cross-phase continuity,
+        // DCR-1 kept). Only phase boundaries are re-derived — the in-phase transcript is not preserved
+        // across an interruption (ADR-0012 accepted tradeoff).
+        GreenfieldPhaseState resumeState = phaseStateReconstructor.reconstruct();
+        GreenfieldPhase phase = resumeState.resumePhase();
+        Map<GreenfieldArtifact, String> approvedArtifacts = resumeState.approvedArtifacts();
+        LOGGER.info("Greenfield session started: resuming at {} ({} earlier phase(s) already "
+                + "approved on disk) -> ... -> implement (ADR-0012; multi-turn phase dialogue + "
+                + "approve-to-finalize per DCR-2; mid-flow resume per DCR-3/AC-7.6)",
+                phase, approvedArtifacts.size());
 
-        GreenfieldPhase phase = GreenfieldPhase.initial();
-        // DCR-1 cross-phase continuity: the approved earlier-phase artifact content, injected into
-        // each later phase's prompt so design/tasks are authored against the approved upstream.
-        Map<GreenfieldArtifact, String> approvedArtifacts = new EnumMap<>(GreenfieldArtifact.class);
-        // The session's opening developer input opens the requirements phase (US-1, AC-1.1); after
-        // that, refining turns come from the developer-turn source.
-        String openingInput = request;
+        // The session's opening developer input opens the resume phase only when that phase is the
+        // requirements phase (US-1, AC-1.1 — the developer's initial use-case). A resume that re-enters
+        // a later phase (design/tasks) opens from its framing + the pre-seeded approved upstream, with
+        // no opening developer line — exactly as a within-run advance into that phase would. After the
+        // opening round, refining turns come from the developer-turn source.
+        String openingInput = phase == GreenfieldPhase.REQUIREMENTS ? request : null;
 
         while (true) {
             if (phase.isTerminal()) {
@@ -500,5 +545,30 @@ public final class GreenfieldDriver {
          *         {@code null} when the developer supplies no further turn.
          */
         String nextTurn(GreenfieldPhase phase);
+    }
+
+    /**
+     * The greenfield mid-flow resume seam (DCR-3, AC-7.6, ADR-0012): re-derives the session's
+     * resumable phase-state at the start of each {@link #run(String)} from the target repo's on-disk
+     * approval-stamped artifacts. The driver consults it once to learn which phase to resume at (the
+     * first phase whose artifact is unstamped/absent) and which already-approved phases' artifacts to
+     * pre-seed for cross-phase continuity (DCR-1 kept).
+     *
+     * <p>In production it is {@link GreenfieldPhaseState#reconstruct} over a {@link Probe} backed by
+     * the target-repo {@link com.srk.codingagent.tool.GreenfieldArtifactStore} (sharing the same
+     * AC-1.5 stamp-detection the D13 clobber guard uses &mdash; one durable on-disk fact). The
+     * four-seam {@link GreenfieldDriver} constructor uses {@link GreenfieldPhaseState#fresh()} (always
+     * start at requirements), the shape for a session with no resumable phase-state.
+     */
+    @FunctionalInterface
+    public interface PhaseStateReconstructor {
+
+        /**
+         * Re-derives the session's resumable phase-state (the resume phase + the already-approved
+         * upstream artifacts) from the target repo's on-disk artifacts (AC-7.6).
+         *
+         * @return the reconstructed phase-state; never {@code null}.
+         */
+        GreenfieldPhaseState reconstruct();
     }
 }

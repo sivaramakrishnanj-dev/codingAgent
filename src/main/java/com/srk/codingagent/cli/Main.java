@@ -9,6 +9,7 @@ import com.srk.codingagent.model.credentials.CredentialResolutionException;
 import com.srk.codingagent.permission.Approver;
 import com.srk.codingagent.persistence.EventLog;
 import com.srk.codingagent.persistence.OutcomeRecorder;
+import com.srk.codingagent.persistence.RepoKeyResolver;
 import com.srk.codingagent.persistence.SessionLineage;
 import com.srk.codingagent.persistence.SessionMode;
 import com.srk.codingagent.persistence.SessionReplay;
@@ -27,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
@@ -82,12 +84,14 @@ public final class Main {
     static final int SUCCESS_EXIT_CODE = ExitCode.OK.code();
 
     /**
-     * The session lineage / id used for the one-shot run's event log. Repo-key derivation
-     * from a git remote and stable session ids are a later session task; at M0 a one-shot
-     * uses a fixed boundary-captured lineage so the gate's grant store and the session log
-     * are wired without pulling that derivation forward.
+     * The session id used for a run's event log. The run's lineage / repo key is now the real
+     * AC-7.3 repo key (resolved by {@link #repoKey()} &mdash; git remote URL else normalized absolute
+     * path, ADR-0005), brought forward by DCR-3 to replace the fixed {@code "one-shot"} M0 placeholder
+     * that made distinct runs over different target projects collide. The session id within that key
+     * stays a fixed boundary-captured value at v1 (stable session ids are a later task); the repo key
+     * is what scopes a resumable greenfield session (AC-7.6) to its target project.
      */
-    private static final String ONE_SHOT_LINEAGE = "one-shot";
+    private static final String SESSION_ID = "one-shot";
 
     private Main() {
         // Utility entry point; not instantiable.
@@ -162,18 +166,20 @@ public final class Main {
 
     /**
      * Builds the {@link ResumeCommand} for the session subcommands over the user-home
-     * session store, scoped to the same repository key the rest of the system writes
-     * sessions under today ({@link #ONE_SHOT_LINEAGE}). Real git-remote repo-key derivation
-     * (03-data-model § 2.1) is a later session task; scoping the listing to the key the
-     * one-shot/REPL paths write to is what makes {@code resume}/{@code sessions} list the
-     * sessions that actually exist on disk rather than an empty unrelated key.
+     * session store, scoped to the same repository key the run paths write sessions under
+     * &mdash; the real AC-7.3 repo key for the current target project ({@link #repoKey()},
+     * DCR-3): git remote URL else normalized absolute path (03-data-model § 2.1). Scoping the
+     * listing to the key the one-shot/REPL paths write to is what makes {@code resume}/
+     * {@code sessions} list the sessions that actually exist on disk for this project rather
+     * than an empty unrelated key (and no longer the fixed {@code "one-shot"} placeholder that
+     * pooled every project's sessions under one key).
      */
     private static ResumeCommand resumeCommand() {
         return new ResumeCommand(
                 SessionStore.forUserHome(),
                 new SessionReplay(),
                 new SessionLineage(),
-                ONE_SHOT_LINEAGE,
+                repoKey(),
                 System.out);
     }
 
@@ -191,11 +197,15 @@ public final class Main {
      */
     private static int runOneShot(ResolvedConfig config, String prompt, SessionMode mode) {
         Path workspaceRoot = Path.of("").toAbsolutePath();
+        // DCR-3 / AC-7.3: scope the session log + grant store + resumable greenfield phase-state to
+        // the real repo key for this target project (git remote URL else normalized abs path),
+        // replacing the fixed "one-shot" placeholder.
+        String lineage = repoKey();
         SessionStore sessions = SessionStore.forUserHome();
-        try (EventLog log = sessions.openLog(ONE_SHOT_LINEAGE, ONE_SHOT_LINEAGE)) {
+        try (EventLog log = sessions.openLog(lineage, SESSION_ID)) {
             OneShotRunner.OneShotLoop runLoop = mode == SessionMode.GREENFIELD
-                    ? oneShotGreenfield(config, workspaceRoot, log, sessions)
-                    : oneShotBrownfield(config, workspaceRoot, log, sessions);
+                    ? oneShotGreenfield(config, workspaceRoot, lineage, log, sessions)
+                    : oneShotBrownfield(config, workspaceRoot, lineage, log, sessions);
             return new OneShotRunner(runLoop, System.out, System.err).run(prompt);
         }
     }
@@ -212,12 +222,12 @@ public final class Main {
      * appended to the session log (AC-16.1/AC-16.3). The boundary clock matches the loop's (ADR-0005).
      */
     private static OneShotRunner.OneShotLoop oneShotBrownfield(ResolvedConfig config,
-            Path workspaceRoot, EventLog log, SessionStore sessions) {
+            Path workspaceRoot, String lineage, EventLog log, SessionStore sessions) {
         AgentLoop loop = new AgentLoopFactory().create(
-                config, workspaceRoot, ONE_SHOT_LINEAGE, log, new NonInteractiveApprover(),
+                config, workspaceRoot, lineage, log, new NonInteractiveApprover(),
                 sessions);
         OutcomeRecorder outcomeRecorder = new OutcomeRecorder(
-                log, () -> Instant.now().toString(), ONE_SHOT_LINEAGE);
+                log, () -> Instant.now().toString(), lineage);
         BrownfieldRunner brownfield = new BrownfieldRunner(BrownfieldDriver.overConfig(
                 loop::run, new CommandExecutor(workspaceRoot), config), outcomeRecorder);
         return brownfield::run;
@@ -246,13 +256,16 @@ public final class Main {
      * tools (AC-1.4).
      */
     private static OneShotRunner.OneShotLoop oneShotGreenfield(ResolvedConfig config,
-            Path workspaceRoot, EventLog log, SessionStore sessions) {
+            Path workspaceRoot, String lineage, EventLog log, SessionStore sessions) {
         // DCR-2: a one-shot run has no terminal to supply refining turns, so the developer-turn
         // source is empty (end-of-input): the requirements phase runs its single opening turn and
         // pauses awaiting approval (AC-2.3) without writing source (AC-1.4). The approval decision is
-        // likewise deny-all (no terminal to approve), the safe non-interactive stance.
+        // likewise deny-all (no terminal to approve), the safe non-interactive stance. DCR-3/AC-7.6:
+        // the driver re-derives the resumable phase-state from the target repo's stamped artifacts
+        // (the factory wires the resume probe over the workspaceRoot store), keyed to the project by
+        // the real AC-7.3 repo key (lineage).
         GreenfieldDriver driver = new AgentLoopFactory().createGreenfieldDriver(
-                config, workspaceRoot, ONE_SHOT_LINEAGE, log, new NonInteractiveApprover(),
+                config, workspaceRoot, lineage, log, new NonInteractiveApprover(),
                 sessions, completedPhase -> false, phase -> null);
         GreenfieldRunner greenfield = new GreenfieldRunner(driver);
         return greenfield::run;
@@ -273,6 +286,8 @@ public final class Main {
      */
     private static int runInteractive(ResolvedConfig config, SessionMode mode) {
         Path workspaceRoot = Path.of("").toAbsolutePath();
+        // DCR-3 / AC-7.3: scope the REPL session to the real repo key for this target project.
+        String lineage = repoKey();
         SessionStore sessions = SessionStore.forUserHome();
         BufferedReader reader = new BufferedReader(
                 new InputStreamReader(System.in, StandardCharsets.UTF_8));
@@ -280,7 +295,7 @@ public final class Main {
         Thread session = Thread.currentThread();
         installSigintHandler(interrupted, session);
 
-        try (EventLog log = sessions.openLog(ONE_SHOT_LINEAGE, ONE_SHOT_LINEAGE)) {
+        try (EventLog log = sessions.openLog(lineage, SESSION_ID)) {
             Supplier<String> answerSource = lineSupplier(reader);
             Approver approver = new InteractiveApprover(answerSource, System.out);
             // ADR-0012, T-3.1: mode selects the workflow driver for each REPL turn — the greenfield
@@ -289,8 +304,8 @@ public final class Main {
             // mode-agnostic.
             ReplRunner.ReplLoop turnLoop = mode == SessionMode.GREENFIELD
                     ? interactiveGreenfield(
-                            config, workspaceRoot, log, approver, sessions, answerSource)
-                    : interactiveBrownfield(config, workspaceRoot, log, approver, sessions);
+                            config, workspaceRoot, lineage, log, approver, sessions, answerSource)
+                    : interactiveBrownfield(config, workspaceRoot, lineage, log, approver, sessions);
             ReplRunner runner = new ReplRunner(turnLoop, answerSource, interrupted::get,
                     config.permissionMode(), System.out, System.err);
             return runner.run();
@@ -316,11 +331,12 @@ public final class Main {
      * (ADR-0005).
      */
     private static ReplRunner.ReplLoop interactiveBrownfield(ResolvedConfig config,
-            Path workspaceRoot, EventLog log, Approver approver, SessionStore sessions) {
+            Path workspaceRoot, String lineage, EventLog log, Approver approver,
+            SessionStore sessions) {
         AgentLoop loop = new AgentLoopFactory().create(
-                config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver, sessions);
+                config, workspaceRoot, lineage, log, approver, sessions);
         OutcomeRecorder outcomeRecorder = new OutcomeRecorder(
-                log, () -> Instant.now().toString(), ONE_SHOT_LINEAGE);
+                log, () -> Instant.now().toString(), lineage);
         BrownfieldRunner brownfield = new BrownfieldRunner(BrownfieldDriver.overConfig(
                 loop::run, new CommandExecutor(workspaceRoot), config), outcomeRecorder);
         return brownfield::run;
@@ -358,17 +374,21 @@ public final class Main {
      *                     and the read-eval loop read) the per-phase y/N is collected from.
      */
     private static ReplRunner.ReplLoop interactiveGreenfield(ResolvedConfig config,
-            Path workspaceRoot, EventLog log, Approver approver, SessionStore sessions,
-            Supplier<String> answerSource) {
+            Path workspaceRoot, String lineage, EventLog log, Approver approver,
+            SessionStore sessions, Supplier<String> answerSource) {
         ArtifactApprovalGate.ApprovalDecision decision = new InteractiveGreenfieldApproval(
                 answerSource, System.out, new GreenfieldArtifactStore(workspaceRoot));
         // DCR-2 multi-turn dialogue: the per-turn developer-input source is the SAME REPL supplier
         // the approval decision and the read-eval loop read — the developer types each refining turn
         // at the same prompt. A non-approve answer keeps the phase conversation going (the driver
         // reads the next refining turn here); end-of-input pauses the phase awaiting approval.
+        // DCR-3/AC-7.6: the driver (built by the factory) re-derives the resumable phase-state from
+        // the target repo's stamped artifacts at the start of each REPL turn, keyed to the project by
+        // the real AC-7.3 repo key (lineage) — so a transient mid-phase failure on a prior turn is
+        // re-entered (retry-in-place) rather than restarting at requirements.
         GreenfieldDriver.DeveloperTurnSource turnSource = phase -> answerSource.get();
         GreenfieldDriver driver = new AgentLoopFactory().createGreenfieldDriver(
-                config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver, sessions, decision,
+                config, workspaceRoot, lineage, log, approver, sessions, decision,
                 turnSource);
         GreenfieldRunner greenfield = new GreenfieldRunner(driver);
         return greenfield::run;
@@ -428,6 +448,56 @@ public final class Main {
                 locations.globalConfig(),
                 locations.projectConfigForUnkeyedRepo(),
                 Map.of());
+    }
+
+    /**
+     * Resolves the real AC-7.3 repo key for the current target project (DCR-3, ADR-0005): the git
+     * remote URL when the working directory has one, else its normalized absolute path. This is the
+     * lineage / repo key every run path scopes its session log, grant store, and resumable greenfield
+     * phase-state to &mdash; replacing the fixed {@code "one-shot"} M0 placeholder so distinct runs
+     * over distinct target projects no longer collide under one key. The key-derivation logic lives
+     * in the coverage-counted {@link RepoKeyResolver}; this excluded bootstrap only supplies the
+     * git-remote subprocess lookup.
+     */
+    private static String repoKey() {
+        Path workspaceRoot = Path.of("").toAbsolutePath();
+        return new RepoKeyResolver(Main::gitRemoteUrl).resolve(workspaceRoot);
+    }
+
+    /**
+     * The production git-remote-URL lookup (the AC-7.3 external dependency): runs
+     * {@code git -C <dir> remote get-url origin} in the target working directory and returns the
+     * remote URL when the directory is a git repo with an {@code origin} remote, else
+     * {@link Optional#empty()} so {@link RepoKeyResolver} falls back to the normalized absolute path.
+     * Living in this coverage-excluded shell keeps the subprocess out of the coverage-counted
+     * {@link RepoKeyResolver} keying logic.
+     */
+    private static Optional<String> gitRemoteUrl(Path workspaceRoot) {
+        try {
+            Process process = new ProcessBuilder(
+                    "git", "-C", workspaceRoot.toString(), "remote", "get-url", "origin")
+                    .redirectErrorStream(false)
+                    .start();
+            String url;
+            try (BufferedReader stdout = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                url = stdout.readLine();
+            }
+            int exit = process.waitFor();
+            if (exit == 0 && url != null && !url.isBlank()) {
+                return Optional.of(url.strip());
+            }
+            return Optional.empty();
+        } catch (IOException e) {
+            LOGGER.warn("could not look up git remote for {}; falling back to path key (AC-7.3)",
+                    workspaceRoot, e);
+            return Optional.empty();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOGGER.warn("interrupted looking up git remote for {}; falling back to path key (AC-7.3)",
+                    workspaceRoot, e);
+            return Optional.empty();
+        }
     }
 
     /**

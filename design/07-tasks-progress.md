@@ -2,76 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-23
 last_updated_at_commit: pending
-total_resolved_count: 37
+total_resolved_count: 38
 
 last_resolved:
-  task: T-3.2-RD-D11
-  title: "Greenfield multi-turn phase dialogue + approve-to-finalize (DCR-2): each pre-approval phase is a multi-turn conversation with in-phase transcript carry; approve = finalize (capture the converged deliverable at approval, persist via GreenfieldArtifactStore.write(), stamp AC-1.5, advance); non-approve = another refining turn (AC-2.4), not persist-and-stop; D1 fix inferenceConfig.maxTokens=16384 on the greenfield Converse request; DCR-1 driver-authored persistence + cross-phase injection + AC-1.4/2.5 preserved"
-  resolved_at: 2026-06-23
-  commit: 8786a13
-  iterations: { task_builder: 1 }
-  dcrs_consumed: [DCR-2]
-
-in_flight:
   task: T-3.2-RD-D12-D13
-  phase: AWAITING_AMENDMENT
-  loop_iter: 1
-  round: null
-  last_handoff_kind: TASK-BUILDER-HANDOFF-v1
-  last_handoff_status: design-change-needed
-  last_review_file: design/reviews/code/T-3.2-RD-D12-D13-r1.md
-  started_at: 2026-06-23T00:00:00+00:00
-  last_updated_at: 2026-06-23T00:00:00+00:00
+  title: "Greenfield mid-flow resume (D12) + AC-7.3 repo-keying-forward, on top of the D13 clobber fix (DCR-3): re-derive greenfield phase-state from on-disk AC-1.5 approval-stamped artifacts (stamped phase = approved; resume at first unstamped/absent phase; transient mid-phase failure retryable in place); RepoKeyResolver (git remote else normalized abs path, AC-7.3/ADR-0005) replaces Main.ONE_SHOT_LINEAGE; D13 GreenfieldArtifactStore refuse-to-clobber-an-approved-artifact + ApprovedArtifactProtectedException; one durable on-disk fact (the AC-1.5 stamp) serves both resume + clobber-protection"
+  resolved_at: 2026-06-23
+  commit: pending
+  iterations: { task_builder: 1 }
+  dcrs_consumed: [DCR-3]
+
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-3.2-RD-D12-D13
-  phase: AWAITING_AMENDMENT
-  loop_iter: 1
-  round: null
-  last_handoff_kind: TASK-BUILDER-HANDOFF-v1
-  last_handoff_status: design-change-needed
-  last_review_file: design/reviews/code/T-3.2-RD-D12-D13-r1.md
-  files_in_working_tree:
-    - src/main/java/com/srk/codingagent/tool/GreenfieldArtifactStore.java
-    - src/main/java/com/srk/codingagent/tool/ApprovedArtifactProtectedException.java
-    - src/test/java/com/srk/codingagent/tool/GreenfieldArtifactStoreTest.java
-    - src/test/java/com/srk/codingagent/workflow/GreenfieldArtifactAuthoringTest.java
-    - src/test/java/com/srk/codingagent/workflow/ApprovalStampTest.java
-    - src/test/java/com/srk/codingagent/cli/GreenfieldSharedStdinArtifactPersistenceTest.java
-    - design/reviews/code/T-3.2-RD-D12-D13-r1.md
-  dcrs_consumed: []
-  awaiting: |
-    DCR-3 (D12 greenfield mid-flow resume) raised by spec-driven-task-builder; awaiting user
-    approve / reject / revise. D13 (destructive overwrite of an approved artifact) was FIXED in code
-    this round as a safety stopgap (uncommitted, in the working tree) — GreenfieldArtifactStore.write()
-    now refuses to truncate an already-approval-stamped artifact (new ApprovedArtifactProtectedException).
-    mvn clean verify green (1039 tests, JaCoCo 0.80 met). The D13 code is NOT committed; per the DCR
-    flow the D13 fix + the DCR-driven D12 code land together in the resumed-task commit after the
-    amendment. OQ-design-3 logged in design/open-questions.md.
-  note: |
-    Resilience-cluster fix on the greenfield path (regression-of-T-3.1/T-3.2), surfaced by the live
-    G3 interactive greenfield smoke test after DCR-2. A transient Bedrock Read-timeout mid-flow
-    exposed two real defects:
-      - D12 (no mid-flow resume): a transient model-backend failure (or any non-approval
-        interruption) mid-greenfield does NOT resume the in-flight greenfield session at the failed
-        phase. In the REPL, greenfield phase-state lives entirely inside one GreenfieldDriver.run()
-        call invoked per REPL turn (GreenfieldRunner.run -> ReplRunner.runTurn); the next REPL line
-        starts a brand-new driver.run() from GreenfieldPhase.initial(), treating the typed line as a
-        fresh project idea. No reconstruction of greenfield phase-state (approved phases / current
-        phase / approved artifacts) from the event log on a fresh --mode greenfield.
-      - D13 (no per-session artifact isolation — the destructive one): GreenfieldArtifactStore writes
-        design/00-requirements.md etc. via a truncating write keyed only on the fixed workspaceRoot +
-        the fixed Main.ONE_SHOT_LINEAGE placeholder, with no run identity and no refuse-to-clobber. A
-        NEW greenfield run truncates a PRIOR run's APPROVED artifact. (The in-round truncating write
-        within ONE active phase dialogue is DCR-2 by design; the bug is a DIFFERENT/NEW run clobbering
-        a prior APPROVED artifact.)
-    Persistence design HELD: the approved 5180-byte requirements survived in the append-only event log
-    and was recovered. Likely warrants a DCR (resume + isolation are design decisions). The task-
-    builder investigates and either fixes-in-spec (resolved) or raises design-change-needed with a
-    concrete proposal; the coordinator runs the DCR lifecycle and STOPS for user approval (no
-    auto-amend). Do NOT proceed into M4.
 
 ## Milestone gates
 
@@ -473,3 +415,14 @@ in_flight:
 - amendments: DCR-2 (a9644b4)
 - label: regression-of-T-3.2 (6th attempt arc on the greenfield-phase deliverable). SECOND DCR on this surface. DCR-1 (driver-authored persistence) landed correctly — requirements/design/tasks wrote real content (3432/1720/2365 bytes live) — but the live G3 run AFTER DCR-1 proved a deeper, interaction-shape defect: each pre-approval phase ran as ONE model turn, so given a terse idea the requirements model correctly did AC-1.1 clarification and the single-turn driver captured the model's QUESTIONS as the artifact (design read questions->more questions; tasks honestly refused to fabricate; AC-2.5 correctly rejected 0 tasks — every component behaving correctly, the interaction shape wrong). USER APPROVED DCR-2 Option A (multi-turn phase dialogue + approve-to-finalize); designer amended ADR-0012 / AC-1.1/1.5/2.3/2.4/2.5 / C3 (02-arch § 1.2) / § 2.1 output-budget note / T-3.1-3.3 rows (amendment commit a9644b4); task re-run against the AMENDED spec. STOP at G3 before M4; the main agent re-runs the live G3 greenfield smoke test next (a real multi-turn requirements->design->tasks->implement flow, conversing then approving each phase) to confirm.
 - notes: >>> DCR-2 (Option A) re-implementation: greenfield pre-approval phases are now MULTI-TURN conversations with APPROVE = FINALIZE. Phase A: GreenfieldDriver.run drives each pre-approval phase as a multi-turn conversation (runPreApprovalPhase) — a 4th injected seam DeveloperTurnSource.nextTurn(GreenfieldPhase) supplies each developer round; the in-phase transcript is injected into each round's prompt (phaseTurnPrompt) so the model sees its own prior turns within the phase (fixes the in-phase discontinuity that made the single-turn shape capture questions, not a converged deliverable); the driver writes the latest deliverable to the artifact each round before the gate (required by InteractiveGreenfieldApproval's present-before-confirm + the tasks-gate AC-2.5 traceability read) and finalizes — AC-1.5 stamp + advance — ONLY on approval; a non-approve answer (including a refused approval, e.g. tasks-traceability failure) keeps the conversation going as another refining turn (the AC-2.4 revise path), NOT persist-and-stop; the session pauses AWAITING_APPROVAL only when the developer supplies no further turn (end-of-input, mirroring the REPL EOF-stop). The capture-and-persist TRIGGER moved from each phase's first END_TURN (DCR-1) to phase approval, so the CONVERGED deliverable is what's written. PRESERVED: DCR-1 driver-authored persistence via GreenfieldArtifactStore.write(); cross-phase approved-artifact injection; AC-1.4 source-write Class-X tools (write_file/edit_file/run_command) structurally withheld from the pre-approval phase loops across EVERY turn; AC-2.5 tasks-gate traceability over the driver-written tasks artifact; AC-1.5 stamp; AC-2.3 per-phase approval before implementation. D1 OUTPUT-TOKEN-CAP FIX folded in (user-directed, ADR-0012 § "Greenfield-phase output-token budget" + 02-arch § 2.1): ConverseWireMapper gained an optional maxOutputTokens (constructor overload + GREENFIELD_MAX_OUTPUT_TOKENS = 16384) that sets inferenceConfig.maxTokens on the built ConverseRequest when present; ModelClient.forGreenfield(bedrock) factory builds the 16K-capped mapper; ToolRegistryComposer.greenfieldModelClient() accessor + 13-arg ctor (12-arg retained, delegates) thread the greenfield-budget client; greenfield-scoped so the brownfield/one-shot path is unchanged (backend default cap). Phase B: deterministic unit tests WITHOUT live Bedrock — GreenfieldDriverTest (15) exercises multi-turn phase conversation state (in-phase transcript carry), non-approve -> another refining turn (no persist-and-stop), approve -> capture converged deliverable + persist via writer + stamp + advance, AWAITING_APPROVAL only on developer end-of-input; GreenfieldArtifactAuthoringTest (4) the converged-deliverable-at-approval persistence; GreenfieldRunnerTest (6) + GreenfieldWiringTest (4) the run-path + composition; ConverseWireMapperTest (33) the inferenceConfig.maxTokens=16384 regression (built ConverseRequest carries the cap on the greenfield path; absent on the uncapped path); LiveGreenfieldRegistryCompositionTest (+2) the output-budget composer wiring; the four cli greenfield-persistence tests updated for the multi-turn/approve-to-finalize contract. mvn clean verify GREEN (1032 tests, 0 failures/errors; JaCoCo BUNDLE line 91.81% >= 0.80 gate; GreenfieldDriver 98.8% line/95.8% branch, ConverseWireMapper 97.9%, ModelClient 100%, ToolRegistryComposer 95.5%). Self-checks: oracle-traceability=passed (expected values trace to the amended AC-1.1 multi-turn dialogue, AC-1.5 approve=finalize, AC-2.4 non-approve-keeps-going, AC-2.3 gating, AC-2.5 traceability over written tasks artifact, AC-1.4 source-withheld, ADR-0012 § output-budget 16384 — never to impl behaviour), reuse=passed (4th seam mirrors the driver's existing seam pattern; greenfield-capped mapper mirrors sibling ModelClient factories). 0 Blocker / 0 Major / 1 Minor / 1 Discussion (D1: spec says persist "on approval", impl writes the latest deliverable each round before the gate then finalizes the converged one at approval — a one-line AC-wording clarification candidate, not a defect; logged for user). No AWS/Bedrock calls (multi-turn driver + Converse-request build are unit-tested with scripted loops / builder-constructed SDK values). G3 SMOKE-TEST NOTE for the main agent: re-run the live greenfield arc as a REAL multi-turn flow — converse across several turns per phase (the model may ask AC-1.1 clarifying questions and refine), then APPROVE each phase; each approved phase's CONVERGED deliverable (not first-turn questions) should be written to its artifact + stamped, design/02-tasks.md should hold AC-traced tasks, and greenfield should reach tasks->implement. A large design/tasks deliverable should no longer truncate at MAX_TOKENS (16K cap). This is the interaction-shape fix the prior five attempts + DCR-1 did not address; the live multi-turn run is the proof.
+
+## T-3.2-RD-D12-D13 — Greenfield mid-flow resume (D12) + AC-7.3 repo-keying-forward, on the D13 clobber fix (DCR-3): re-derive phase-state from on-disk approval-stamped artifacts; RepoKeyResolver replaces ONE_SHOT_LINEAGE
+- commit: pending
+- review: design/reviews/code/T-3.2-RD-D12-D13-r1.md
+- resolved: 2026-06-23
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: [DCR-3]
+- amendments: DCR-3 (7a10d31)
+- label: regression-of-T-3.2 (greenfield resilience cluster; 7th attempt arc on the greenfield surface). THIRD DCR on this surface. Surfaced by the live G3 interactive greenfield smoke test after DCR-2: a transient DESIGN-phase Bedrock Read-timeout -> the user typed `retry`, which started a BRAND-NEW greenfield session whose truncating round-write would have overwritten the approved 5180-byte requirements. Two defects: D13 (destructive — a new run silently clobbers a prior run's APPROVED artifact) FIXED in code this round as a safety stopgap derivable from AC-1.2/AC-1.5 (refuse-to-clobber a stamped artifact); D12 (no mid-flow resume — the next prompt restarts greenfield from requirements) RAISED as DCR-3 (no spec-derivable oracle: how phase-state is reconstructed + the resume contract + the session identity were unpinned). USER APPROVED DCR-3 Option A (re-derive phase-state from on-disk approval-stamped artifacts; bring AC-7.3 repo-keying forward to replace ONE_SHOT_LINEAGE; accept that an interrupted mid-phase loses its in-phase turns). Designer amended ADR-0012 / AC-7.6 (new) / AC-1.5 / C3 (02-arch § 1.2) / C15 / T-3.2 note + T-3.4 (new) / CT-GF-1/CT-GF-2 (§ 7 contract-tests) (amendment commit 7a10d31); task re-run against the AMENDED spec, D12 implemented ON TOP OF the shipped D13 fix in ONE atomic resolution commit. STOP at G3 before M4; the main agent re-runs the live G3 greenfield smoke test next (interrupt a phase mid-flow, then re-run --mode greenfield and confirm it resumes at the failed phase rather than restarting).
+- notes: >>> DCR-3 (Option A) re-implementation. D13 (shipped baseline, kept): GreenfieldArtifactStore.write() refuses to truncate an artifact already carrying the AC-1.5 approval stamp (APPROVAL_STAMP_MARKER "Approved:"), throwing the new ApprovedArtifactProtectedException (a ToolInvocationException subtype); the in-round refine over an UNSTAMPED draft (DCR-2) is unaffected. D12 (new this round): greenfield phase-state is resumable by re-deriving it from the target repo's on-disk artifacts. New coverage-counted GreenfieldPhaseState (workflow, 100% line) reconstructs the resume phase from a Probe over the artifacts — a phase whose artifact carries the AC-1.5 stamp is approved; resume = first unstamped/absent phase (IMPLEMENT if all pre-approval artifacts stamped); the already-approved phases' artifact content is pre-seeded into the driver's approvedArtifacts map so DESIGN/TASKS still get approved upstream injected (DCR-1 cross-phase continuity preserved on resume). GreenfieldDriver gained a 5th seam PhaseStateReconstructor (5-seam ctor; the 4-seam ctor delegates to GreenfieldPhaseState.fresh() so EVERY existing driver test stays green with zero edits); run() starts at the re-derived resume phase; on a later-phase resume the opening developer input is suppressed (phase opens from its framing + pre-seeded upstream — the accepted ADR-0012 tradeoff that the in-phase transcript is NOT preserved across an interruption). GreenfieldArtifactStore.isApprovalStamped(relativePath) is the public accessor reusing the SAME private stamp-detector the D13 guard keys on (one durable on-disk fact, no duplication). AC-7.3 repo-keying brought forward: new coverage-counted RepoKeyResolver (persistence, 100% line/branch) derives the key = git remote URL when present else lexically-normalized absolute path (toAbsolutePath().normalize(), deterministic, non-throwing — see stated_assumptions), via an injected GitRemoteSource seam; Main + AgentLoopFactory (JaCoCo-excluded composition roots) replace the fixed ONE_SHOT_LINEAGE placeholder with the resolved real key + a GreenfieldArtifactStore-backed resume probe. Phase B (deterministic, no live Bedrock): GreenfieldResumeContractTest pins CT-GF-1 (stamped requirements on disk -> resumes at DESIGN, NOT restart; unstamped/absent -> re-enters REQUIREMENTS retry-in-place; interrupted mid-DESIGN -> re-enters DESIGN); GreenfieldPhaseStateTest (13) the re-derivation matrix; GreenfieldDriverResumeTest (6) the driver resuming at the re-derived phase with pre-seeded upstream; RepoKeyResolverTest (8) git-remote-present vs abs-path-fallback + distinct-projects-distinct-keys + normalization; GreenfieldArtifactStoreTest (+2) the isApprovalStamped accessor + the shared-fact resume<->clobber agreement. CT-GF-2 (no-clobber) confirmed still green via the shipped D13 tests (refusesToClobberAnApprovedArtifact / approvedDeliverableSurvivesARefusedClobber / newRunDoesNotClobberAPriorApprovedArtifact), explicitly mapped. mvn clean verify GREEN (1072 tests, 0 failures/errors/skipped; JaCoCo BUNDLE line 0.80 gate met; RepoKeyResolver 100% line/branch, GreenfieldPhaseState 100% line/83% branch [1 unreachable defensive branch], GreenfieldDriver 98.9% line/96% branch); shaded codingagent.jar builds. Self-checks: oracle-traceability=passed (expected values trace to AC-7.6 resume-at-first-unstamped-phase, AC-1.5 stamp-as-resume-marker, AC-7.3 repo-key derivation, AC-1.2/AC-1.5 no-clobber, ADR-0012/ADR-0005 — never to impl behaviour), reuse=passed (5th seam mirrors the driver's seam pattern; isApprovalStamped reuses the D13 detector; no duplication). 0 Blocker / 0 Major / 0 Minor / 0 Nit / 0 Discussion. No AWS/Bedrock calls (pure logic over scripted doubles + on-disk temp repos). G3 SMOKE-TEST NOTE for the main agent: re-run the live greenfield arc, INTERRUPT a phase mid-flow (or approve requirements then stop), then re-run `codingagent --mode greenfield` over the SAME target repo and confirm it RESUMES at the first unstamped/absent phase (e.g. DESIGN after an approved requirements) rather than restarting at requirements, and that a fresh run cannot clobber the prior approved artifact (fails loud). This is the resilience fix the prior six attempts did not address; the live interrupt-then-resume run is the proof.
