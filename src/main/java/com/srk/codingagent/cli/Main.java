@@ -228,20 +228,26 @@ public final class Main {
      * run(String)} seam.
      *
      * <p><b>No-terminal approval gate (one-shot).</b> A one-shot run has no developer terminal to
-     * approve a phase advance, so the approval gate denies every advance &mdash; the session shapes
-     * the requirements (AC-1.1) and stops at the first approval gate awaiting the developer's
+     * approve a phase advance, so the approval decision denies every advance &mdash; the session
+     * shapes the requirements (AC-1.1) and stops at the first approval gate awaiting the developer's
      * approval (ADR-0012, AC-2.3) without writing source (AC-1.4), the safe non-interactive stance
-     * (mirroring {@link NonInteractiveApprover}). The interactive REPL path is where a real
-     * per-phase approval prompt is wired (a later task, T-3.2); pulling that forward is out of T-3.1's
-     * scope.
+     * (mirroring {@link NonInteractiveApprover}).
+     *
+     * <p><b>The timestamped, traceability-enforcing gate (T-3.2).</b> The driver is built via
+     * {@link AgentLoopFactory#createGreenfieldDriver}, which wires the {@code ArtifactApprovalGate}
+     * over the deny-all decision: were a phase approved, the gate would record the approval timestamp
+     * into that phase's artifact (AC-1.5) and enforce task-breakdown traceability (AC-2.5). On the
+     * one-shot path the decision never approves, so no timestamp is recorded and no source is written
+     * &mdash; the safe stance. The artifact-authoring write path itself ({@code write_artifact},
+     * confined to the target repo's design-doc directory) is offered to the model in the pre-approval
+     * phases by the phase-scoped registry (AC-1.2/AC-2.1), distinct from the withheld source-write
+     * tools (AC-1.4).
      */
     private static OneShotRunner.OneShotLoop oneShotGreenfield(ResolvedConfig config,
             Path workspaceRoot, EventLog log, SessionStore sessions) {
-        GreenfieldDriver.PhaseLoopFactory phaseLoops = new AgentLoopFactory()
-                .createGreenfieldPhaseLoopFactory(
-                        config, workspaceRoot, ONE_SHOT_LINEAGE, log, new NonInteractiveApprover(),
-                        sessions);
-        GreenfieldDriver driver = new GreenfieldDriver(phaseLoops, completedPhase -> false);
+        GreenfieldDriver driver = new AgentLoopFactory().createGreenfieldDriver(
+                config, workspaceRoot, ONE_SHOT_LINEAGE, log, new NonInteractiveApprover(),
+                sessions, completedPhase -> false);
         GreenfieldRunner greenfield = new GreenfieldRunner(driver);
         return greenfield::run;
     }
@@ -319,21 +325,29 @@ public final class Main {
      * phases withhold the Class-X source tools, AC-1.4), returned as the {@code LoopOutcome
      * run(String)} seam {@link ReplRunner} drives per turn.
      *
-     * <p><b>Approval gate (T-3.1 minimal-viable; T-3.2 plugs in the real one).</b> T-3.1 delivers the
-     * phase state machine, the per-phase gates, and the {@link GreenfieldDriver.ApprovalGate} seam.
-     * The real per-phase approval prompt &mdash; printing the phase's deliverable, reading the
-     * developer's yes/no, and recording the approval timestamp into the artifact &mdash; is T-3.2's
-     * artifact-authoring work (AC-1.5). To avoid pulling that scope forward, T-3.1 wires a
-     * deny-by-default gate: the session shapes the requirements (AC-1.1) and stops at the first
-     * approval gate awaiting the developer's approval (ADR-0012, AC-2.3) without writing source
-     * (AC-1.4). T-3.2 replaces this seam with the interactive timestamped approver.
+     * <p><b>Timestamped approval gate (T-3.2).</b> The driver is built via
+     * {@link AgentLoopFactory#createGreenfieldDriver}, which wires the {@code ArtifactApprovalGate}:
+     * when the developer confirms a phase, the gate records the approval timestamp into that phase's
+     * artifact (AC-1.5) and, before admitting the session into implementation, enforces that every
+     * task in the task-breakdown artifact traces to a requirement (AC-2.5). The artifact-authoring
+     * write path ({@code write_artifact}, confined to the target repo's design-doc directory) is
+     * offered to the model in the pre-approval phases (AC-1.2/AC-2.1), distinct from the withheld
+     * source-write tools (AC-1.4).
+     *
+     * <p><b>The per-phase approval decision the gate wraps.</b> T-3.2 delivers the timestamped,
+     * traceability-enforcing gate; the decision it wraps stays deny-by-default here, so the session
+     * shapes the requirements (AC-1.1) and stops at the first gate awaiting approval (ADR-0012,
+     * AC-2.3) without writing source (AC-1.4). The richer interactive deliverable-presenting prompt
+     * that supplies an affirmative decision (printing the phase's artifact and reading the
+     * developer's yes/no) is a thin follow-on over this seam &mdash; the load-bearing T-3.2 behaviour
+     * (record the timestamp + enforce traceability when a phase is confirmed) lives in the gate this
+     * wires, exercised through its decision seam.
      */
     private static ReplRunner.ReplLoop interactiveGreenfield(ResolvedConfig config,
             Path workspaceRoot, EventLog log, Approver approver, SessionStore sessions) {
-        GreenfieldDriver.PhaseLoopFactory phaseLoops = new AgentLoopFactory()
-                .createGreenfieldPhaseLoopFactory(
-                        config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver, sessions);
-        GreenfieldDriver driver = new GreenfieldDriver(phaseLoops, completedPhase -> false);
+        GreenfieldDriver driver = new AgentLoopFactory().createGreenfieldDriver(
+                config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver, sessions,
+                completedPhase -> false);
         GreenfieldRunner greenfield = new GreenfieldRunner(driver);
         return greenfield::run;
     }

@@ -16,6 +16,7 @@ import com.srk.codingagent.subagent.SubAgentOrchestrator;
 import com.srk.codingagent.tool.CommandExecutor;
 import com.srk.codingagent.tool.EditFileTool;
 import com.srk.codingagent.tool.GlobTool;
+import com.srk.codingagent.tool.GreenfieldArtifactStore;
 import com.srk.codingagent.tool.GrepTool;
 import com.srk.codingagent.tool.ListTool;
 import com.srk.codingagent.tool.ReadFileTool;
@@ -23,10 +24,13 @@ import com.srk.codingagent.tool.RunCommandTool;
 import com.srk.codingagent.tool.SpawnSubAgentTool;
 import com.srk.codingagent.tool.ToolHandler;
 import com.srk.codingagent.tool.ToolRegistry;
+import com.srk.codingagent.tool.WriteArtifactTool;
 import com.srk.codingagent.tool.WriteFileTool;
 import com.srk.codingagent.tool.memory.ReadMemoryTool;
 import com.srk.codingagent.tool.memory.WriteMemoryTool;
+import com.srk.codingagent.workflow.ArtifactApprovalGate;
 import com.srk.codingagent.workflow.BrownfieldPlaybook;
+import com.srk.codingagent.workflow.GreenfieldDriver;
 import com.srk.codingagent.workflow.GreenfieldPhase;
 import com.srk.codingagent.workflow.GreenfieldPlaybook;
 import java.nio.file.Path;
@@ -265,10 +269,18 @@ final class ToolRegistryComposer {
     }
 
     /**
-     * The read-only registry the greenfield pre-approval phases (requirements/design/tasks) offer
-     * the model: the four explore tools plus {@code read_memory}, all Class R. No source-write
-     * Class-X tool is present, so a source write is structurally impossible during the pre-approval
-     * dialogue (AC-1.4). Mirrors the structural-withholding shape of {@link #childToolRegistry()}.
+     * The registry the greenfield pre-approval phases (requirements/design/tasks) offer the model:
+     * the four explore tools plus {@code read_memory} (all Class R) <em>plus</em> the
+     * {@code write_artifact} design-doc write path (T-3.2). No general source-write Class-X tool
+     * ({@code write_file}/{@code edit_file}/{@code run_command}) is present, so a source write is
+     * structurally impossible during the pre-approval dialogue (AC-1.4); but the agent <em>can</em>
+     * persist the requirements/design/tasks markdown into the target repo (AC-1.2/AC-2.1) through
+     * {@code write_artifact}, which the {@link GreenfieldArtifactStore} confines to the target repo's
+     * design-doc directory. ADR-0012 makes that design-markdown write the one write allowed before
+     * the breakdown is approved ("the agent writes only design markdown … until the breakdown is
+     * approved"); confining it to {@code design/} keeps it distinct from the withheld source-write
+     * path, so a design-markdown write succeeds while a source write does not. Mirrors the
+     * structural-withholding shape of {@link #childToolRegistry()}.
      */
     private ToolRegistry preApprovalRegistry() {
         List<ToolHandler> handlers = new ArrayList<>();
@@ -277,7 +289,35 @@ final class ToolRegistryComposer {
         handlers.add(new GlobTool(workspaceRoot));
         handlers.add(new ListTool(workspaceRoot));
         handlers.add(new ReadMemoryTool(memoryStore, repoKey));
+        handlers.add(new WriteArtifactTool(new GreenfieldArtifactStore(workspaceRoot)));
         return ToolRegistry.of(handlers);
+    }
+
+    /**
+     * Builds the greenfield approval gate that records the approval timestamp into each phase's
+     * artifact and enforces task-breakdown traceability (T-3.2; AC-1.5, AC-2.5) over the developer's
+     * per-phase decision (component C3, ADR-0012 greenfield side). This is the gate-covered seam that
+     * realizes the {@link GreenfieldDriver.ApprovalGate} extension point — the driver's seam Javadoc
+     * names T-3.2 as layering approval-timestamp recording here.
+     *
+     * <p>It is assembled here (not in the JaCoCo-excluded {@link AgentLoopFactory}/{@link Main}) for
+     * the same gate-covered-seam reason the phase-scoped registry and per-phase prompt are: the
+     * collaborators the gate needs — the target-repo root (so the artifact store writes into the
+     * target project's design-doc directory, AC-6.2), and the boundary clock (the source of the
+     * approval timestamp, ADR-0005) — already live on this composer, so a unit test pins the
+     * timestamp-recording + traceability-enforcing contract under the coverage gate. The factory only
+     * threads this gate (and the phase-loop factory) into the {@link GreenfieldDriver}.
+     *
+     * @param decision the underlying per-phase developer yes/no the gate wraps (the interactive
+     *                 approval prompt in production, scripted in tests); must not be {@code null}.
+     * @return the timestamp-recording, traceability-enforcing approval gate; never {@code null}.
+     * @throws NullPointerException if {@code decision} is {@code null}.
+     */
+    GreenfieldDriver.ApprovalGate greenfieldApprovalGate(
+            ArtifactApprovalGate.ApprovalDecision decision) {
+        Objects.requireNonNull(decision, "decision");
+        return new ArtifactApprovalGate(
+                decision, new GreenfieldArtifactStore(workspaceRoot), clock);
     }
 
     /**

@@ -24,6 +24,7 @@ import com.srk.codingagent.tool.memory.LearningApprover;
 import com.srk.codingagent.tool.memory.LearningExtractor;
 import com.srk.codingagent.tool.memory.LearningProposer;
 import com.srk.codingagent.tool.memory.MemoryLearningHarvester;
+import com.srk.codingagent.workflow.ArtifactApprovalGate;
 import com.srk.codingagent.workflow.GreenfieldDriver;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -188,6 +189,66 @@ public final class AgentLoopFactory {
 
         ToolRegistryComposer composer = composer(config, workspaceRoot, log, approver, sessions,
                 sessionLineage);
+        return phaseLoopFactory(composer, config, log, sessionLineage, approver, sessions);
+    }
+
+    /**
+     * Builds the production greenfield workflow driver (C3, ADR-0012, T-3.2): the
+     * {@link GreenfieldDriver} wired over both its seams from the gate-covered
+     * {@link ToolRegistryComposer} — the phase-loop factory (phase-scoped registry + per-phase
+     * prompt; the pre-approval phases withhold the Class-X source tools yet offer the
+     * {@code write_artifact} design-doc write path, AC-1.4/AC-1.2/AC-2.1) and the
+     * {@link ArtifactApprovalGate} that records the approval timestamp into each phase's artifact
+     * (AC-1.5) and enforces task-breakdown traceability (AC-2.5). The one un-coverable step
+     * (credentials &rarr; Bedrock client &rarr; {@link ModelClient}) happens once in the composer
+     * this assembles; both seams are then built from that gate-covered composer, so the
+     * timestamp-recording + traceability + phase-gating contracts are pinned by unit tests on the
+     * composer, not lost in this excluded factory.
+     *
+     * @param config         the resolved configuration; must not be {@code null}.
+     * @param workspaceRoot  the target repository directory the file tools and artifact store are
+     *                       rooted at (AC-6.2); must not be {@code null}.
+     * @param sessionLineage the session lineage / repo key / origin session; non-blank.
+     * @param log            the open session event log; must not be {@code null}.
+     * @param approver       the permission-gate approval seam the phase loops use; must not be
+     *                       {@code null}.
+     * @param sessions       the session store the sub-agent orchestrator opens child logs from; must
+     *                       not be {@code null}.
+     * @param decision       the per-phase developer approval decision the timestamped gate wraps (an
+     *                       interactive prompt in the REPL, a deny-all in one-shot); must not be
+     *                       {@code null}.
+     * @return a fully-wired greenfield driver over its two seams; never {@code null}.
+     * @throws NullPointerException if a required argument is {@code null}.
+     * @throws com.srk.codingagent.model.credentials.CredentialResolutionException if no usable SigV4
+     *         credentials can be resolved (AC-8.9 → exit 4).
+     */
+    public GreenfieldDriver createGreenfieldDriver(
+            ResolvedConfig config, Path workspaceRoot, String sessionLineage, EventLog log,
+            Approver approver, SessionStore sessions, ArtifactApprovalGate.ApprovalDecision decision) {
+        Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(workspaceRoot, "workspaceRoot");
+        Objects.requireNonNull(log, "log");
+        Objects.requireNonNull(approver, "approver");
+        Objects.requireNonNull(sessions, "sessions");
+        Objects.requireNonNull(decision, "decision");
+
+        ToolRegistryComposer composer = composer(config, workspaceRoot, log, approver, sessions,
+                sessionLineage);
+        GreenfieldDriver.PhaseLoopFactory phaseLoops =
+                phaseLoopFactory(composer, config, log, sessionLineage, approver, sessions);
+        return new GreenfieldDriver(phaseLoops, composer.greenfieldApprovalGate(decision));
+    }
+
+    /**
+     * Builds the {@link GreenfieldDriver.PhaseLoopFactory} over an already-built composer: each phase
+     * gets its own {@link AgentLoop} from the gate-covered composer (phase-scoped registry +
+     * per-phase prompt), sharing the live {@link ModelClient}, gate, log, and compaction seam. Shared
+     * by {@link #createGreenfieldPhaseLoopFactory} (T-3.1) and {@link #createGreenfieldDriver} (T-3.2)
+     * so the per-phase loop wiring is assembled once.
+     */
+    private GreenfieldDriver.PhaseLoopFactory phaseLoopFactory(ToolRegistryComposer composer,
+            ResolvedConfig config, EventLog log, String sessionLineage, Approver approver,
+            SessionStore sessions) {
         return phase -> {
             ToolRegistry tools = composer.greenfieldRegistry(phase);
             AgentLoop loop = assembleLoop(composer, config, log, sessionLineage, approver, sessions,
