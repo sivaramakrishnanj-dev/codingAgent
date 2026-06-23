@@ -3,9 +3,9 @@ doc: requirements
 last_reviewed: 2026-06-23
 phase: resolved
 status: resolved
-review: reviews/2026-06-23-amendment-greenfield-driver-authored-persistence-r1.md
+review: reviews/2026-06-23-amendment-greenfield-multiturn-phase-dialogue-r1.md
 approved_in: e03b032
-amended_by: [DCR-1]
+amended_by: [DCR-1, DCR-2]
 ---
 
 # Requirements — codingAgent
@@ -204,11 +204,11 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 
 | AC | Type | Criterion | Refs |
 |----|------|-----------|------|
-| **AC-1.1** | Ev | When the developer starts the agent in greenfield mode, the agent shall begin a requirements-gathering dialogue before creating or editing any source file. | US-1 |
+| **AC-1.1** | Ev | When the developer starts the agent in greenfield mode, the agent shall begin a requirements-gathering dialogue before creating or editing any source file. The dialogue is **multi-turn**: it spans several developer turns, the model's prior turns within the phase carry forward, and the agent may ask clarifying questions and refine the deliverable each round until the developer approves it (ADR-0012). | US-1, ADR-0012 |
 | **AC-1.2** | U | The agent shall persist the agreed requirements as a markdown artifact in the target project. The persistence is **driver-guaranteed**: the greenfield workflow driver writes the artifact in code from the phase's settled output (ADR-0012), not via a model-emitted tool call. | RD-7, ADR-0012 |
 | **AC-1.3** | Un | If the developer requests implementation while requirements are unconfirmed, then the agent shall ask for confirmation rather than writing source code. | US-1 |
 | **AC-1.4** | St | While in the requirements dialogue, the agent shall not execute any Class X operation against source files. (Preserved under ADR-0012's driver-authored persistence: the driver's in-code artifact write is confined to the target project's `design/` markdown; source-write Class X tools stay withheld until the breakdown is approved.) | RD-4, ADR-0012 |
-| **AC-1.5** | Ev | When the developer confirms the requirements, the agent shall record the approval with a timestamp in the requirements artifact. | RD-7 |
+| **AC-1.5** | Ev | When the developer confirms the requirements, the agent shall record the approval with a timestamp in the requirements artifact. The confirmation is the **finalize** signal for the multi-turn phase (ADR-0012): on approval the driver captures the converged deliverable from the phase conversation, persists it (AC-1.2), records this timestamp, and advances; a non-approval keeps the dialogue going rather than finalizing. | RD-7, ADR-0012 |
 
 #### US-2 — Design + task breakdown
 
@@ -216,9 +216,9 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 |----|------|-----------|------|
 | **AC-2.1** | Ev | When requirements are confirmed, the agent shall produce a design artifact and a task-breakdown artifact as markdown in the target project. As with AC-1.2, the persistence is **driver-guaranteed**: the workflow driver writes each artifact in code from the phase's settled output (ADR-0012), not via a model-emitted tool call. | RD-7, ADR-0012 |
 | **AC-2.2** | U | The agent shall express the task breakdown as an ordered list of discrete tasks, each with a stable identifier. | US-2 |
-| **AC-2.3** | Ev | When the design or task breakdown is presented, the agent shall request developer approval before implementation begins. | US-2 |
-| **AC-2.4** | Un | If the developer requests design changes, then the agent shall revise the artifact and re-request approval. | US-2 |
-| **AC-2.5** | U | The agent shall ensure every task in the breakdown traces to at least one stated requirement. Traceability is verified against the driver-written task-breakdown artifact (AC-2.1, ADR-0012). | US-2, ADR-0012 |
+| **AC-2.3** | Ev | When the design or task breakdown is presented, the agent shall request developer approval before implementation begins. Each phase is a multi-turn dialogue (ADR-0012); the approval prompt is offered each round and developer approval is the finalize signal that persists the converged artifact and advances. | US-2, ADR-0012 |
+| **AC-2.4** | Un | If the developer requests design changes, then the agent shall revise the artifact and re-request approval. Within the multi-turn phase dialogue (ADR-0012), a non-approval (a revision request or any answer other than approve) is realized as another refining turn in the same phase conversation — it does not persist-and-stop — and the agent re-offers the approval prompt after revising. | US-2, ADR-0012 |
+| **AC-2.5** | U | The agent shall ensure every task in the breakdown traces to at least one stated requirement. Traceability is verified against the driver-written task-breakdown artifact (AC-2.1, ADR-0012) — which, under the multi-turn phase dialogue (DCR-2), holds the *converged* breakdown the developer approved, not a single-turn first draft. | US-2, ADR-0012 |
 
 #### US-3 — Implement tasks one at a time
 

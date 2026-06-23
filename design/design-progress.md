@@ -1,11 +1,11 @@
 ---
 doc: design-progress
 last_updated: 2026-06-23
-last_updated_at_commit: 67b12b6
+last_updated_at_commit: pending
 current_phase: 5
 current_sub_phase: handed-off-to-coordinator
 current_sub_phase_status: resolved
-next_action: spec-driven-coordinator resumes T-3.2-RD-D10 after the DCR-1 amendment (greenfield driver-authored phase-deliverable persistence). design-progress.md returns to frozen until the next amendment or Phase 5 ends.
+next_action: spec-driven-coordinator resumes T-3.2 after the DCR-2 amendment (greenfield multi-turn phase dialogue + approve-to-finalize, plus the D1 output-token-cap fix). design-progress.md returns to frozen until the next amendment or Phase 5 ends.
 next_artifact_to_touch: design/07-tasks-progress.md
 ---
 
@@ -37,6 +37,8 @@ In **Phase 3 — Formal Contracts** (`06-formal/`), reviewed in **two batches** 
 
 **DESIGN COMPLETE — Phases 1–4 all resolved. Handed off to the Phase 5 coordinator.** This file is now FROZEN until an amendment (coordinator-routed) or Phase 5 ends. Phase 5 task state lives in `design/07-tasks-progress.md` (coordinator-owned, created on first task).
 
+**Phase 5 amendments to date (greenfield M3, T-3.2):** **DCR-1** made greenfield phase-deliverable persistence driver-authored in code (`GreenfieldArtifactStore.write()`) rather than dependent on a model `write_artifact` tool call. **DCR-2** (this amendment) made each greenfield pre-approval phase a **multi-turn conversation** with **approve = finalize** (the in-phase transcript carries within a phase; approval captures the converged deliverable, persists it, stamps AC-1.5, advances; a non-approve answer is another refining turn, not persist-and-stop), and folded in the D1 output-token-cap fix (set `inferenceConfig.maxTokens = 16384`, configurable, on the greenfield Converse request so a large deliverable is not truncated at the default 4096 cap). DCR-1's driver-authored persistence + cross-phase artifact injection + AC-1.4 source-withholding are all retained; DCR-2 changes the per-phase *interaction shape* and the persistence *trigger* (first END_TURN → phase approval), not who persists. See ADR-0012 + `reviews/2026-06-23-amendment-greenfield-multiturn-phase-dialogue-r1.md`.
+
 The baseline: `00-requirements` (3 personas, 21 US, 80 EARS ACs, all NFRs) · `01-overview` · `02-architecture` (17 components + 12 ADRs) · `03-data-model` (19 INV + state machine) · `04-apis` · `05-operations` · `06-formal` (exit codes, 2 state machines, 6 validated schemas, 44 contract tests, 3 fixtures) · `07-tasks` (5 milestones, ~28 tasks, gates G0-G4) · `.kiro/spec-driven.yaml`. Resume protocol for Phase 5: see `07-tasks-progress.md` once the coordinator creates it.
 
 Per-unit progress for 2-architecture (all resolved):
@@ -67,6 +69,7 @@ Cross-phase scope facts established during brainstorming that later phases must 
 - AWS credentials (RD-11 final): **SigV4 only — named profile → AWS default credential chain**; fail (exit 4) only if neither resolves. **`AWS_BEARER_TOKEN_BEDROCK` explicitly ignored even if set** (wrong-account footgun; AC-8.8 makes the ignore testable; warn if present). Read/invoke-only Bedrock — no AWS write verbs. → ADR-0011 (`ProfileCredentialsProvider` → `DefaultCredentialsProvider`, explicit SigV4 client construction).
 - Base Java package = `com.srk.codingagent.*` (user-directed 2026-06-15; set in `02-architecture.md` § 6). Seeds Maven groupId/artifactId at Phase 4/5.
 - All NFR numeric values pinned in 1c: Opus 4.x default (`NFR-MODEL-DEFAULT`, exact id Phase 2), 5 verify retries (`NFR-VERIFY-MAX-ITERATIONS`), 1 sub-agent (`NFR-SUBAGENT-MAX`), 0.85 compaction (`NFR-CONTEXT-COMPACT-THRESHOLD`), 16 KB output cap (`NFR-OUTPUT-MAX-INLINE`), 3 Bedrock retries (`NFR-BEDROCK-MAX-RETRIES`), Java 21 (`NFR-PLAT-JAVA`), 80% coverage gate (`NFR-TEST-COVERAGE`).
+- Greenfield Converse output-token budget pinned at **16384 tokens (16K), configurable** (ADR-0012 "Greenfield-phase output-token budget", `02-architecture.md` § 2.1, T-3.2 row — DCR-2). This is the *model's output cap* (`inferenceConfig.maxTokens`), set so a full requirements/design/tasks deliverable is not truncated at the backend default of 4096. **Distinct from `NFR-OUTPUT-MAX-INLINE`** (16 KB tool-output *disposal* threshold, ADR-0006) — same magnitude, different axis. No new NFR symbol minted; the value lives in ADR-0012 per user direction (folded into the DCR-2 architecture-update).
 
 ## 4. Recovery notes
 
@@ -88,6 +91,7 @@ _(none yet)_
 - 3-formal batch 2 (schemas + contract-tests + fixtures) — resolved, **PHASE 3 COMPLETE** (review: `reviews/2026-06-17-formal-batch2-r1.md`) — `2518fee`
 - 4-tasks (07-tasks.md + .kiro/spec-driven.yaml) — resolved, **PHASE 4 COMPLETE — DESIGN BASELINE DONE, handed off to coordinator** (review: `reviews/2026-06-17-tasks-r1.md`) — `6e1d54f`
 - DCR-1 amendment for T-3.2-RD-D10 — greenfield driver-authored phase-deliverable persistence (AC-1.2/1.4/1.5/2.1/2.5, ADR-0012, C3/C7 in 02-architecture, T-3.2 in 07-tasks; review: `reviews/2026-06-23-amendment-greenfield-driver-authored-persistence-r1.md`) — `67b12b6`
+- DCR-2 amendment for T-3.2 — greenfield multi-turn phase dialogue + approve-to-finalize, plus D1 output-token-cap fix (AC-1.1/1.4/1.5/2.1/2.3/2.4/2.5, ADR-0012, C3 + § 2.1 C4 output-budget in 02-architecture, T-3.1/3.2/3.3 in 07-tasks; review: `reviews/2026-06-23-amendment-greenfield-multiturn-phase-dialogue-r1.md`) — `pending`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
