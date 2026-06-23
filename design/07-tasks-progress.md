@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: 8786a13
+last_updated_at_commit: pending
 total_resolved_count: 37
 
 last_resolved:
@@ -12,8 +12,53 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: [DCR-2]
 
-in_flight: null
+in_flight:
+  task: T-3.2-RD-D12-D13
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-23T00:00:00+00:00
+  last_updated_at: 2026-06-23T00:00:00+00:00
 ---
+
+## In-flight
+
+- task: T-3.2-RD-D12-D13
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  files_in_working_tree: []
+  dcrs_consumed: []
+  started_at: 2026-06-23T00:00:00+00:00
+  last_updated_at: 2026-06-23T00:00:00+00:00
+  note: |
+    Resilience-cluster fix on the greenfield path (regression-of-T-3.1/T-3.2), surfaced by the live
+    G3 interactive greenfield smoke test after DCR-2. A transient Bedrock Read-timeout mid-flow
+    exposed two real defects:
+      - D12 (no mid-flow resume): a transient model-backend failure (or any non-approval
+        interruption) mid-greenfield does NOT resume the in-flight greenfield session at the failed
+        phase. In the REPL, greenfield phase-state lives entirely inside one GreenfieldDriver.run()
+        call invoked per REPL turn (GreenfieldRunner.run -> ReplRunner.runTurn); the next REPL line
+        starts a brand-new driver.run() from GreenfieldPhase.initial(), treating the typed line as a
+        fresh project idea. No reconstruction of greenfield phase-state (approved phases / current
+        phase / approved artifacts) from the event log on a fresh --mode greenfield.
+      - D13 (no per-session artifact isolation — the destructive one): GreenfieldArtifactStore writes
+        design/00-requirements.md etc. via a truncating write keyed only on the fixed workspaceRoot +
+        the fixed Main.ONE_SHOT_LINEAGE placeholder, with no run identity and no refuse-to-clobber. A
+        NEW greenfield run truncates a PRIOR run's APPROVED artifact. (The in-round truncating write
+        within ONE active phase dialogue is DCR-2 by design; the bug is a DIFFERENT/NEW run clobbering
+        a prior APPROVED artifact.)
+    Persistence design HELD: the approved 5180-byte requirements survived in the append-only event log
+    and was recovered. Likely warrants a DCR (resume + isolation are design decisions). The task-
+    builder investigates and either fixes-in-spec (resolved) or raises design-change-needed with a
+    concrete proposal; the coordinator runs the DCR lifecycle and STOPS for user approval (no
+    auto-amend). Do NOT proceed into M4.
 
 ## Milestone gates
 
