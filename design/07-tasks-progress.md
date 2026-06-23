@@ -2,51 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-23
 last_updated_at_commit: pending
-total_resolved_count: 25
+total_resolved_count: 26
 
 last_resolved:
-  task: T-2.8
-  title: "Wire compaction-with-derivation into the live agent loop (M2 integration; regression-of-T-2.2)"
+  task: T-2.2-RD-D3
+  title: "Compaction summarizer Converse call must carry the session's toolConfig (live-only D3 fix; regression-of-T-2.2)"
   resolved_at: 2026-06-23
-  commit: b078aab
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-2.2-RD-D3
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-23T09:10:00-07:00
-  last_updated_at: 2026-06-23T09:10:00-07:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-2.2-RD-D3
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  open_action_items_for_implementer: []
-  open_action_items_for_tester: []
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-23T09:10:00-07:00
-  last_updated_at: 2026-06-23T09:10:00-07:00
-  notes: >
-    Regression-of-T-2.2 (D3): live-only defect found by the G2 real-Bedrock smoke
-    test. Compactor.summarize() passes null toolConfig on the summarizer Converse
-    call; Bedrock rejects a transcript containing toolUse/toolResult blocks with no
-    toolConfig (ValidationException "The toolConfig field must be defined when using
-    toolUse and toolResult content blocks."). User-chosen fix: thread the session's
-    ToolConfiguration into the Compactor and pass it instead of null. Same class as
-    D1/D2 (passed the mocked Bedrock, broke live). Single-agent task-builder.
 
 ## Milestone gates
 
@@ -309,3 +276,14 @@ in_flight:
 - milestone: M2 (integration/wiring task; NOT a 07-tasks.md row — tracked here with full traceability like T-2.7 and the M0 D1/D2 regression tasks. Coordinator does not edit the designer-owned tasks table.)
 - task_type: regression/integration — closes the SECOND live-vs-mocked gap blocking G2 (same class as T-2.7 and M0 D1/D2: green against mocks, broken live). This is the compaction analogue of T-2.7's sub-agent/memory wiring.
 - notes: VERIFIED GAP (coordinator-confirmed before dispatch): the Compactor (T-2.2) was fully built + unit-tested (incl. CompactionHarvestEndToEndTest doing a real summarize->harvest->derive) but NEVER wired into the live AgentLoop. On BudgetGuard.Decision.COMPACT the loop's T13 budget hook (loop/AgentLoop.java ~L197-200) only LOGGED "Budget guard signalled compaction; surfacing (compaction is T-2.1/T-2.2)" and returned LoopOutcome.surfaced(...); AgentLoop's ctor had no compaction collaborator; and AgentLoopFactory (the JaCoCo-excluded composition root) wired a REAL TokenBudgetGuard (T-2.1, so the 0.85xwindow threshold CAN fire on a live run) but never constructed a Compactor (new Compactor(...) appeared only in tests). So the G2 HEADLINE criterion ("a long task compacts + continues — derived session, original preserved, INV-7 signature replay") was unreachable from the live CLI: when the threshold fired on a real run the loop STOPPED (SURFACED) instead of compacting-and-continuing. FIX (T-2.7 precedent — business wiring in a gate-covered seam, not the excluded root): (1) NEW CompactionSeam interface in the loop package (default NONE, the analogue of BudgetGuard.NONE) — the loop's injected compaction hook + a CompactionResult record {continued(derivedTranscript) | surfaced(stopReason)}. (2) AgentLoop's T13 hook now, on COMPACT, INVOKES the seam: on a continued result it swaps the live transcript for the derived session's replayed messages[] and KEEPS DRIVING in the child (state machine A T14 -> S1; the next live Converse call happens in the derived conversation), and on a surfaced result (compaction failure, T15) it surfaces MODEL_CONTEXT_WINDOW_EXCEEDED which OneShotRunner ALREADY maps to exit 5 (CT-SM-7, cli-exit-codes 5) — so the failure path lands on exit 5 with ZERO change to the tested exit-code mapping. New 10-arg AgentLoop ctor; the 9-arg ctor delegates with CompactionSeam.NONE (backward compatible — existing callers + the sub-agent child loop unaffected; the no-compaction wiring still surfaces a COMPACT as before). (3) NEW gate-covered CompactingSeam (com.srk.codingagent.cli) wrapping the REAL Compactor: it threads the live session identity (repoKey + originalSessionId = ONE_SHOT_LINEAGE) the loop didn't hold, draws the derived session id from a boundary-captured supplier (ADR-0005 — never UUID.randomUUID inside the orchestration), runs one compaction-with-derivation (CompactionTrigger.THRESHOLD = the AC-18.1 auto path), and on success replays the derived session via the SAME SessionReplay the resume path uses (events->messages[], INV-7 reasoning signatures intact in the recent-tail verbatim turns). (4) AgentLoopFactory (JaCoCo-excluded) narrows to composing the seam: the summarizer model = config.summarizerModelId() if set else config.modelId() (ADR-0006); the MemoryStore is LIFTED to a shared local so the tool registry AND the compaction learning-harvest share ONE store + propose-and-approve path (AC-18.5 harvest-before-archive runs on a live compaction via MemoryLearningHarvester, NOT a duplicate of the write_memory wiring); recent-tail = 4 turns (documented compiled-in default — no NFR/config key pins it yet). NEW tests (the tests that WOULD have caught this): CompactingSeamTest (6 — derive-continues, parent byte-identical CT-INV-3, original preserved CT-INV-4, failed-compaction-surfaces-for-exit-5 CT-SM-7, boundary-id, over a scripted Bedrock double); LiveCompactionReachabilityTest (3 — a loop driven past the budget threshold actually invokes compaction and CONTINUES in a derived session NOT SURFACED, CT-SM-6, + AgentLoopFactory composes a loop with the seam present); AgentLoopTest evolved (the stale budgetGuardCompactSurfaces test that pinned the OLD broken-for-live SURFACED behavior -> 4 new compaction tests: continue, derived-transcript-on-the-wire, failure-surfaces-for-exit-5, NONE-still-surfaces; + 10-arg ctor null-check). 844 tests green under mvn clean verify (JaCoCo 0.80 BUNDLE gate met; AgentLoop 96/96 line incl. the new COMPACT branch; CompactingSeam 23/24); shaded codingagent.jar builds + launches. Self-checks: oracle-traceability=passed (expected values trace to AC-18.1/18.4/18.5, INV-4/5/7, CT-SM-6/7, CT-INV-3/4, state-machine A T13/T14/T15, cli-exit-codes 5, D2/T-0.5-RD2 wire shape — never to impl behavior), reuse=passed (reused Compactor/MemoryLearningHarvester/SessionReplay/TokenBudgetGuard + the ToolRegistryComposer extraction pattern; shared the memory propose-and-approve path, no duplication). 0 Blocker/Major/Minor, 1 Nit, 1 Discussion (D1 logged to open-questions). >>> G2 SMOKE-TEST NOTE: a live codingagent run whose usage crosses 0.85xwindow now SUMMARIZES->DERIVES->CONTINUES in a derived DERIVED_FROM session (original byte-identical, INV-7 signatures replayed) instead of stopping — the G2 headline criterion is now exercisable. Main agent runs the real-Bedrock G2 smoke test next, lowering contextCompactThreshold via config (key: contextCompactThreshold; window for us.anthropic.claude-opus-4-8 is 200k) so the threshold fires cheaply, plus a live sub-agent spawn and a propose->approve->recall memory cycle.
+
+## T-2.2-RD-D3 — Compaction summarizer Converse call must carry the session's toolConfig (live-only D3 fix; regression-of-T-2.2)
+- commit: pending
+- review: design/reviews/code/T-2.2-RD-D3-r1.md
+- resolved: 2026-06-23
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M2 (regression/integration task; NOT a 07-tasks.md row — tracked here with full traceability like T-2.7/T-2.8 and the M0 D1/D2 regression tasks T-0.2-RD1/T-0.5-RD2. Coordinator does not edit the designer-owned tasks table.)
+- task_type: regression — closes the THIRD live-vs-mocked gap (D3) found by the G2 real-Bedrock smoke test (same class as M0 D1/D2 and the now-live-path defects: green against the mocked Bedrock, broken live). T-2.8 correctly wired compaction INTO the loop (compaction is now INVOKED — big progress), so the summarizer Converse call itself then fired live and surfaced this.
+- notes: VERIFIED DEFECT (D3), confirmed by the coordinator against the source before dispatch. Trace: TokenBudgetGuard fired COMPACT -> AgentLoop invoked the (T-2.8-wired) compaction seam -> Compactor.summarize() made its summarizer Converse call -> live HTTP 400 ValidationException "The toolConfig field must be defined when using toolUse and toolResult content blocks." ROOT CAUSE: Compactor.summarize() (context/Compactor.java) replays the ORIGINAL transcript verbatim (which CONTAINS toolUse/toolResult blocks from the summarized coding session — the point of summarizing a real session) but passed `null` as the toolConfig arg on `modelClient.converse(summarizerModelId, transcript, List.of(COMPACTION_SYSTEM_PROMPT), null)`. Per the verified Bedrock wire rule (design-progress §6.A.1): when messages[] carry tool blocks, the request MUST present toolConfig. The original "no tool config" summarizer assumption (in the summarize Javadoc) was wrong against the wire; it passed only because the in-test ScriptedBedrockClient double never enforced that rule. USER-CHOSEN FIX (smallest, most spec-faithful — keep the tool blocks verbatim, just satisfy the wire rule): thread the session's ToolConfiguration (the tools available in the session being summarized) into the Compactor and pass it on the summary call instead of null. The summarizer still sees the real transcript verbatim (best summary fidelity, ADR-0006/AC-18.4 unchanged); it just carries the tool defs. FIX: (1) Compactor gained a nullable ToolConfiguration field set via the constructor — placed before harvester so the no-harvest convenience ctor naturally carries it; preserved the 6->7->8-arg delegation chain (one delegating to the next with LearningHarvester.NONE). toolConfig is null-tolerant ONLY for a genuinely-no-tools session (the §6.A.1 rule only bites when the transcript carries tool blocks); the live path always threads the real registry's toolConfig. summarize(...) now passes the field instead of null; the stale "no tool config" Javadoc (class-level step 1 + the summarize method) corrected to cite the §6.A.1 wire rule and that the tool blocks are kept verbatim. (2) AgentLoopFactory.create (JaCoCo-excluded composition root) threads the already-built parent ToolRegistry's toToolConfiguration() into compactionSeam(...) -> the live Compactor (no second registry, no duplicate render). REGRESSION TEST (the D2-class lesson — the test that WOULD have caught this): the new CompactorTest case seeds a transcript WITH toolUse/toolResult blocks, runs compaction, captures the summary ConverseRequest, and asserts request.toolConfig() is non-null AND carries the expected tool definitions (tool names in request.toolConfig().tools() match the wired toolConfig) — asserting the actual request CONTRACT the live ValidationException enforces (oracle = §6.A.1 wire rule), not merely that summarize returns text. Plus a null-tolerance test for the genuinely-no-tools session. 846 tests green under mvn clean verify (JaCoCo 0.80 BUNDLE gate met; Compactor 90.4% line / 89.3% branch). Self-checks: oracle-traceability=passed (expected values trace to §6.A.1 wire rule + ADR-0006/AC-18.4 + the live ValidationException, never to impl behavior), reuse=passed (reused ToolRegistry.toToolConfiguration() + the existing ScriptedBedrockClient request-capture pattern; updated all 4 `new Compactor(` test call sites via the shared helper rather than duplicating). 0 Blocker/Major/Minor/Nit, 0 Discussion. NO live AWS/Bedrock call made (fix exercised entirely against the in-test double); the stray ~/.codingagent/config.yaml smoke-test config was ignored as instructed. >>> G2 SMOKE-TEST NOTE: a live codingagent run that crosses the compaction threshold now makes a summarizer Converse call carrying the session's toolConfig, so a transcript with tool blocks is wire-valid — the live compact+continue path (which T-2.8 wired) should now reach a derived session and keep going instead of dying on the ValidationException. Main agent re-runs the real-Bedrock G2 smoke test to confirm: live compact+continue reaches a derived session and the loop keeps going (not exit 5), plus the already-working sub-agent spawn and propose->approve->recall memory cycle.

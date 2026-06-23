@@ -159,14 +159,19 @@ class LiveCompactionReachabilityTest {
      */
     private AgentLoop liveLoop(ModelClient modelClient, SessionStore store, EventLog log) {
         Supplier<String> clock = () -> TS;
+        // §6.A.1 / ADR-0006: the Compactor carries the live session's toolConfig (the SAME registry
+        // the loop offers, exactly as AgentLoopFactory threads it) so the summary call is wire-valid
+        // for a transcript that may carry tool blocks.
+        ToolRegistry tools = ToolRegistry.of(List.of());
         Compactor compactor = new Compactor(
-                modelClient, store, replay, clock, SUMMARIZER_MODEL, 4, LearningHarvester.NONE);
+                modelClient, store, replay, clock, SUMMARIZER_MODEL, 4,
+                tools.toToolConfiguration(), LearningHarvester.NONE);
         CompactionSeam compaction =
                 new CompactingSeam(compactor, store, replay, REPO_KEY, ORIGINAL, () -> DERIVED);
         PermissionGate gate = new PermissionGate(
                 PermissionMode.ASK_EVERY_TIME, GrantStore.forSession(ORIGINAL), alwaysApprove());
         TokenBudgetGuard guard = new TokenBudgetGuard(SMALL_WINDOW, THRESHOLD);
-        return new AgentLoop(modelClient, ToolRegistry.of(List.of()), gate, log,
+        return new AgentLoop(modelClient, tools, gate, log,
                 clock, guard, compaction, new OutputDisposer(16384), MODEL_ID, null);
     }
 

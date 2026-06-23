@@ -54,6 +54,7 @@ import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
+import software.amazon.awssdk.services.bedrockruntime.model.ToolConfiguration;
 
 /**
  * End-to-end test of the compaction learning-harvest (AC-18.5 + US-21), wiring a <em>real</em>
@@ -189,7 +190,11 @@ class CompactionHarvestEndToEndTest {
                 new LearningProposer(memory, memoryLog, approver, clock, MEMORY_SESSION, REPO_KEY);
         MemoryLearningHarvester harvester = new MemoryLearningHarvester(jitterExtractor(), proposer);
         ModelClient modelClient = new ModelClient(bedrock);
-        return new Compactor(modelClient, sessions, replay, clock, SUMMARIZER_MODEL, 1, harvester);
+        // This harvest scenario's session offers no tools and its seeded transcript carries no
+        // tool blocks, so a null toolConfig is the wire-faithful no-tools case (§6.A.1): the rule
+        // only requires toolConfig when messages[] carry toolUse/toolResult blocks.
+        return new Compactor(modelClient, sessions, replay, clock, SUMMARIZER_MODEL, 1,
+                (ToolConfiguration) null, harvester);
     }
 
     @Test

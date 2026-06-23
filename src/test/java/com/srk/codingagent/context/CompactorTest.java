@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -34,12 +35,17 @@ import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import software.amazon.awssdk.core.document.Document;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
+import software.amazon.awssdk.services.bedrockruntime.model.Tool;
+import software.amazon.awssdk.services.bedrockruntime.model.ToolConfiguration;
+import software.amazon.awssdk.services.bedrockruntime.model.ToolInputSchema;
+import software.amazon.awssdk.services.bedrockruntime.model.ToolSpecification;
 
 /**
  * Unit tests for {@link Compactor} — compaction-with-derivation (component C6, ADR-0006,
@@ -65,6 +71,10 @@ import software.amazon.awssdk.services.bedrockruntime.model.Message;
  *   <li><b>INV-6:</b> the derived session's seeded transcript is a valid wire transcript (every
  *       toolResult pairs with a prior toolUse).</li>
  *   <li><b>AC-18.4:</b> the summary is carried forward as an initial context block.</li>
+ *   <li><b>§6.A.1 wire rule (D3 regression):</b> the summary Converse request — whose replayed
+ *       transcript carries {@code toolUse}/{@code toolResult} blocks — presents the session's
+ *       {@code toolConfig}, so Bedrock does not reject it ("The toolConfig field must be defined
+ *       when using toolUse and toolResult content blocks.").</li>
  * </ul>
  */
 class CompactorTest {
@@ -77,6 +87,14 @@ class CompactorTest {
     private static final String SUMMARY_TEXT =
             "Task: add retry to the uploader. Decided exponential backoff. Touched Uploader.java. "
                     + "Open: wire the config. Learning: the SDK already jitters.";
+
+    /**
+     * The tool name the summarized session offers — the same tool ({@code read_file}) whose
+     * {@code toolUse}/{@code toolResult} blocks {@link #seedOriginal} plants in the replayed
+     * transcript. The §6.A.1 wire rule requires the summary request's {@code toolConfig} to be
+     * present (and these are the session's tool defs) for that transcript to be accepted.
+     */
+    private static final String SESSION_TOOL_NAME = "read_file";
 
     private final SessionReplay replay = new SessionReplay();
 
@@ -134,7 +152,33 @@ class CompactorTest {
 
     private Compactor compactorOver(BedrockRuntimeClient bedrock, SessionStore store, int tail) {
         ModelClient modelClient = new ModelClient(bedrock);
-        return new Compactor(modelClient, store, replay, () -> TS, SUMMARIZER_MODEL, tail);
+        return new Compactor(modelClient, store, replay, () -> TS, SUMMARIZER_MODEL, tail,
+                sessionToolConfig());
+    }
+
+    /**
+     * A representative non-empty {@link ToolConfiguration} standing in for the tool definitions
+     * the summarized session offered — one {@code read_file} toolSpec, matching the tool whose
+     * blocks {@link #seedOriginal} plants in the transcript. The real Compactor receives the live
+     * registry's {@code toToolConfiguration()} here; the test substitutes an equivalent shape so
+     * the §6.A.1 contract assertion has expected tool defs to check.
+     */
+    private static ToolConfiguration sessionToolConfig() {
+        Document inputSchema = Document.mapBuilder()
+                .putString("type", "object")
+                .putDocument("properties", Document.mapBuilder()
+                        .putDocument("path", Document.mapBuilder()
+                                .putString("type", "string")
+                                .build())
+                        .build())
+                .build();
+        return ToolConfiguration.builder()
+                .tools(Tool.fromToolSpec(ToolSpecification.builder()
+                        .name(SESSION_TOOL_NAME)
+                        .description("Read a file from the workspace.")
+                        .inputSchema(ToolInputSchema.fromJson(inputSchema))
+                        .build()))
+                .build();
     }
 
     /**
@@ -231,6 +275,49 @@ class CompactorTest {
                 "AC-18.4/ADR-0006: the prompt asks for the open work");
         assertTrue(prompt.contains("learning"),
                 "ADR-0006/AC-18.5: the prompt asks for durable learnings (the harvest seam)");
+    }
+
+    @Test
+    @DisplayName("§6.A.1 (D3): the summary call presents the session's toolConfig because the transcript carries tool blocks")
+    void sixA1_summaryCallCarriesSessionToolConfigForToolBlockTranscript(@TempDir Path dir) {
+        // Oracle: §6.A.1 verified Bedrock wire rule — "when messages[] carry toolUse/toolResult
+        // content blocks, toolConfig must be present on the request". The seeded transcript the
+        // summarizer replays CONTAINS a toolUse (tu_01, read_file) and its paired toolResult
+        // (seedOriginal), so the live rule forces the request to carry a toolConfig — the session's
+        // tool definitions — or Bedrock returns the ValidationException "The toolConfig field must
+        // be defined when using toolUse and toolResult content blocks." (the D3 defect). Assert the
+        // captured summary request both PRESENTS a toolConfig and carries the session's tool
+        // definition — phrased as the wire-rule contract, not "the impl now passes toolConfig".
+        SessionStore store = new SessionStore(dir);
+        seedOriginal(store, "sig==");
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient().then(summaryTurn(SUMMARY_TEXT));
+        // tail=4 carries the whole transcript (incl. the toolUse/toolResult turns) forward too, but
+        // the summary REQUEST below replays the full original transcript regardless — that is where
+        // the tool blocks live and where the wire rule bites.
+        Compactor compactor = compactorOver(bedrock, store, 4);
+
+        compactor.compact(request(CompactionTrigger.THRESHOLD));
+
+        ConverseRequest summaryCall = bedrock.requests.get(0);
+        // 1) The replayed summary transcript indeed carries tool blocks (the precondition that
+        //    triggers the wire rule) — so this is the live-broken scenario, not a no-tools call.
+        boolean transcriptHasToolBlocks = summaryCall.messages().stream()
+                .flatMap(m -> m.content().stream())
+                .anyMatch(b -> b.toolUse() != null || b.toolResult() != null);
+        assertTrue(transcriptHasToolBlocks,
+                "precondition: the summarizer replays a transcript carrying toolUse/toolResult blocks");
+        // 2) §6.A.1: the request must therefore present a toolConfig (the D3 contract). On the
+        //    AWS SDK v2 ConverseRequest, an absent toolConfig reads back as null.
+        assertNotNull(summaryCall.toolConfig(),
+                "§6.A.1: a request whose messages carry tool blocks must define toolConfig (D3)");
+        // 3) And it is the session's tool definitions (the tools available in the summarized
+        //    session), not an empty placeholder — assert the session tool's name is present.
+        List<String> toolNames = summaryCall.toolConfig().tools().stream()
+                .map(t -> t.toolSpec().name())
+                .toList();
+        assertTrue(toolNames.contains(SESSION_TOOL_NAME),
+                "§6.A.1: the summary request carries the summarized session's tool definitions ("
+                        + SESSION_TOOL_NAME + ")");
     }
 
     @Test
@@ -482,18 +569,34 @@ class CompactorTest {
     void constructorRejectsBadArgs(@TempDir Path dir) {
         SessionStore store = new SessionStore(dir);
         ModelClient client = new ModelClient(new ScriptedBedrockClient());
+        ToolConfiguration tools = sessionToolConfig();
         assertThrows(NullPointerException.class,
-                () -> new Compactor(null, store, replay, () -> TS, SUMMARIZER_MODEL, 2));
+                () -> new Compactor(null, store, replay, () -> TS, SUMMARIZER_MODEL, 2, tools));
         assertThrows(NullPointerException.class,
-                () -> new Compactor(client, null, replay, () -> TS, SUMMARIZER_MODEL, 2));
+                () -> new Compactor(client, null, replay, () -> TS, SUMMARIZER_MODEL, 2, tools));
         assertThrows(NullPointerException.class,
-                () -> new Compactor(client, store, null, () -> TS, SUMMARIZER_MODEL, 2));
+                () -> new Compactor(client, store, null, () -> TS, SUMMARIZER_MODEL, 2, tools));
         assertThrows(NullPointerException.class,
-                () -> new Compactor(client, store, replay, null, SUMMARIZER_MODEL, 2));
+                () -> new Compactor(client, store, replay, null, SUMMARIZER_MODEL, 2, tools));
         assertThrows(IllegalArgumentException.class,
-                () -> new Compactor(client, store, replay, () -> TS, "  ", 2));
+                () -> new Compactor(client, store, replay, () -> TS, "  ", 2, tools));
         assertThrows(IllegalArgumentException.class,
-                () -> new Compactor(client, store, replay, () -> TS, SUMMARIZER_MODEL, -1));
+                () -> new Compactor(client, store, replay, () -> TS, SUMMARIZER_MODEL, -1, tools));
+    }
+
+    @Test
+    @DisplayName("the compactor tolerates a null toolConfig (the genuinely no-tools session)")
+    void constructorToleratesNullToolConfig(@TempDir Path dir) {
+        // Oracle: ModelClient.converse Javadoc / §6.A.1 — toolConfig is "null when no tools are
+        // offered". A session with no tools has no tool blocks in its transcript, so the absent
+        // toolConfig does not violate the wire rule. The constructor must therefore accept null
+        // toolConfig (it is null-tolerant ONLY for this case), unlike the other references.
+        SessionStore store = new SessionStore(dir);
+        ModelClient client = new ModelClient(new ScriptedBedrockClient());
+        Compactor compactor = new Compactor(
+                client, store, replay, () -> TS, SUMMARIZER_MODEL, 2, (ToolConfiguration) null);
+        assertThrows(NullPointerException.class, () -> compactor.compact(null),
+                "the compactor still validates its other contracts when toolConfig is null");
     }
 
     @Test

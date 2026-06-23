@@ -31,12 +31,17 @@ import java.util.function.Supplier;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import software.amazon.awssdk.core.document.Document;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
+import software.amazon.awssdk.services.bedrockruntime.model.Tool;
+import software.amazon.awssdk.services.bedrockruntime.model.ToolConfiguration;
+import software.amazon.awssdk.services.bedrockruntime.model.ToolInputSchema;
+import software.amazon.awssdk.services.bedrockruntime.model.ToolSpecification;
 
 /**
  * Gate-covered contract for the production {@link CompactingSeam} (T-2.8): the seam that bridges
@@ -171,10 +176,33 @@ class CompactingSeamTest {
      */
     private CompactionSeam seam(BedrockRuntimeClient bedrock, SessionStore store) {
         Supplier<String> clock = () -> TS;
+        // §6.A.1: the seeded transcript carries tool blocks, so the live wiring threads the
+        // session's toolConfig into the Compactor (mirroring AgentLoopFactory) so the summary
+        // request is wire-valid. A representative read_file toolSpec stands in for the registry's
+        // rendered config.
         Compactor compactor = new Compactor(
                 new ModelClient(bedrock), store, replay, clock, SUMMARIZER_MODEL, 4,
-                LearningHarvester.NONE);
+                sessionToolConfig(), LearningHarvester.NONE);
         return new CompactingSeam(compactor, store, replay, REPO_KEY, ORIGINAL, () -> DERIVED);
+    }
+
+    /** A representative {@code read_file} {@link ToolConfiguration} for the summary call (§6.A.1). */
+    private static ToolConfiguration sessionToolConfig() {
+        Document inputSchema = Document.mapBuilder()
+                .putString("type", "object")
+                .putDocument("properties", Document.mapBuilder()
+                        .putDocument("path", Document.mapBuilder()
+                                .putString("type", "string")
+                                .build())
+                        .build())
+                .build();
+        return ToolConfiguration.builder()
+                .tools(Tool.fromToolSpec(ToolSpecification.builder()
+                        .name("read_file")
+                        .description("Read a file from the workspace.")
+                        .inputSchema(ToolInputSchema.fromJson(inputSchema))
+                        .build()))
+                .build();
     }
 
     // --- CT-SM-6 / AC-18.1 : threshold path compacts and CONTINUES (not surfaces) ----

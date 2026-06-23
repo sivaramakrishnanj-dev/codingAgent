@@ -31,6 +31,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
+import software.amazon.awssdk.services.bedrockruntime.model.ToolConfiguration;
 
 /**
  * Assembles the production {@link AgentLoop} for a one-shot run from a resolved
@@ -163,8 +164,13 @@ public final class AgentLoopFactory {
                 parentGrants, approver, sessionLineage, sessionLineage, clock, childSessionIds)
                 .parentRegistry();
         PermissionGate gate = new PermissionGate(config.permissionMode(), parentGrants, approver);
+        // ADR-0006 / § 6.A.1: thread the live session's tool definitions into the compaction seam.
+        // The summarizer Converse call replays the original transcript verbatim — which carries
+        // toolUse/toolResult blocks — so it must present the same toolConfig the session offers, or
+        // Bedrock rejects it ("toolConfig must be defined when using toolUse/toolResult blocks").
         CompactionSeam compaction = compactionSeam(
-                modelClient, config, log, memoryStore, sessions, sessionLineage, clock);
+                modelClient, config, log, memoryStore, sessions, sessionLineage, clock,
+                tools.toToolConfiguration());
 
         // ADR-0005: the loop draws every event's timestamp from this boundary clock.
         // US-19/ADR-0006: the disposer reduces oversized tool/command output for context at
@@ -213,10 +219,18 @@ public final class AgentLoopFactory {
      * So the harvest seam runs before archive on a live compaction (AC-18.5) yet persists nothing
      * at v1, the correct anti-poisoning stance. When the interactive REPL wires a real approver +
      * extractor (a later task), durable learnings flow through this same path.
+     *
+     * <p><b>Summarizer toolConfig (§ 6.A.1 wire rule).</b> The {@code sessionToolConfig} is the
+     * live session's rendered tool definitions ({@code ToolRegistry.toToolConfiguration()}); the
+     * Compactor carries it on the summary Converse call so a replayed transcript containing
+     * {@code toolUse}/{@code toolResult} blocks is wire-valid — Bedrock rejects a request whose
+     * {@code messages[]} carry tool blocks while {@code toolConfig} is absent. The tool blocks are
+     * replayed verbatim (best summary fidelity); only the request's {@code toolConfig} is now set.
      */
     private CompactionSeam compactionSeam(
             ModelClient modelClient, ResolvedConfig config, EventLog log, MemoryStore memoryStore,
-            SessionStore sessions, String sessionLineage, Supplier<String> clock) {
+            SessionStore sessions, String sessionLineage, Supplier<String> clock,
+            ToolConfiguration sessionToolConfig) {
         String summarizerModelId = config.summarizerModelId() == null
                 ? config.modelId()
                 : config.summarizerModelId();
@@ -226,7 +240,7 @@ public final class AgentLoopFactory {
         LearningHarvester harvester = new MemoryLearningHarvester(LearningExtractor.NONE, proposer);
         Compactor compactor = new Compactor(
                 modelClient, sessions, replay, clock, summarizerModelId,
-                LIVE_COMPACTION_RECENT_TAIL_TURNS, harvester);
+                LIVE_COMPACTION_RECENT_TAIL_TURNS, sessionToolConfig, harvester);
         // ADR-0005: the derived session id is captured at this boundary (never inside the
         // orchestration). v1 derives a timestamp-suffixed id from the lineage + boundary clock so
         // the derived log path is deterministic and differs from the original (INV-4).

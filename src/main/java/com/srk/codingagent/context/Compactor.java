@@ -23,6 +23,7 @@ import java.util.Objects;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import software.amazon.awssdk.services.bedrockruntime.model.ToolConfiguration;
 
 /**
  * Compaction-with-derivation (component C6, the Context Manager; ADR-0006, state-machine B).
@@ -35,7 +36,14 @@ import org.slf4j.LoggerFactory;
  *       configured summarizer model with a fixed <em>compaction system prompt</em> asking for
  *       outstanding task state, decisions made, files touched, open work, and durable
  *       learnings — enough to "continue without the developer re-explaining" (AC-18.4). The
- *       summary is text; it does not carry raw reasoning blocks.</li>
+ *       <em>response</em> summary is text; it does not carry raw reasoning blocks. The
+ *       <em>request</em>, however, replays the original transcript verbatim (best summary
+ *       fidelity) — and that transcript carries {@code toolUse}/{@code toolResult} blocks from
+ *       the summarized coding session, so the call MUST present the session's tool definitions
+ *       as its {@code toolConfig} (the {@link ToolConfiguration} threaded in at construction):
+ *       Bedrock rejects a request whose {@code messages[]} carry tool blocks while
+ *       {@code toolConfig} is absent (§ 6.A.1 wire rule). We carry the tool blocks unchanged and
+ *       satisfy the rule rather than stripping or flattening them.</li>
  *   <li><b>Derive a NEW session, never mutate</b> (INV-4, AC-18.3, LT3): a new session (new
  *       sessionId, supplied at the boundary) is seeded with the summary as an initial context
  *       block plus a configurable tail of recent verbatim turns, the child's {@code .meta.json}
@@ -110,13 +118,14 @@ public final class Compactor {
     private final Supplier<String> clock;
     private final String summarizerModelId;
     private final int recentTailTurns;
+    private final ToolConfiguration toolConfig;
     private final LearningHarvester harvester;
 
     /**
      * Creates a compactor over its collaborators with no learning harvest configured (the
      * harvest seam defaults to {@link LearningHarvester#NONE}). Equivalent to
      * {@link #Compactor(ModelClient, SessionStore, SessionReplay, Supplier, String, int,
-     * LearningHarvester)} with {@code LearningHarvester.NONE}.
+     * ToolConfiguration, LearningHarvester)} with {@code LearningHarvester.NONE}.
      *
      * @param modelClient       the Converse adapter the summary call goes through (C4); must
      *                          not be {@code null}.
@@ -135,7 +144,13 @@ public final class Compactor {
      * @param recentTailTurns   how many recent verbatim turns to carry forward into the derived
      *                          session (the configurable tail, ADR-0006); {@code >= 0} (0 seeds
      *                          only the summary).
-     * @throws NullPointerException     if any reference argument is {@code null}.
+     * @param toolConfig        the session's tool definitions (C7 {@link ToolConfiguration},
+     *                          rendered by {@code ToolRegistry.toToolConfiguration()}) carried on
+     *                          the summary Converse call so a replayed transcript containing
+     *                          {@code toolUse}/{@code toolResult} blocks is wire-valid (§ 6.A.1);
+     *                          may be {@code null} only for the genuinely no-tools session.
+     * @throws NullPointerException     if any non-{@code toolConfig} reference argument is
+     *                                  {@code null}.
      * @throws IllegalArgumentException if {@code summarizerModelId} is blank or
      *                                  {@code recentTailTurns} is negative.
      */
@@ -145,9 +160,10 @@ public final class Compactor {
             SessionReplay replay,
             Supplier<String> clock,
             String summarizerModelId,
-            int recentTailTurns) {
+            int recentTailTurns,
+            ToolConfiguration toolConfig) {
         this(modelClient, store, replay, clock, summarizerModelId, recentTailTurns,
-                LearningHarvester.NONE);
+                toolConfig, LearningHarvester.NONE);
     }
 
     /**
@@ -170,11 +186,17 @@ public final class Compactor {
      * @param recentTailTurns   how many recent verbatim turns to carry forward into the derived
      *                          session (the configurable tail, ADR-0006); {@code >= 0} (0 seeds
      *                          only the summary).
+     * @param toolConfig        the session's tool definitions (C7 {@link ToolConfiguration},
+     *                          rendered by {@code ToolRegistry.toToolConfiguration()}) carried on
+     *                          the summary Converse call so a replayed transcript containing
+     *                          {@code toolUse}/{@code toolResult} blocks is wire-valid (§ 6.A.1);
+     *                          may be {@code null} only for the genuinely no-tools session.
      * @param harvester         the learning-harvest seam (AC-18.5) invoked after a usable
      *                          summary is produced and before the successor is derived; use
      *                          {@link LearningHarvester#NONE} for no harvest; must not be
      *                          {@code null}.
-     * @throws NullPointerException     if any reference argument is {@code null}.
+     * @throws NullPointerException     if any non-{@code toolConfig} reference argument is
+     *                                  {@code null}.
      * @throws IllegalArgumentException if {@code summarizerModelId} is blank or
      *                                  {@code recentTailTurns} is negative.
      */
@@ -185,6 +207,7 @@ public final class Compactor {
             Supplier<String> clock,
             String summarizerModelId,
             int recentTailTurns,
+            ToolConfiguration toolConfig,
             LearningHarvester harvester) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient");
         this.store = Objects.requireNonNull(store, "store");
@@ -199,6 +222,9 @@ public final class Compactor {
         }
         this.summarizerModelId = summarizerModelId;
         this.recentTailTurns = recentTailTurns;
+        // toolConfig is null-tolerant: only a genuinely no-tools session passes null. The live
+        // path always threads the registry's rendered ToolConfiguration (§ 6.A.1 wire rule).
+        this.toolConfig = toolConfig;
         this.harvester = Objects.requireNonNull(harvester, "harvester");
     }
 
@@ -333,9 +359,16 @@ public final class Compactor {
     }
 
     /**
-     * The dedicated summary Converse call (OQ-D): the original transcript plus the fixed
-     * compaction system prompt, no tool config. The summary is the concatenated text of the
-     * response's text blocks (raw reasoning blocks are not part of the summary text).
+     * The dedicated summary Converse call (OQ-D): the original transcript replayed verbatim plus
+     * the fixed compaction system prompt, carrying the session's {@code toolConfig}. The transcript
+     * is the real coding session, so it contains {@code toolUse}/{@code toolResult} blocks; Bedrock
+     * rejects a request whose {@code messages[]} carry tool blocks while {@code toolConfig} is
+     * absent (§ 6.A.1: <em>"The toolConfig field must be defined when using toolUse and toolResult
+     * content blocks."</em>). We therefore present the session's tool definitions (the
+     * {@link ToolConfiguration} threaded in at construction) so the wire rule is satisfied while the
+     * tool blocks are kept verbatim — no stripping or flattening, for best summary fidelity. The
+     * resulting summary is the concatenated text of the response's text blocks (raw reasoning blocks
+     * are not part of the summary text).
      */
     private String summarize(List<ConverseMessage> originalTranscript) {
         List<ConverseMessage> transcript = new ArrayList<>(originalTranscript);
@@ -346,7 +379,7 @@ public final class Compactor {
                     ContentBlock.text("(the prior conversation had no recorded turns)"))));
         }
         ModelClient.Turn turn = modelClient.converse(
-                summarizerModelId, transcript, List.of(COMPACTION_SYSTEM_PROMPT), null);
+                summarizerModelId, transcript, List.of(COMPACTION_SYSTEM_PROMPT), toolConfig);
         return concatText(turn.response().content());
     }
 
