@@ -203,10 +203,13 @@ class GreenfieldSharedStdinArtifactPersistenceTest {
         // deterministically without a further model script.
         GreenfieldDriver.PhaseLoopFactory phaseLoops = requested ->
                 requested == phase ? loop::run : prompt -> com.srk.codingagent.loop.LoopOutcome.completed("done");
-        // DCR-1: persistence is driver-authored — the driver writes each phase's END_TURN prose to its
+        // DCR-1: persistence is driver-authored — the driver writes each phase's converged prose to its
         // artifact through this seam (over the same target-repo store), not via a model write_artifact
-        // tool call.
-        return new GreenfieldDriver(phaseLoops, writerOver(store), approvalGate);
+        // tool call. DCR-2: the developer-turn source is the SAME shared stdin (the production
+        // multi-turn wiring); with a single 'y' the phase approves on its first round, so no refining
+        // turn is read here.
+        GreenfieldDriver.DeveloperTurnSource turnSource = requested -> sharedAnswerSource.get();
+        return new GreenfieldDriver(phaseLoops, writerOver(store), approvalGate, turnSource);
     }
 
     /**

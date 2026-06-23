@@ -364,11 +364,14 @@ class GreenfieldWriteArtifactSchemaPersistenceTest {
                     new OutputDisposer(16384), MODEL, composer.greenfieldSystemPrompt(phase));
             return loop::run;
         };
-        // DCR-1: persistence is driver-authored — the driver writes each phase's END_TURN prose to its
-        // artifact through the composer's driver-authored persistence seam (the same one
+        // DCR-1: persistence is driver-authored — the driver writes each phase's converged prose to
+        // its artifact through the composer's driver-authored persistence seam (the same one
         // AgentLoopFactory.createGreenfieldDriver wires), not via a model write_artifact tool call.
+        // DCR-2: the developer-turn source is the SAME shared stdin (the production multi-turn
+        // wiring); with each phase approved on its first 'y' no refining turn is read.
+        GreenfieldDriver.DeveloperTurnSource turnSource = phase -> sharedStdin.get();
         return new GreenfieldDriver(
-                phaseLoops, composer.greenfieldArtifactWriter(), approvalGate);
+                phaseLoops, composer.greenfieldArtifactWriter(), approvalGate, turnSource);
     }
 
     private static ToolRegistryComposer composer(ModelClient modelClient, Path workspace,

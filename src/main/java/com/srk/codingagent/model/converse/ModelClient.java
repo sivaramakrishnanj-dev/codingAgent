@@ -52,6 +52,24 @@ public final class ModelClient {
     }
 
     /**
+     * Creates a Model Client for the greenfield phase path (DCR-2 — D1, ADR-0012;
+     * {@code 02-architecture.md} § 2.1): its wire mapper sets {@code inferenceConfig.maxTokens} to
+     * {@link ConverseWireMapper#GREENFIELD_MAX_OUTPUT_TOKENS} (16K) on every request, so a full
+     * requirements/design/tasks deliverable is not truncated at the backend's default 4096
+     * output-token cap. Distinct from {@link #ModelClient(BedrockRuntimeClient)} (no cap — the
+     * brownfield/one-shot path, backend default applies).
+     *
+     * @param bedrock the configured Bedrock runtime client; must not be {@code null}.
+     * @return a Model Client whose requests carry the greenfield output-token budget; never
+     *         {@code null}.
+     * @throws NullPointerException if {@code bedrock} is {@code null}.
+     */
+    public static ModelClient forGreenfield(BedrockRuntimeClient bedrock) {
+        return new ModelClient(bedrock,
+                new ConverseWireMapper(ConverseWireMapper.GREENFIELD_MAX_OUTPUT_TOKENS));
+    }
+
+    /**
      * Creates a Model Client with an injected mapper. Package-private: used by tests to
      * exercise the adapter against a stubbed client and the real mapper.
      *

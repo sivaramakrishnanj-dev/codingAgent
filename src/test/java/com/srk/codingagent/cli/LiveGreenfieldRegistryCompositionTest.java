@@ -2,6 +2,8 @@ package com.srk.codingagent.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.srk.codingagent.config.PermissionMode;
@@ -282,5 +284,48 @@ class LiveGreenfieldRegistryCompositionTest {
         ToolRegistryComposer composer = composer(workspace, storeRoot);
         org.junit.jupiter.api.Assertions.assertThrows(NullPointerException.class,
                 () -> composer.greenfieldSystemPrompt(null));
+    }
+
+    @Test
+    @DisplayName("DCR-2/D1: the composer exposes the distinct greenfield-budget model client the greenfield phase loops use (AgentLoopFactory wires it as ModelClient.forGreenfield)")
+    void composerExposesDistinctGreenfieldBudgetClient(@TempDir Path workspace,
+            @TempDir Path storeRoot) {
+        // Oracle: ADR-0012 § 2.1 — "The greenfield phases (C3) set an explicit budget" via
+        // inferenceConfig.maxTokens; AgentLoopFactory assembles each greenfield phase loop over a
+        // distinct ModelClient.forGreenfield (the budget-carrying wire path), separate from the
+        // uncapped one the brownfield/one-shot + sub-agent loops use. Built via the 13-arg
+        // constructor (the production path's shape), the composer must expose the greenfield-budget
+        // client distinctly from the uncapped one. The greenfield client carrying the actual 16384
+        // budget on the wire is pinned by GreenfieldWiringTest; here the wiring contract is that the
+        // composer keeps the two clients distinct.
+        ModelClient uncapped = new ModelClient(new UnusedBedrockClient());
+        ModelClient greenfield = ModelClient.forGreenfield(new UnusedBedrockClient());
+        ToolRegistryComposer composer = new ToolRegistryComposer(
+                uncapped, greenfield, config(), workspace,
+                EventLog.over(new StringWriter(), "parent"), new MemoryStore(storeRoot),
+                new SessionStore(storeRoot), GrantStore.forSession(LINEAGE), alwaysApprove(),
+                LINEAGE, LINEAGE, () -> TS, () -> CHILD_ID);
+
+        assertSame(greenfield, composer.greenfieldModelClient(),
+                "DCR-2: the greenfield phase loops are assembled over the greenfield-budget client");
+        assertSame(uncapped, composer.modelClient(),
+                "the brownfield/one-shot + sub-agent loops keep the uncapped client");
+        assertNotSame(composer.modelClient(), composer.greenfieldModelClient(),
+                "ADR-0012 § 2.1: the greenfield budget is greenfield-scoped — a distinct client from "
+                        + "the uncapped one");
+    }
+
+    @Test
+    @DisplayName("the convenience constructor (no separate greenfield client) falls back to the uncapped client for the greenfield path")
+    void convenienceConstructorFallsBackToUncappedGreenfieldClient(@TempDir Path workspace,
+            @TempDir Path storeRoot) {
+        // The 12-arg convenience constructor (used by tests that do not exercise the output-budget
+        // wiring) supplies no separate greenfield client, so the greenfield path falls back to the
+        // same uncapped client — backend default cap, the prior behaviour. Documents the fallback the
+        // overload's Javadoc names.
+        ToolRegistryComposer composer = composer(workspace, storeRoot);
+
+        assertSame(composer.modelClient(), composer.greenfieldModelClient(),
+                "the convenience constructor uses one client for both paths (no separate budget client)");
     }
 }

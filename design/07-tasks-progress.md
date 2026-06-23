@@ -1,53 +1,19 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: 87fd436
-total_resolved_count: 36
+last_updated_at_commit: pending
+total_resolved_count: 37
 
 last_resolved:
-  task: T-3.2-RD-D10
-  title: "Greenfield artifact persistence (DCR-1, Option A): driver authors each pre-approval phase deliverable in code from the phase END_TURN prose via GreenfieldArtifactStore.write(); write_artifact no longer the persistence path; approved earlier artifacts injected into later phase prompts; AC-1.4 design/-confinement preserved"
-  resolved_at: 2026-06-23
-  commit: 0f31b91
-  iterations: { task_builder: 1 }
-  dcrs_consumed: [DCR-1]
-
-in_flight:
   task: T-3.2-RD-D11
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-23T00:00:00+00:00
-  last_updated_at: 2026-06-23T00:00:00+00:00
+  title: "Greenfield multi-turn phase dialogue + approve-to-finalize (DCR-2): each pre-approval phase is a multi-turn conversation with in-phase transcript carry; approve = finalize (capture the converged deliverable at approval, persist via GreenfieldArtifactStore.write(), stamp AC-1.5, advance); non-approve = another refining turn (AC-2.4), not persist-and-stop; D1 fix inferenceConfig.maxTokens=16384 on the greenfield Converse request; DCR-1 driver-authored persistence + cross-phase injection + AC-1.4/2.5 preserved"
+  resolved_at: 2026-06-23
+  commit: pending
+  iterations: { task_builder: 1 }
+  dcrs_consumed: [DCR-2]
+
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-3.2-RD-D11
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
-  dcrs_consumed:
-    - DCR-2
-  amendment_commit: a9644b4
-  note: |
-    DCR-2 amended at a9644b4 (greenfield multi-turn phase dialogue + approve-to-finalize). Loop counters
-    reset; phase flipped to TASK_BUILDER. Re-running the single-agent task-builder against the amended spec
-    to implement: (1) each pre-approval greenfield phase as a MULTI-TURN conversation (in-phase transcript
-    carry); (2) approve = finalize — capture the converged deliverable at phase approval and persist via
-    GreenfieldArtifactStore.write() (DCR-1 path kept), stamp AC-1.5, advance; non-approve = another refining
-    turn (AC-2.4), not persist-and-stop; (3) D1 fix — inferenceConfig.maxTokens=16384 on the greenfield
-    Converse request. Follow-on code commit must reference a9644b4 (Spec amendment: a9644b4 (DCR-2)). Do NOT
-    proceed into M4 after resolution — stop and surface for the live G3 smoke test.
-  started_at: 2026-06-23T00:00:00+00:00
-  last_updated_at: 2026-06-23T00:00:00+00:00
 
 ## Milestone gates
 
@@ -438,3 +404,14 @@ in_flight:
 - amendments: DCR-1 (67b12b6)
 - label: regression-of-T-3.2 (5th attempt at greenfield artifact persistence — D6 approval, D7 prompt, D8 approval-contention, D9 schema all passed mocked tests but greenfield STILL failed live). FIRST DCR on this defect: after the D9 schema fix the live model STILL did not reliably emit write_artifact (it answered each pre-approval phase in prose and reached END_TURN with zero write_artifact tool_uses across the run), so the task-builder raised design-change-needed. USER APPROVED DCR-1 Option A (driver-authored deliverables); designer amended ADR-0012 / AC-1.2/1.4/2.1/2.5 / C3 / C7 / T-3.2 row (amendment commit 67b12b6); task re-run against the AMENDED spec. STOP at G3 before M4; the main agent re-runs the live G3 greenfield smoke test next to confirm with real driver-authored artifact content.
 - notes: >>> DCR-1 (Option A) re-implementation: greenfield phase-deliverable persistence is now DRIVER-AUTHORED in code, not dependent on a model write_artifact tool call. Phase A: GreenfieldDriver gained a third injected seam PhaseArtifactWriter (mirroring its existing PhaseLoopFactory + ApprovalGate two-seam shape; keeps the workflow package decoupled from the tool-package GreenfieldArtifactStore and keeps the driver unit-testable); ctor now (PhaseLoopFactory, PhaseArtifactWriter, ApprovalGate). On each pre-approval phase's END_TURN the driver authors the artifact from LoopOutcome.finalTextIfPresent() (the "settled output" the amended AC names) via the writer BEFORE consulting the gate, so the gate's AC-1.5 stamp + AC-2.5 traceability check read driver-written content. advancePrompt now appends approved earlier-phase artifact content (DCR-1 transcript continuity; driver accumulates approved content in an EnumMap keyed by GreenfieldArtifact). ToolRegistryComposer.greenfieldArtifactWriter() supplies the production writer over the GreenfieldArtifactStore; AgentLoopFactory threads the seam. GreenfieldPlaybook reframed: deliverable is the model's full final answer (driver persists it); write_artifact named as OPTIONAL not mandated (matches the amended C7 optional-tool contract). write_artifact / WriteArtifactTool / GreenfieldArtifactStore plumbing left registered (not removed). AC-1.4 preserved: driver write is design/-confined (store-enforced); source-write Class-X tools stay withheld from pre-approval loops. Phase B: the mock-stable contract test the prior fixes could not be — GreenfieldArtifactAuthoringTest.driverPersistsEachPhaseEndTurnProseWithoutAToolCall drives the real GreenfieldDriver + real PhaseArtifactWriter (real GreenfieldArtifactStore on @TempDir) + real ArtifactApprovalGate with phase loops that WRITE NOTHING (no scripted write_artifact tool_use), only returning per-phase deliverable prose as LoopOutcome.finalText; asserts each on-disk artifact contains the phase's END_TURN prose (driver authored it deterministically, no model tool call) + the AC-1.5 stamp. The four CLI-level tests that scripted a write_artifact tool_use as the persistence path (GreenfieldArtifactPersistenceTest, GreenfieldSharedStdinArtifactPersistenceTest, GreenfieldWriteArtifactSchemaPersistenceTest, GreenfieldArtifactCompositionTest) updated to reflect driver-authored persistence (write_artifact no longer the persistence contract; design/-confinement + tool-still-registered coverage retained). mvn clean verify GREEN (1019 tests, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met; GreenfieldDriver 98.0% line / 91.7% branch, GreenfieldPlaybook 100%/100%). Self-checks: oracle-traceability=passed (expected values trace to AC-1.2/2.1 persistence-of-END_TURN-content, AC-1.5 stamp, AC-2.5 traceability over written tasks artifact, AC-1.4 source-write withheld — never to impl behaviour), reuse=passed (new seam mirrors the driver's two-seam pattern). 0 Blocker / 0 Major / 1 Minor / 1 Nit / 0 Discussion. No AWS/Bedrock calls (driver-in-code persistence is unit-testable with scripted loop outcomes). G3 SMOKE-TEST NOTE for the main agent: re-run the live greenfield arc; with driver-authored persistence the artifacts MUST now contain the model's per-phase END_TURN deliverable prose (driver-written, no model tool call required) + the approval stamp, design/02-tasks.md created with AC-traced tasks, greenfield reaching tasks->implement — confirming the persistence is now driver-guaranteed rather than model-tool-dependent.
+
+## T-3.2-RD-D11 — Greenfield multi-turn phase dialogue + approve-to-finalize (DCR-2): each pre-approval phase is a multi-turn conversation; approve = finalize; D1 output-token-cap fix folded in
+- commit: pending
+- review: design/reviews/code/T-3.2-RD-D11-r1.md
+- resolved: 2026-06-23
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: [DCR-2]
+- amendments: DCR-2 (a9644b4)
+- label: regression-of-T-3.2 (6th attempt arc on the greenfield-phase deliverable). SECOND DCR on this surface. DCR-1 (driver-authored persistence) landed correctly — requirements/design/tasks wrote real content (3432/1720/2365 bytes live) — but the live G3 run AFTER DCR-1 proved a deeper, interaction-shape defect: each pre-approval phase ran as ONE model turn, so given a terse idea the requirements model correctly did AC-1.1 clarification and the single-turn driver captured the model's QUESTIONS as the artifact (design read questions->more questions; tasks honestly refused to fabricate; AC-2.5 correctly rejected 0 tasks — every component behaving correctly, the interaction shape wrong). USER APPROVED DCR-2 Option A (multi-turn phase dialogue + approve-to-finalize); designer amended ADR-0012 / AC-1.1/1.5/2.3/2.4/2.5 / C3 (02-arch § 1.2) / § 2.1 output-budget note / T-3.1-3.3 rows (amendment commit a9644b4); task re-run against the AMENDED spec. STOP at G3 before M4; the main agent re-runs the live G3 greenfield smoke test next (a real multi-turn requirements->design->tasks->implement flow, conversing then approving each phase) to confirm.
+- notes: >>> DCR-2 (Option A) re-implementation: greenfield pre-approval phases are now MULTI-TURN conversations with APPROVE = FINALIZE. Phase A: GreenfieldDriver.run drives each pre-approval phase as a multi-turn conversation (runPreApprovalPhase) — a 4th injected seam DeveloperTurnSource.nextTurn(GreenfieldPhase) supplies each developer round; the in-phase transcript is injected into each round's prompt (phaseTurnPrompt) so the model sees its own prior turns within the phase (fixes the in-phase discontinuity that made the single-turn shape capture questions, not a converged deliverable); the driver writes the latest deliverable to the artifact each round before the gate (required by InteractiveGreenfieldApproval's present-before-confirm + the tasks-gate AC-2.5 traceability read) and finalizes — AC-1.5 stamp + advance — ONLY on approval; a non-approve answer (including a refused approval, e.g. tasks-traceability failure) keeps the conversation going as another refining turn (the AC-2.4 revise path), NOT persist-and-stop; the session pauses AWAITING_APPROVAL only when the developer supplies no further turn (end-of-input, mirroring the REPL EOF-stop). The capture-and-persist TRIGGER moved from each phase's first END_TURN (DCR-1) to phase approval, so the CONVERGED deliverable is what's written. PRESERVED: DCR-1 driver-authored persistence via GreenfieldArtifactStore.write(); cross-phase approved-artifact injection; AC-1.4 source-write Class-X tools (write_file/edit_file/run_command) structurally withheld from the pre-approval phase loops across EVERY turn; AC-2.5 tasks-gate traceability over the driver-written tasks artifact; AC-1.5 stamp; AC-2.3 per-phase approval before implementation. D1 OUTPUT-TOKEN-CAP FIX folded in (user-directed, ADR-0012 § "Greenfield-phase output-token budget" + 02-arch § 2.1): ConverseWireMapper gained an optional maxOutputTokens (constructor overload + GREENFIELD_MAX_OUTPUT_TOKENS = 16384) that sets inferenceConfig.maxTokens on the built ConverseRequest when present; ModelClient.forGreenfield(bedrock) factory builds the 16K-capped mapper; ToolRegistryComposer.greenfieldModelClient() accessor + 13-arg ctor (12-arg retained, delegates) thread the greenfield-budget client; greenfield-scoped so the brownfield/one-shot path is unchanged (backend default cap). Phase B: deterministic unit tests WITHOUT live Bedrock — GreenfieldDriverTest (15) exercises multi-turn phase conversation state (in-phase transcript carry), non-approve -> another refining turn (no persist-and-stop), approve -> capture converged deliverable + persist via writer + stamp + advance, AWAITING_APPROVAL only on developer end-of-input; GreenfieldArtifactAuthoringTest (4) the converged-deliverable-at-approval persistence; GreenfieldRunnerTest (6) + GreenfieldWiringTest (4) the run-path + composition; ConverseWireMapperTest (33) the inferenceConfig.maxTokens=16384 regression (built ConverseRequest carries the cap on the greenfield path; absent on the uncapped path); LiveGreenfieldRegistryCompositionTest (+2) the output-budget composer wiring; the four cli greenfield-persistence tests updated for the multi-turn/approve-to-finalize contract. mvn clean verify GREEN (1032 tests, 0 failures/errors; JaCoCo BUNDLE line 91.81% >= 0.80 gate; GreenfieldDriver 98.8% line/95.8% branch, ConverseWireMapper 97.9%, ModelClient 100%, ToolRegistryComposer 95.5%). Self-checks: oracle-traceability=passed (expected values trace to the amended AC-1.1 multi-turn dialogue, AC-1.5 approve=finalize, AC-2.4 non-approve-keeps-going, AC-2.3 gating, AC-2.5 traceability over written tasks artifact, AC-1.4 source-withheld, ADR-0012 § output-budget 16384 — never to impl behaviour), reuse=passed (4th seam mirrors the driver's existing seam pattern; greenfield-capped mapper mirrors sibling ModelClient factories). 0 Blocker / 0 Major / 1 Minor / 1 Discussion (D1: spec says persist "on approval", impl writes the latest deliverable each round before the gate then finalizes the converged one at approval — a one-line AC-wording clarification candidate, not a defect; logged for user). No AWS/Bedrock calls (multi-turn driver + Converse-request build are unit-tested with scripted loops / builder-constructed SDK values). G3 SMOKE-TEST NOTE for the main agent: re-run the live greenfield arc as a REAL multi-turn flow — converse across several turns per phase (the model may ask AC-1.1 clarifying questions and refine), then APPROVE each phase; each approved phase's CONVERGED deliverable (not first-turn questions) should be written to its artifact + stamped, design/02-tasks.md should hold AC-traced tasks, and greenfield should reach tasks->implement. A large design/tasks deliverable should no longer truncate at MAX_TOKENS (16K cap). This is the interaction-shape fix the prior five attempts + DCR-1 did not address; the live multi-turn run is the proof.

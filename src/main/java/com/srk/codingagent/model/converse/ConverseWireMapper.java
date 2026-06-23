@@ -13,6 +13,7 @@ import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
+import software.amazon.awssdk.services.bedrockruntime.model.InferenceConfiguration;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
 import software.amazon.awssdk.services.bedrockruntime.model.ReasoningContentBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.ReasoningTextBlock;
@@ -78,8 +79,59 @@ import software.amazon.awssdk.services.bedrockruntime.model.ToolUseBlock;
  * cachePoint blocks remain out of scope (deferred to the tasks that need them — see the
  * handoff's {@code stated_assumptions}); the text, toolUse, toolResult, and reasoning
  * kinds are mapped.
+ *
+ * <p><b>Greenfield output-token budget (DCR-2 — D1 follow-on, ADR-0012; {@code 02-architecture.md}
+ * § 2.1).</b> The mapper optionally carries an output-token cap. When constructed with one
+ * ({@link #ConverseWireMapper(Integer)}), every {@link ConverseRequest} it builds sets
+ * {@code inferenceConfig.maxTokens} to that value, bounding the model's output so a large
+ * generation is not truncated at the Bedrock backend's default 4096 output-token cap (a live
+ * greenfield phase produced a full design/tasks deliverable and stopped at {@code MAX_TOKENS}).
+ * The greenfield phase path constructs the mapper with the configured budget
+ * ({@code 16384} tokens, {@link #GREENFIELD_MAX_OUTPUT_TOKENS}); the default no-arg constructor
+ * carries no cap (the backend default applies, the prior behaviour, unchanged for the
+ * brownfield/one-shot path). This is the <em>model's output cap</em>, distinct from
+ * {@code NFR-OUTPUT-MAX-INLINE} (tool-output disposal, a different axis).
  */
 public final class ConverseWireMapper {
+
+    /**
+     * The greenfield phase Converse request's output-token budget (DCR-2, ADR-0012
+     * "Greenfield-phase output-token budget"; {@code 02-architecture.md} § 2.1): {@code 16384}
+     * tokens (16K). Ample headroom for a full requirements/design/tasks markdown deliverable while
+     * staying well within the Claude Opus 4.x output ceiling, and small enough not to invite
+     * runaway generation. Set as {@code inferenceConfig.maxTokens} on the greenfield path so a
+     * large deliverable is not truncated at the backend's default 4096 cap.
+     */
+    public static final int GREENFIELD_MAX_OUTPUT_TOKENS = 16384;
+
+    private final Integer maxOutputTokens;
+
+    /**
+     * Creates a mapper that sets no {@code inferenceConfig.maxTokens} on the requests it builds, so
+     * the Bedrock backend applies its default output-token cap (the prior behaviour — used on the
+     * brownfield/one-shot path).
+     */
+    public ConverseWireMapper() {
+        this(null);
+    }
+
+    /**
+     * Creates a mapper that sets {@code inferenceConfig.maxTokens} to {@code maxOutputTokens} on
+     * every {@link ConverseRequest} it builds (DCR-2 — D1; the greenfield path uses
+     * {@link #GREENFIELD_MAX_OUTPUT_TOKENS}).
+     *
+     * @param maxOutputTokens the output-token cap to set on the request's {@code inferenceConfig},
+     *                        or {@code null} to set none (backend default applies). When non-null it
+     *                        must be positive.
+     * @throws IllegalArgumentException if {@code maxOutputTokens} is non-null and not positive.
+     */
+    public ConverseWireMapper(Integer maxOutputTokens) {
+        if (maxOutputTokens != null && maxOutputTokens <= 0) {
+            throw new IllegalArgumentException(
+                    "maxOutputTokens must be positive when set, was: " + maxOutputTokens);
+        }
+        this.maxOutputTokens = maxOutputTokens;
+    }
 
     /**
      * Builds a {@link ConverseRequest} from our domain transcript, enforcing the
@@ -96,7 +148,10 @@ public final class ConverseWireMapper {
      *                  {@code null}/empty for none.
      * @param toolConfig the tool configuration (rendered by the tool registry, T-0.6),
      *                   or {@code null} when no tools are offered.
-     * @return the assembled {@link ConverseRequest}.
+     * @return the assembled {@link ConverseRequest}, carrying
+     *         {@code inferenceConfig.maxTokens} when this mapper was constructed with an
+     *         output-token cap (DCR-2 — the greenfield path), otherwise no {@code inferenceConfig}
+     *         (the backend default output cap applies).
      * @throws NullPointerException     if {@code modelId} or {@code messages} is
      *                                  {@code null}.
      * @throws IllegalArgumentException if {@code modelId} is blank or {@code messages}
@@ -132,6 +187,15 @@ public final class ConverseWireMapper {
         }
         if (toolConfig != null) {
             builder.toolConfig(toolConfig);
+        }
+        if (maxOutputTokens != null) {
+            // DCR-2 (D1; 04-apis § 3 documents inferenceConfig as part of the request shape):
+            // bound the model's output so a large greenfield deliverable is not truncated at the
+            // backend's default 4096 cap. Unset (null) on the brownfield/one-shot path, so the
+            // backend default applies there as before.
+            builder.inferenceConfig(InferenceConfiguration.builder()
+                    .maxTokens(maxOutputTokens)
+                    .build());
         }
         return builder.build();
     }

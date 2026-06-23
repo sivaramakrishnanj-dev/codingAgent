@@ -1,6 +1,7 @@
 package com.srk.codingagent.workflow;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.srk.codingagent.config.PermissionMode;
@@ -26,6 +27,7 @@ import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
+import software.amazon.awssdk.services.bedrockruntime.model.InferenceConfiguration;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
 import software.amazon.awssdk.services.bedrockruntime.model.SystemContentBlock;
 
@@ -106,7 +108,17 @@ class GreenfieldWiringTest {
      * substituted.
      */
     private static AgentLoop loopFor(GreenfieldPhase phase, ScriptedBedrockClient bedrock) {
-        ModelClient modelClient = new ModelClient(bedrock);
+        return loopFor(phase, bedrock, new ModelClient(bedrock));
+    }
+
+    /**
+     * Builds a real {@link AgentLoop} for a phase over an explicit {@link ModelClient}, so a test
+     * can wire the greenfield-budget client ({@link ModelClient#forGreenfield}) the production
+     * factory uses for the greenfield phase loops (DCR-2 — D1) and assert the budget reaches the
+     * wire.
+     */
+    private static AgentLoop loopFor(
+            GreenfieldPhase phase, ScriptedBedrockClient bedrock, ModelClient modelClient) {
         PermissionGate gate = new PermissionGate(
                 PermissionMode.ASK_EVERY_TIME, GrantStore.forSession("greenfield"),
                 req -> PermissionDecisionOutcome.APPROVE);
@@ -140,6 +152,11 @@ class GreenfieldWiringTest {
         };
     }
 
+    /** No further developer turns (each phase runs a single round; DCR-2 multi-turn dialogue seam). */
+    private static GreenfieldDriver.DeveloperTurnSource noFurtherTurns() {
+        return phase -> null;
+    }
+
     @Test
     @DisplayName("the greenfield requirements-phase playbook reaches the model: requirements-before-source instructions are in the Converse system blocks")
     void requirementsPhasePlaybookReachesTheModel() {
@@ -152,7 +169,8 @@ class GreenfieldWiringTest {
         ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
                 .then(endTurn("Here are the requirements I gathered."));
         GreenfieldDriver.PhaseLoopFactory loops = phase -> loopFor(phase, bedrock)::run;
-        GreenfieldDriver driver = new GreenfieldDriver(loops, noopWriter(), completedPhase -> false);
+        GreenfieldDriver driver = new GreenfieldDriver(
+                loops, noopWriter(), completedPhase -> false, noFurtherTurns());
 
         driver.run("build me a URL shortener");
 
@@ -183,7 +201,8 @@ class GreenfieldWiringTest {
                 .then(endTurn("tasks done"))
                 .then(endTurn("implemented the first task"));
         GreenfieldDriver.PhaseLoopFactory loops = phase -> loopFor(phase, bedrock)::run;
-        GreenfieldDriver driver = new GreenfieldDriver(loops, noopWriter(), completedPhase -> true);
+        GreenfieldDriver driver = new GreenfieldDriver(
+                loops, noopWriter(), completedPhase -> true, noFurtherTurns());
 
         driver.run("build me a URL shortener");
 
@@ -209,7 +228,8 @@ class GreenfieldWiringTest {
         // captured system blocks name no source-change tool.
         ScriptedBedrockClient bedrock = new ScriptedBedrockClient().then(endTurn("requirements done"));
         GreenfieldDriver.PhaseLoopFactory loops = phase -> loopFor(phase, bedrock)::run;
-        GreenfieldDriver driver = new GreenfieldDriver(loops, noopWriter(), completedPhase -> false);
+        GreenfieldDriver driver = new GreenfieldDriver(
+                loops, noopWriter(), completedPhase -> false, noFurtherTurns());
 
         driver.run("build me a URL shortener");
 
@@ -218,5 +238,35 @@ class GreenfieldWiringTest {
                         && !systemText.contains("run_command"),
                 "AC-1.4: the requirements-phase prompt the model receives names no source-change tool; was: "
                         + systemText);
+    }
+
+    @Test
+    @DisplayName("DCR-2/D1: the greenfield phase Converse request (built over ModelClient.forGreenfield) carries inferenceConfig.maxTokens = 16384")
+    void greenfieldPhaseRequestCarriesOutputBudgetOnTheWire() {
+        // Oracle: ADR-0012 "Greenfield-phase output-token budget" + 02-architecture.md § 2.1 — the
+        // greenfield phases set an explicit inferenceConfig.maxTokens (16384) on the Converse request
+        // so a full deliverable is not truncated at the backend default 4096 cap. This pins the
+        // end-to-end greenfield path: a phase loop built over the greenfield-budget ModelClient (the
+        // one AgentLoopFactory wires for the greenfield phase loops, ModelClient.forGreenfield) must
+        // send maxTokens on the actual captured Converse request. The expected value (16384) traces
+        // to the ADR's chosen value, not to impl. Drive the requirements phase (declined gate, one
+        // phase runs) and assert the captured request's inferenceConfig.maxTokens.
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient().then(endTurn("requirements done"));
+        ModelClient greenfieldClient = ModelClient.forGreenfield(bedrock);
+        GreenfieldDriver.PhaseLoopFactory loops =
+                phase -> loopFor(phase, bedrock, greenfieldClient)::run;
+        GreenfieldDriver driver = new GreenfieldDriver(
+                loops, noopWriter(), completedPhase -> false, noFurtherTurns());
+
+        driver.run("build me a URL shortener");
+
+        ConverseRequest sent = bedrock.requests.get(0);
+        InferenceConfiguration inference = sent.inferenceConfig();
+        assertNotNull(inference,
+                "DCR-2/§ 2.1: the greenfield phase Converse request must carry an inferenceConfig "
+                        + "bounding the model's output");
+        assertEquals(16384, inference.maxTokens(),
+                "ADR-0012 § 2.1: the greenfield phase request sets inferenceConfig.maxTokens = 16384 "
+                        + "(16K) so a large deliverable is not truncated at the default 4096 cap");
     }
 }

@@ -148,8 +148,12 @@ class LiveGreenfieldApprovalReachabilityTest {
         GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
         AuthoringPhaseLoops loops = new AuthoringPhaseLoops()
                 .authors(GreenfieldPhase.TASKS, "# Tasks\n- T-1 build (AC-1.2)\n");
+        // DCR-2: the SAME shared stdin feeds the approval gate AND the multi-turn dialogue's
+        // developer-turn source (the production wiring). With 'y' at each gate, every phase approves
+        // on its first round, so no refining turn is read.
+        Supplier<String> stdin = answers("y", "y", "y");
         GreenfieldDriver driver = new GreenfieldDriver(
-                loops, writerOver(store), liveApprovalGate(answers("y", "y", "y"), store));
+                loops, writerOver(store), liveApprovalGate(stdin, store), phase -> stdin.get());
 
         GreenfieldOutcome outcome = driver.run(REQUEST);
 
@@ -174,13 +178,17 @@ class LiveGreenfieldApprovalReachabilityTest {
         // gate records NO approval timestamp (no source is written).
         GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
         AuthoringPhaseLoops loops = new AuthoringPhaseLoops();
+        // DCR-2: the shared stdin holds a single 'n' and then end-of-input. Round 1: the gate reads
+        // 'n' and declines; the driver then tries another refining turn (AC-2.4) but the developer
+        // supplies none (the shared stdin is exhausted) — so the phase pauses awaiting approval.
+        Supplier<String> stdin = answers("n");
         GreenfieldDriver driver = new GreenfieldDriver(
-                loops, writerOver(store), liveApprovalGate(answers("n"), store));
+                loops, writerOver(store), liveApprovalGate(stdin, store), phase -> stdin.get());
 
         GreenfieldOutcome outcome = driver.run(REQUEST);
 
         assertEquals(GreenfieldOutcome.Disposition.AWAITING_APPROVAL, outcome.disposition(),
-                "AC-2.3: a 'no' on stdin pauses the session awaiting approval at the gate");
+                "AC-2.3: a 'no' on stdin then end-of-input pauses the session awaiting approval");
         assertEquals(GreenfieldPhase.REQUIREMENTS, outcome.phase(),
                 "the session pauses at the requirements gate the developer declined");
         assertFalse(loops.phasesRun.contains(GreenfieldPhase.IMPLEMENT),
@@ -198,8 +206,12 @@ class LiveGreenfieldApprovalReachabilityTest {
         // gate, mirroring NonInteractiveApprover's fail-closed stance.
         GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
         AuthoringPhaseLoops loops = new AuthoringPhaseLoops();
+        // DCR-2: the shared stdin is at end-of-input. Round 1: the gate reads null (fail-closed
+        // decline); the driver then has no further developer turn (null), so the phase pauses
+        // awaiting approval without advancing.
+        Supplier<String> stdin = () -> null;
         GreenfieldDriver driver = new GreenfieldDriver(
-                loops, writerOver(store), liveApprovalGate(() -> null, store));
+                loops, writerOver(store), liveApprovalGate(stdin, store), phase -> stdin.get());
 
         GreenfieldOutcome outcome = driver.run(REQUEST);
 
@@ -222,8 +234,12 @@ class LiveGreenfieldApprovalReachabilityTest {
         GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
         AuthoringPhaseLoops loops = new AuthoringPhaseLoops()
                 .authors(GreenfieldPhase.TASKS, "# Tasks\n- T-1 build (AC-1.2)\n");
+        // DCR-2: shared stdin approves requirements + design ('y','y') then declines tasks ('n') and
+        // is exhausted. Tasks round 1: the gate reads 'n' and declines; the driver has no further
+        // tasks turn, so the phase pauses awaiting approval at the tasks gate.
+        Supplier<String> stdin = answers("y", "y", "n");
         GreenfieldDriver driver = new GreenfieldDriver(
-                loops, writerOver(store), liveApprovalGate(answers("y", "y", "n"), store));
+                loops, writerOver(store), liveApprovalGate(stdin, store), phase -> stdin.get());
 
         GreenfieldOutcome outcome = driver.run(REQUEST);
 

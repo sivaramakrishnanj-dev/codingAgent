@@ -22,6 +22,7 @@ import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
+import software.amazon.awssdk.services.bedrockruntime.model.InferenceConfiguration;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
 import software.amazon.awssdk.services.bedrockruntime.model.ReasoningContentBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.ReasoningTextBlock;
@@ -323,6 +324,93 @@ class ConverseWireMapperTest {
                     () -> mapper.toRequest("  ",
                             List.of(ConverseMessage.user(List.of(ContentBlock.text("hi")))),
                             null, null));
+        }
+    }
+
+    @Nested
+    @DisplayName("DCR-2 — inferenceConfig.maxTokens output budget (ADR-0012 § 2.1, D1)")
+    class OutputBudget {
+
+        private static final List<ConverseMessage> ONE_MESSAGE =
+                List.of(ConverseMessage.user(List.of(ContentBlock.text("draft the requirements"))));
+
+        @Test
+        @DisplayName("DCR-2/D1: a mapper built with the greenfield budget carries inferenceConfig.maxTokens = 16384 on the request")
+        void greenfieldBudgetMapperSetsMaxTokens() {
+            // Oracle: ADR-0012 "Greenfield-phase output-token budget" + 02-architecture.md § 2.1 —
+            // "The greenfield phases (C3) set an explicit budget of 16384 tokens (16K)" via
+            // inferenceConfig.maxTokens on the Converse request. The expected value (16384) traces
+            // to the ADR's chosen value, not to impl. Build a request with the greenfield-budget
+            // mapper and assert the request carries that maxTokens.
+            ConverseWireMapper greenfield =
+                    new ConverseWireMapper(ConverseWireMapper.GREENFIELD_MAX_OUTPUT_TOKENS);
+
+            ConverseRequest request = greenfield.toRequest(MODEL_ID, ONE_MESSAGE, null, null);
+
+            InferenceConfiguration inference = request.inferenceConfig();
+            assertNotNull(inference,
+                    "DCR-2: the greenfield request must carry an inferenceConfig bounding the output");
+            assertEquals(16384, inference.maxTokens(),
+                    "ADR-0012 § 2.1: the greenfield output budget is 16384 tokens (16K), set as "
+                            + "inferenceConfig.maxTokens so a large deliverable is not truncated at the "
+                            + "backend default 4096 cap");
+        }
+
+        @Test
+        @DisplayName("DCR-2/D1: the published greenfield budget constant is 16384 (16K), the ADR-0012 § 2.1 chosen value")
+        void greenfieldBudgetConstantIsSixteenK() {
+            // Oracle: ADR-0012 "Chosen value: 16384 tokens (16K)" / 02-architecture.md § 2.1. The
+            // public constant the greenfield path threads must be exactly the ADR's chosen value.
+            assertEquals(16384, ConverseWireMapper.GREENFIELD_MAX_OUTPUT_TOKENS,
+                    "ADR-0012 § 2.1: the greenfield output-token budget is 16384 (16K)");
+        }
+
+        @Test
+        @DisplayName("the default (no-arg) mapper sets no inferenceConfig (backend default cap applies — the brownfield/one-shot path)")
+        void defaultMapperSetsNoInferenceConfig() {
+            // Oracle: 02-architecture.md § 2.1 — only "the greenfield phases (C3) set an explicit
+            // budget"; the brownfield/one-shot path is unchanged (no inferenceConfig, so the backend
+            // default output cap applies as before). The no-arg mapper must therefore set none.
+            ConverseRequest request = mapper.toRequest(MODEL_ID, ONE_MESSAGE, null, null);
+
+            assertNull(request.inferenceConfig(),
+                    "§ 2.1: the non-greenfield path sets no inferenceConfig (the backend default cap "
+                            + "applies, the prior behaviour)");
+        }
+
+        @Test
+        @DisplayName("the greenfield budget is carried alongside system + toolConfig (the full greenfield request shape)")
+        void budgetCarriedAlongsideSystemAndToolConfig() {
+            // Oracle: 04-apis § 3 / § 6.A.1 — the request shape carries modelId, messages, system,
+            // toolConfig, AND inferenceConfig. Setting the output budget must not drop the other
+            // request members; assert all coexist on the greenfield request.
+            ConverseWireMapper greenfield =
+                    new ConverseWireMapper(ConverseWireMapper.GREENFIELD_MAX_OUTPUT_TOKENS);
+            ToolConfiguration toolConfig = ToolConfiguration.builder()
+                    .tools(Tool.fromToolSpec(ToolSpecification.builder()
+                            .name("read_file")
+                            .inputSchema(s -> s.json(Document.mapBuilder().build()))
+                            .build()))
+                    .build();
+
+            ConverseRequest request = greenfield.toRequest(
+                    MODEL_ID, ONE_MESSAGE, List.of("greenfield requirements playbook"), toolConfig);
+
+            assertEquals(16384, request.inferenceConfig().maxTokens(),
+                    "the greenfield output budget is set");
+            assertTrue(request.hasSystem() && !request.system().isEmpty(),
+                    "the system blocks are still carried");
+            assertSame(toolConfig, request.toolConfig(),
+                    "the toolConfig is still carried");
+        }
+
+        @Test
+        @DisplayName("a non-positive output-token cap is rejected at construction")
+        void rejectsNonPositiveCap() {
+            // A budget must be a positive token count to be meaningful; a zero/negative cap is a
+            // construction error (defensive — the production value is the positive 16K constant).
+            assertThrows(IllegalArgumentException.class, () -> new ConverseWireMapper(0));
+            assertThrows(IllegalArgumentException.class, () -> new ConverseWireMapper(-1));
         }
     }
 

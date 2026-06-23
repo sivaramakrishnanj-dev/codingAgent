@@ -93,6 +93,7 @@ import java.util.function.Supplier;
 final class ToolRegistryComposer {
 
     private final ModelClient modelClient;
+    private final ModelClient greenfieldModelClient;
     private final ResolvedConfig config;
     private final Path workspaceRoot;
     private final EventLog log;
@@ -113,7 +114,9 @@ final class ToolRegistryComposer {
      *
      * @param modelClient     the Converse adapter the child sub-agent loop reuses (the SAME wire
      *                        path the parent uses — D2-safe by construction); must not be
-     *                        {@code null}.
+     *                        {@code null}. The greenfield phase loops fall back to this same
+     *                        (uncapped) client; the production path uses the overload that supplies
+     *                        a distinct greenfield-budget client (DCR-2 — D1).
      * @param config          the resolved configuration (model id, command timeout, subAgentMax,
      *                        inline cap, permission mode); must not be {@code null}.
      * @param workspaceRoot   the repository directory the file/search/run tools are rooted at
@@ -156,7 +159,56 @@ final class ToolRegistryComposer {
             String originSession,
             Supplier<String> clock,
             Supplier<String> childSessionIds) {
+        // Default: no separate greenfield-budget client — the greenfield phase loops fall back to
+        // the same (uncapped) wire path. The production path (AgentLoopFactory) uses the overload
+        // that supplies a greenfield-budget client (inferenceConfig.maxTokens = 16384, DCR-2 — D1).
+        this(modelClient, modelClient, config, workspaceRoot, log, memoryStore, sessionStore,
+                parentGrants, approver, repoKey, originSession, clock, childSessionIds);
+    }
+
+    /**
+     * Creates a composer with a distinct greenfield-budget {@link ModelClient} for the greenfield
+     * phase loops (DCR-2 — D1, ADR-0012 § 2.1). Used by {@link AgentLoopFactory}; the convenience
+     * constructor (no separate greenfield client) is used by tests that do not exercise the
+     * output-budget wiring.
+     *
+     * @param modelClient           the uncapped Converse adapter (brownfield/one-shot + sub-agent
+     *                              wire path); must not be {@code null}.
+     * @param greenfieldModelClient the greenfield-budget Converse adapter (the greenfield phase
+     *                              loops' wire path, {@code inferenceConfig.maxTokens = 16384});
+     *                              must not be {@code null}.
+     * @param config                the resolved configuration; must not be {@code null}.
+     * @param workspaceRoot         the repository directory the tools are rooted at; must not be
+     *                              {@code null}.
+     * @param log                   the open session event log; must not be {@code null}.
+     * @param memoryStore           the two-tier memory store; must not be {@code null}.
+     * @param sessionStore          the session store; must not be {@code null}.
+     * @param parentGrants          the parent grant store; must not be {@code null}.
+     * @param approver              the approval seam; must not be {@code null}.
+     * @param repoKey               the repository key; non-blank.
+     * @param originSession         the provenance origin session; non-blank.
+     * @param clock                 the boundary clock; must not be {@code null}.
+     * @param childSessionIds       the child-session-id source; must not be {@code null}.
+     * @throws NullPointerException     if a required reference argument is {@code null}.
+     * @throws IllegalArgumentException if {@code repoKey} or {@code originSession} is blank.
+     */
+    ToolRegistryComposer(
+            ModelClient modelClient,
+            ModelClient greenfieldModelClient,
+            ResolvedConfig config,
+            Path workspaceRoot,
+            EventLog log,
+            MemoryStore memoryStore,
+            SessionStore sessionStore,
+            GrantStore parentGrants,
+            Approver approver,
+            String repoKey,
+            String originSession,
+            Supplier<String> clock,
+            Supplier<String> childSessionIds) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient");
+        this.greenfieldModelClient =
+                Objects.requireNonNull(greenfieldModelClient, "greenfieldModelClient");
         this.config = Objects.requireNonNull(config, "config");
         this.workspaceRoot = Objects.requireNonNull(workspaceRoot, "workspaceRoot");
         this.log = Objects.requireNonNull(log, "log");
@@ -180,6 +232,20 @@ final class ToolRegistryComposer {
      */
     ModelClient modelClient() {
         return modelClient;
+    }
+
+    /**
+     * The greenfield-budget {@link ModelClient} the composer was built over (DCR-2 — D1, ADR-0012
+     * § 2.1): the same Bedrock wire path as {@link #modelClient()}, but its requests carry
+     * {@code inferenceConfig.maxTokens = 16384} so a full greenfield phase deliverable is not
+     * truncated at the backend's default 4096 output cap. Exposed so {@link AgentLoopFactory}
+     * assembles each greenfield phase loop over it (the brownfield/one-shot loops keep the uncapped
+     * {@link #modelClient()}).
+     *
+     * @return the greenfield-budget model client; never {@code null}.
+     */
+    ModelClient greenfieldModelClient() {
+        return greenfieldModelClient;
     }
 
     /**

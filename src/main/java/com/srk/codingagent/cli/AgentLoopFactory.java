@@ -149,8 +149,8 @@ public final class AgentLoopFactory {
         ToolRegistryComposer composer = composer(config, workspaceRoot, log, approver, sessions,
                 sessionLineage);
         ToolRegistry tools = composer.parentRegistry();
-        return assembleLoop(composer, config, log, sessionLineage, approver, sessions, tools,
-                composer.parentSystemPrompt());
+        return assembleLoop(composer, composer.modelClient(), config, log, sessionLineage, approver,
+                sessions, tools, composer.parentSystemPrompt());
     }
 
     /**
@@ -218,30 +218,37 @@ public final class AgentLoopFactory {
      *                       {@code null}.
      * @param sessions       the session store the sub-agent orchestrator opens child logs from; must
      *                       not be {@code null}.
-     * @param decision       the per-phase developer approval decision the timestamped gate wraps (an
+     * @param decision       the per-round developer approval decision the timestamped gate wraps (an
      *                       interactive prompt in the REPL, a deny-all in one-shot); must not be
      *                       {@code null}.
-     * @return a fully-wired greenfield driver over its two seams; never {@code null}.
+     * @param turnSource     the per-turn developer-input source for the multi-turn phase dialogue
+     *                       (DCR-2): the REPL's input supplier in the interactive path (the developer
+     *                       types each refining turn), or an end-of-input source in one-shot (no
+     *                       terminal — the phase pauses awaiting approval after its first turn); must
+     *                       not be {@code null}.
+     * @return a fully-wired greenfield driver over its four seams; never {@code null}.
      * @throws NullPointerException if a required argument is {@code null}.
      * @throws com.srk.codingagent.model.credentials.CredentialResolutionException if no usable SigV4
      *         credentials can be resolved (AC-8.9 → exit 4).
      */
     public GreenfieldDriver createGreenfieldDriver(
             ResolvedConfig config, Path workspaceRoot, String sessionLineage, EventLog log,
-            Approver approver, SessionStore sessions, ArtifactApprovalGate.ApprovalDecision decision) {
+            Approver approver, SessionStore sessions, ArtifactApprovalGate.ApprovalDecision decision,
+            GreenfieldDriver.DeveloperTurnSource turnSource) {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(workspaceRoot, "workspaceRoot");
         Objects.requireNonNull(log, "log");
         Objects.requireNonNull(approver, "approver");
         Objects.requireNonNull(sessions, "sessions");
         Objects.requireNonNull(decision, "decision");
+        Objects.requireNonNull(turnSource, "turnSource");
 
         ToolRegistryComposer composer = composer(config, workspaceRoot, log, approver, sessions,
                 sessionLineage);
         GreenfieldDriver.PhaseLoopFactory phaseLoops =
                 phaseLoopFactory(composer, config, log, sessionLineage, approver, sessions);
         return new GreenfieldDriver(phaseLoops, composer.greenfieldArtifactWriter(),
-                composer.greenfieldApprovalGate(decision));
+                composer.greenfieldApprovalGate(decision), turnSource);
     }
 
     /**
@@ -265,8 +272,10 @@ public final class AgentLoopFactory {
             SessionStore sessions) {
         return phase -> {
             ToolRegistry tools = composer.greenfieldRegistry(phase);
-            AgentLoop loop = assembleLoop(composer, config, log, sessionLineage, approver, sessions,
-                    tools, composer.greenfieldSystemPrompt(phase));
+            // DCR-2 (D1): the greenfield phase loops use the greenfield-budget ModelClient
+            // (inferenceConfig.maxTokens = 16384) so a large deliverable is not truncated.
+            AgentLoop loop = assembleLoop(composer, composer.greenfieldModelClient(), config, log,
+                    sessionLineage, approver, sessions, tools, composer.greenfieldSystemPrompt(phase));
             if (phase.isTerminal()) {
                 // AC-3.1/3.2/3.3/3.4: the IMPLEMENT phase's turn is the implement-one-task-at-a-time
                 // loop, which drives each task's implementation through the full-toolset loop and
@@ -294,13 +303,19 @@ public final class AgentLoopFactory {
         BedrockCredentials credentials = credentialResolver.resolve(config.awsProfile());
         BedrockRuntimeClient bedrock = clientFactory.create(credentials, config.region());
         ModelClient modelClient = new ModelClient(bedrock);
+        // DCR-2 (D1, ADR-0012 § 2.1): the greenfield phase loops use a ModelClient over the SAME
+        // Bedrock wire path whose requests carry inferenceConfig.maxTokens = 16384, so a full
+        // requirements/design/tasks deliverable is not truncated at the backend's default 4096
+        // output cap. The brownfield/one-shot loops keep the uncapped client.
+        ModelClient greenfieldModelClient = ModelClient.forGreenfield(bedrock);
         GrantStore parentGrants = GrantStore.forSession(sessionLineage);
         MemoryStore memoryStore = MemoryStore.forUserHome();
         Supplier<String> clock = () -> Instant.now().toString();
         Supplier<String> childSessionIds = () -> UUID.randomUUID().toString();
         return new ToolRegistryComposer(
-                modelClient, config, workspaceRoot, log, memoryStore, sessions,
-                parentGrants, approver, sessionLineage, sessionLineage, clock, childSessionIds);
+                modelClient, greenfieldModelClient, config, workspaceRoot, log, memoryStore,
+                sessions, parentGrants, approver, sessionLineage, sessionLineage, clock,
+                childSessionIds);
     }
 
     /**
@@ -311,14 +326,15 @@ public final class AgentLoopFactory {
      * full registry + brownfield playbook vs. greenfield's phase-scoped registry + per-phase
      * greenfield playbook).
      */
-    private AgentLoop assembleLoop(ToolRegistryComposer composer, ResolvedConfig config,
-            EventLog log, String sessionLineage, Approver approver, SessionStore sessions,
-            ToolRegistry tools, List<String> systemPrompt) {
+    private AgentLoop assembleLoop(ToolRegistryComposer composer, ModelClient modelClient,
+            ResolvedConfig config, EventLog log, String sessionLineage, Approver approver,
+            SessionStore sessions, ToolRegistry tools, List<String> systemPrompt) {
         // Reuse the composer's shared collaborators so the gate shares the orchestrator's grant
         // store (INV-10), the compaction harvest shares the tool registry's memory store (AC-18.5),
-        // every loop runs over the same ModelClient wire path (D2-safe), and every event draws its
-        // timestamp from the one boundary clock (ADR-0005).
-        ModelClient modelClient = composer.modelClient();
+        // and every event draws its timestamp from the one boundary clock (ADR-0005). The passed
+        // modelClient is the uncapped one for brownfield/one-shot loops and the greenfield-budget
+        // one (inferenceConfig.maxTokens = 16384, DCR-2 — D1) for greenfield phase loops; both run
+        // over the SAME Bedrock wire path (D2-safe).
         GrantStore parentGrants = composer.parentGrants();
         MemoryStore memoryStore = composer.memoryStore();
         Supplier<String> clock = composer.clock();

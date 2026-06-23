@@ -247,9 +247,13 @@ public final class Main {
      */
     private static OneShotRunner.OneShotLoop oneShotGreenfield(ResolvedConfig config,
             Path workspaceRoot, EventLog log, SessionStore sessions) {
+        // DCR-2: a one-shot run has no terminal to supply refining turns, so the developer-turn
+        // source is empty (end-of-input): the requirements phase runs its single opening turn and
+        // pauses awaiting approval (AC-2.3) without writing source (AC-1.4). The approval decision is
+        // likewise deny-all (no terminal to approve), the safe non-interactive stance.
         GreenfieldDriver driver = new AgentLoopFactory().createGreenfieldDriver(
                 config, workspaceRoot, ONE_SHOT_LINEAGE, log, new NonInteractiveApprover(),
-                sessions, completedPhase -> false);
+                sessions, completedPhase -> false, phase -> null);
         GreenfieldRunner greenfield = new GreenfieldRunner(driver);
         return greenfield::run;
     }
@@ -358,8 +362,14 @@ public final class Main {
             Supplier<String> answerSource) {
         ArtifactApprovalGate.ApprovalDecision decision = new InteractiveGreenfieldApproval(
                 answerSource, System.out, new GreenfieldArtifactStore(workspaceRoot));
+        // DCR-2 multi-turn dialogue: the per-turn developer-input source is the SAME REPL supplier
+        // the approval decision and the read-eval loop read — the developer types each refining turn
+        // at the same prompt. A non-approve answer keeps the phase conversation going (the driver
+        // reads the next refining turn here); end-of-input pauses the phase awaiting approval.
+        GreenfieldDriver.DeveloperTurnSource turnSource = phase -> answerSource.get();
         GreenfieldDriver driver = new AgentLoopFactory().createGreenfieldDriver(
-                config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver, sessions, decision);
+                config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver, sessions, decision,
+                turnSource);
         GreenfieldRunner greenfield = new GreenfieldRunner(driver);
         return greenfield::run;
     }
