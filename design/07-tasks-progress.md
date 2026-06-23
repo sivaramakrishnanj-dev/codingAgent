@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: b078aab
+last_updated_at_commit: pending
 total_resolved_count: 25
 
 last_resolved:
@@ -12,8 +12,41 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-2.2-RD-D3
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-23T09:10:00-07:00
+  last_updated_at: 2026-06-23T09:10:00-07:00
 ---
+
+## In-flight
+
+- task: T-2.2-RD-D3
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  open_action_items_for_implementer: []
+  open_action_items_for_tester: []
+  files_in_working_tree: []
+  dcrs_consumed: []
+  started_at: 2026-06-23T09:10:00-07:00
+  last_updated_at: 2026-06-23T09:10:00-07:00
+  notes: >
+    Regression-of-T-2.2 (D3): live-only defect found by the G2 real-Bedrock smoke
+    test. Compactor.summarize() passes null toolConfig on the summarizer Converse
+    call; Bedrock rejects a transcript containing toolUse/toolResult blocks with no
+    toolConfig (ValidationException "The toolConfig field must be defined when using
+    toolUse and toolResult content blocks."). User-chosen fix: thread the session's
+    ToolConfiguration into the Compactor and pass it instead of null. Same class as
+    D1/D2 (passed the mocked Bedrock, broke live). Single-agent task-builder.
 
 ## Milestone gates
 
