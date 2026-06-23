@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: pending
+last_updated_at_commit: 6661698
 total_resolved_count: 30
 
 last_resolved:
   task: T-3.2
   title: "Artifact authoring: requirements/design/tasks markdown into the target repo, approval timestamps"
   resolved_at: 2026-06-23
-  commit: pending
+  commit: 6661698
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -335,7 +335,7 @@ in_flight: null
 - notes: Greenfield is now a workflow driver (C3) over the shared engine, reachable from the live CLI the same way brownfield is. Built: (1) GreenfieldPhase — the requirements->design->tasks->implement phase state machine (initial/isPreApproval/isTerminal/next), with requirements + design pre-approval (no source write) and tasks/implement post-approval; (2) GreenfieldDriver — runs each phase as an agent-loop turn (PhaseLoopFactory.loopFor(phase)), gating each advance on an ApprovalGate.approveAdvance(phase) (AC-2.3 — implementation begins only after approval); a denied advance returns awaitingApproval and stops without writing source (AC-1.3/AC-1.4); (3) GreenfieldPlaybook.systemPrompt(phase) — per-phase system-prompt blocks (the greenfield priming) that REACH the model (asserted by GreenfieldWiringTest over a real AgentLoop + scripted Bedrock double); (4) GreenfieldRunner — adapts GreenfieldOutcome -> LoopOutcome so the existing run-path exit-code mapping is unchanged; (5) GreenfieldOutcome (completed/awaitingApproval/turnSurfaced). LIVE WIRING (front-runs the G0/G1/G2 "built-but-not-wired" defect class): CliArguments now parses --mode greenfield (CliArguments.mode() -> SessionMode), Main dispatches the greenfield mode to the greenfield runner over the same AgentLoop, and AgentLoopFactory.createGreenfieldPhaseLoopFactory(...) is the live composition seam — but the testable composition-root logic (phase-scoped tool registry + per-phase greenfield prompt) lives in the GATE-COVERED ToolRegistryComposer.greenfieldRegistry(phase)/greenfieldSystemPrompt(phase), NOT in the JaCoCo-excluded AgentLoopFactory/Main, per the T-2.7/T-2.4-D5 discipline. AC-1.4 ENFORCED STRUCTURALLY: a pre-approval phase's tool registry WITHHOLDS the Class-X source tools (write_file/edit_file/run_command) so a source write is impossible (absent from toolConfig), not merely gate-denied — pinned by LiveGreenfieldRegistryCompositionTest. PHASE-GATING CT (closes the §6 contract-tests.md Phase-4 gap for greenfield-workflow phase-gating, ADR-0012): GreenfieldDriverTest asserts the phase machine advances only on approval, stops awaiting approval otherwise (AC-2.3), and never writes source before approval (AC-1.3/AC-1.4); oracles trace to ADR-0012 + AC-1.1/1.3/2.3 + AC-1.4, never to impl behaviour. greenfieldSystemPrompt reuses the SAME renderMemoryIndexBlock + MemoryStore.loadIndexes path parentSystemPrompt uses (greenfield inherits the always-loaded memory index for free, ADR-0007). mvn clean verify green (905 tests, +53 from 852; JaCoCo BUNDLE line 91.45% >= 0.80 gate; workflow package 98.94%; the 5 greenfield workflow classes 100% line+branch). Self-checks: oracle-traceability=passed, reuse=passed (modeled on BrownfieldDriver/Playbook/Runner seams; reused AgentLoop/ToolRegistryComposer/MemoryStore.loadIndexes; no parallel composer). 0 Blocker/0 Major/0 Minor/1 Nit/0 Discussion. STATED ASSUMPTION (sound, within scope): a one-shot (non-interactive) greenfield run has no developer terminal to approve a phase advance, so the wired approval gate denies every advance — the session shapes requirements (AC-1.1) and STOPS at the first approval gate awaiting approval (AC-2.3) without writing source (AC-1.4), the safe non-interactive stance mirroring NonInteractiveApprover. The real per-phase INTERACTIVE timestamped approval prompt (AC-1.5) is T-3.2, explicitly OOS for T-3.1; alternative (auto-approve every advance) rejected as it would write source unapproved. G3 SMOKE-TEST NOTE for the main agent: `codingagent --mode greenfield -p "<tiny new-project idea>"` (or the wired greenfield invocation) should begin the requirements-gathering dialogue with the greenfield system prompt reaching the model and NOT write source pre-approval (AC-1.1/AC-1.4); the artifact authoring + interactive timestamped approvals (T-3.2) and the one-task-at-a-time implement-and-verify loop (T-3.3) land before the full idea->requirements->design->tasks->implement G3 criterion is exercisable end-to-end.
 
 ## T-3.2 — Artifact authoring: requirements/design/tasks markdown into the target repo, approval timestamps
-- commit: pending
+- commit: 6661698
 - review: design/reviews/code/T-3.2-r1.md
 - resolved: 2026-06-23
 - context_mode: narrow
