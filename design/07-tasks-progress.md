@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: 6b4f736
+last_updated_at_commit: pending
 total_resolved_count: 33
 
 last_resolved:
@@ -12,8 +12,52 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-3.2-RD-D8
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-23T10:00:00+05:30
+  last_updated_at: 2026-06-23T10:00:00+05:30
 ---
+
+## In-flight
+
+- task: T-3.2-RD-D8
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  open_action_items_for_implementer: []
+  open_action_items_for_tester: []
+  files_in_working_tree: []
+  dcrs_consumed: []
+  started_at: 2026-06-23T10:00:00+05:30
+  last_updated_at: 2026-06-23T10:00:00+05:30
+  note: |
+    Regression-of-T-3.2 (single-agent). D8: live greenfield REPL run still does not land
+    requirements-artifact CONTENT on disk after the D7 prompt fix. Coordinator investigation
+    (code read, no live call) confirms hypothesis (b): in Main.runInteractive the ONE shared
+    stdin answerSource feeds THREE consumers — ReplRunner.lineSource, the InteractiveApprover
+    (permission-gate y/N), and the InteractiveGreenfieldApproval (phase y/N). write_artifact is
+    Class X (SIDE_EFFECTING); the pre-approval registry (ToolRegistryComposer.preApprovalRegistry)
+    offers it; the gate runs in ASK_EVERY_TIME (RD-3 default) so PermissionGate.evaluate routes
+    write_artifact to InteractiveApprover.confirm, which consumes a stdin line. With only one 'y'
+    fed (for the phase gate), the write_artifact gate prompt got a non-affirmative/EOF answer →
+    DENIED → content never written; the single 'y' then approved the phase → ArtifactApprovalGate
+    appended only the stamp. The existing D7 test (GreenfieldArtifactPersistenceTest) used an
+    always-approve Approver, so it never exercised the InteractiveApprover stdin path that broke.
+    Fix per directive: treat the design/-confined write_artifact as the sanctioned pre-approval
+    action (auto-approved / not separately prompted within greenfield pre-approval phases), while
+    KEEPING source-write tools (write_file/edit_file/run_command) withheld so AC-1.4 holds
+    structurally. Preserve AC-2.3 phase gate, AC-1.5 timestamp, AC-2.5 traceability, AC-9.4 for
+    real source-write Class X. Add a test over the PRODUCTION approval wiring (shared stdin,
+    ASK_EVERY_TIME) asserting the artifact CONTAINS deliverable content then the stamp.
 
 ## Milestone gates
 
