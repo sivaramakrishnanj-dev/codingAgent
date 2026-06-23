@@ -345,7 +345,7 @@ auto-invokes the designer.
   - design/07-tasks.md (T-3.2 row note: deterministic driver-authored artifact persistence)
 - designer_status: amended
 - amendment_commit: 67b12b6
-- resumed_task_commit: (pending)
+- resumed_task_commit: 0f31b91
 - ripple_unresolved: |
     Designer flagged two ripple_unresolved items, BOTH pre-existing and BOTH already recorded as
     explicitly NOT part of DCR-1: (1) the D8 discussion item (AC-9.4 / ADR-0004 gate-decision-table
