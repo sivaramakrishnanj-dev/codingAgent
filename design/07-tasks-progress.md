@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: pending
+last_updated_at_commit: b078aab
 total_resolved_count: 25
 
 last_resolved:
   task: T-2.8
   title: "Wire compaction-with-derivation into the live agent loop (M2 integration; regression-of-T-2.2)"
   resolved_at: 2026-06-23
-  commit: pending
+  commit: b078aab
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -267,7 +267,7 @@ in_flight: null
 - notes: VERIFIED GAP (coordinator-confirmed before dispatch): AgentLoopFactory.toolRegistry() (the JaCoCo-EXCLUDED production composition root) registered ONLY the 7 file/search/run tools (read_file/grep/glob/list/write_file/edit_file/run_command). It never registered spawn_subagent (SpawnSubAgentTool), read_memory (ReadMemoryTool) or write_memory (WriteMemoryTool) — all three existed + were unit-tested but were NEVER offered to the model on a live run — and the ChildAgentLoopFactory production seam (a real nested AgentLoop) was documented in Javadoc but never instantiated. So 2 of 3 G2 manual criteria ("a sub-agent returns a summary", "a learning proposed->approved->recalled") were unreachable from the live CLI. FIX: composition logic extracted out of the JaCoCo-excluded AgentLoopFactory into a NEW gate-covered seam ToolRegistryComposer (com.srk.codingagent.cli) — so the wiring is now COVERED by the 0.80 gate (the structural cause of the gap, an un-covered composition root, is removed). The composer registers all 10 live tools; builds a MemoryStore (injected, defaulting to ~/.codingagent per ADR-0007) behind read_memory (Class R) + write_memory (Class X, with the session EventLog + boundary clock + origin session + repoKey for the AC-12.4 MEMORY_WRITE event); and builds a SubAgentOrchestrator (C13) over a production ChildAgentLoopFactory seam = () -> childLoop.run(prompt) over a REAL nested AgentLoop reusing the PARENT's ModelClient — so the child's toolResult routes through the same D2-fixed text/json wire path by construction (NOT field presence). Child isolation per ADR-0010/INV-10/11/12: child gets its OWN session log (SessionStore.openLog — sidesteps the shared-writer hazard at N=1; parent log receives only SUBAGENT_SPAWN/SUBAGENT_RESULT on the parent thread), a FRESH no-inherited-grants gate (parentGrants.forSubAgent), and a child tool registry that EXCLUDES spawn_subagent + write_memory (no unbounded recursive spawn; curated-write stays the root session's lane — stated_assumption). Child-session-id supplier + clock captured at the AgentLoopFactory boundary (ADR-0005 — never UUID.randomUUID inside the orchestrator). AgentLoopFactory.create gained a SessionStore param, passed from Main's two existing SessionStore.forUserHome() call sites (runOneShot/runInteractive) — minimal additive change. NEW LiveToolRegistryCompositionTest (7 tests, the test that WOULD have caught this): asserts the registry AgentLoopFactory/composer actually produces contains all 10 tools by name with exact count, correct operation classes (read_memory=READ, write_memory=X, spawn_subagent=X per ADR-0007/0010), each renders a toolSpec, dispatching spawn_subagent runs a REAL nested loop over a scripted Bedrock double and returns a summary-ONLY result (AC-17.1/17.4/INV-11), and the memory tools dispatch to the real handlers over the SAME wired MemoryStore (write then read round-trips). 832 tests green under mvn clean verify (JaCoCo 0.80 BUNDLE gate met; ToolRegistryComposer 97% line); shaded codingagent.jar builds (15 MB). Self-checks: oracle-traceability=passed, reuse=passed (extended SearchToolsRegistrationTest's established registration-test precedent rather than duplicating). 0 Blocker/Major/Minor, 1 Nit, 0 Discussion. >>> G2 SMOKE-TEST NOTE: a live codingagent -p / REPL run now offers spawn_subagent + read_memory + write_memory to the model — the two previously-unreachable G2 criteria are now exercisable. Main agent runs the real-Bedrock G2 smoke test (compact+continue with INV-7 signature replay; spawn a sub-agent + get a summary back; propose->approve->recall a learning) next.
 
 ## T-2.8 — Wire compaction-with-derivation into the live agent loop (M2 integration; regression-of-T-2.2)
-- commit: PENDING_SHA
+- commit: b078aab
 - review: design/reviews/code/T-2.8-r1.md
 - resolved: 2026-06-23
 - context_mode: narrow
