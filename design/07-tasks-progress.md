@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: 6f1d266
+last_updated_at_commit: pending
 total_resolved_count: 32
 
 last_resolved:
@@ -12,8 +12,48 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-3.2-RD-D7
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-23T00:00:00-07:00
+  last_updated_at: 2026-06-23T00:00:00-07:00
 ---
+
+## In-flight
+
+- task: T-3.2-RD-D7
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  files_in_working_tree: []
+  dcrs_consumed: []
+  started_at: 2026-06-23T00:00:00-07:00
+  last_updated_at: 2026-06-23T00:00:00-07:00
+  note: |
+    Regression-of T-3.2 (greenfield artifact authoring). Verified defect D7 from the G3
+    real-Bedrock greenfield smoke test: across the requirements AND design phases the model
+    NEVER called write_artifact (instrumented count = 0); only the ArtifactApprovalGate's
+    approval-stamp append fired (count = 10 over a desync'd run). The phase artifacts
+    therefore contained ONLY the approval stamp, not the phase's substantive deliverable
+    content — so design/00-requirements.md read "Approved: Requirements approved ... at <ts>."
+    with no requirements text. At the TASKS phase the agent (correctly) refused to fabricate a
+    breakdown from an empty requirements artifact, and AC-2.5 traceability then refused tasks
+    approval (no real design/02-tasks.md) — greenfield cannot reach tasks->implement live.
+    RD-7 / AC-1.2 ("persist the agreed requirements as a markdown artifact") is unmet on the
+    LIVE path even though the write_artifact tool + GreenfieldArtifactStore are built and the
+    tool is registered in the pre-approval registry. The gap is the per-phase greenfield prompt
+    (GreenfieldPlaybook) never directing the model that each phase's deliverable IS the written
+    artifact, authored via write_artifact at its path (design/00-requirements.md,
+    design/01-design.md, design/02-tasks.md), with substantive content, before the phase turn
+    completes — same class as D5/D7 (built but not exercised on the live path).
 
 ## Milestone gates
 
