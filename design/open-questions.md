@@ -482,3 +482,22 @@ auto-invokes the designer.
   approval", that is an ac-update amendment — user's call. Naturally bundles with the recurring greenfield
   prose-clarification candidates (T-3.3 D1, T-2.8 D1, T-3.2-RD-D8 D1) the user may consolidate post-G3.
 - status: open (informational; no action required to proceed)
+
+## OQ-UX-1 — REPL is single-line input only (no multi-line / paste-block) — 2026-06-23
+- raised_by: main-agent (user, during G3 interactive greenfield smoke test)
+- component: C1 (CLI / ReplRunner)
+- spec_refs: 04-apis § 1.1/1.4 (REPL), US-1 (greenfield requirements dialogue)
+- suggested_amendment_kind: nfr-update / enhancement (M4 polish)
+- finding: ReplRunner reads with BufferedReader.readLine() — each Enter submits one complete
+  turn; a blank line is skipped (continue), not a terminator. There is NO multi-line input mode
+  (no continuation char, no paste-block delimiter, no end-of-input marker). This is the
+  M1/T-1.1 single-line REPL scope. It is mildly at odds with greenfield's DCR-2 multi-turn
+  dialogue, where a developer naturally wants to paste a multi-paragraph requirements/answer
+  block — currently each newline in a paste submits a separate turn.
+- workaround (in use during G3 test): put the whole answer on one line, OR send detail across
+  several refining turns (AC-2.4) then type `y` to finalize. Confirmed adequate to drive the
+  greenfield flow.
+- proposed fix (M4 polish): add a multi-line input affordance to ReplRunner — e.g. a triple-quote
+  paste block (`"""` … `"""`) or a `.`-on-its-own-line terminator — so a pasted multi-line prompt
+  is one turn. Greenfield-relevant but applies to the whole REPL.
+- status: open (deferred to M4 polish; non-blocking — does not gate G3)
