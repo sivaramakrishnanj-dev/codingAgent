@@ -32,6 +32,20 @@ in_flight: null
 - **G1 caveat (coordinator-flagged, non-blocking spec bookkeeping):** the G1 checklist in `07-tasks.md` §3 cites CT-INV-3 and CT-SM-5, but those CTs' element/CT cells are cross-wired to **M2 compaction transitions** (CT-INV-3 pins INV-4 compaction byte-identity; CT-SM-5 cell mis-cites T13/T15). M1 delivered the *assertions* those CTs carry (replay fidelity = AC-7.2/INV-1; verify-stop-surface = AC-3.4/20.5 at S7) — all green. Judge G1 against contracts M1 delivers, not the mislabeled cells. 3 open-questions logged (T-1.2 D1, T-1.4 D1, T-1.6 D1) as candidates for one consolidated contract-test/exit-code amendment.
 - Verdict: **M1 truly complete; G1 passed** (explore→edit→verify→resume proven live). Cleared to proceed to M2 on user direction.
 
+### G2 (after M2 — Survival) — ✅ PASSED 2026-06-23
+- Auto checks (coordinator): `mvn clean verify` green (**852 tests**, JaCoCo ≥0.80); shaded jar builds. T-2.1..T-2.6 resolved, plus 3 integration/regression fixes the G2 smoke test forced (below). HEAD e0d8335.
+- **Manual real-Bedrock smoke test (main agent), in a disposable sandbox; all three M2 survival criteria proven live:**
+  - **Compact + continue**: with a lowered `contextCompactThreshold`, a real run crossed the threshold → Compactor made the summarizer Converse call → derived a DERIVED_FROM session → loop CONTINUED in it (T14) → reached END_TURN, EXIT 0. (Original preserved; derived-session round-trip valid.)
+  - **Sub-agent returns a summary**: `spawn_subagent` (approved) spawned an isolated child loop on its own thread with a child registry excluding spawn/write_memory (no recursive spawn), child ran its own Converse loop, returned summary-only ("55") to the parent (INV-11). EXIT 0.
+  - **Learning proposed→approved→recalled**: `write_memory` (approved) persisted a schema-valid project-tier entry + INDEX; a FRESH session then recalled it via `read_memory` with the CORRECT slug (the index is now in the system prompt), reporting the convention accurately. Loop closed.
+- **The smoke test caught 5 live-only issues, all fixed before passing** (the value of real-Bedrock verification — none were visible to the 852 mocked tests):
+  - **T-2.7** sub-agent + memory tools not registered in live AgentLoopFactory (commit 9b15572).
+  - **T-2.8** Compactor not wired into AgentLoop (loop surfaced instead of compacting) (commit b078aab).
+  - **D3** (T-2.2-RD-D3): summarizer Converse call omitted toolConfig while replaying a tool-block transcript → 400 (commit af7a32e).
+  - **D4** (T-2.8-RD-D4): budget guard evaluated before the tool_result was appended → compaction summarized a dangling tool_use → 400; fixed by deferring the COMPACT check to a paired boundary (commit 1fc2709).
+  - **D5** (T-2.4-RD-D5): memory INDEX never injected into the live system prompt → fresh session couldn't recall (guessed slugs); fixed by loading both-tier index into the prompt at session start (commit 88ea49b).
+- Verdict: **M2 truly complete; G2 passed** (compact+continue, sub-agent summary, propose→approve→recall all proven live). Cleared to proceed to M3 on user direction.
+
 ## Resolved tasks
 
 ## T-0.1 — Project skeleton: Maven, Java 21, com.srk.codingagent packages, JUnit 5, shaded-jar build
