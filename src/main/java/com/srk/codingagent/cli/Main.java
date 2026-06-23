@@ -10,11 +10,14 @@ import com.srk.codingagent.permission.Approver;
 import com.srk.codingagent.persistence.EventLog;
 import com.srk.codingagent.persistence.OutcomeRecorder;
 import com.srk.codingagent.persistence.SessionLineage;
+import com.srk.codingagent.persistence.SessionMode;
 import com.srk.codingagent.persistence.SessionReplay;
 import com.srk.codingagent.persistence.SessionStore;
 import com.srk.codingagent.tool.CommandExecutor;
 import com.srk.codingagent.workflow.BrownfieldDriver;
 import com.srk.codingagent.workflow.BrownfieldRunner;
+import com.srk.codingagent.workflow.GreenfieldDriver;
+import com.srk.codingagent.workflow.GreenfieldRunner;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -149,10 +152,10 @@ public final class Main {
                 config.modelId(), config.permissionMode());
 
         if (parsed.kind() == CliArguments.Kind.ONE_SHOT) {
-            return runOneShot(config, parsed.prompt().orElseThrow());
+            return runOneShot(config, parsed.prompt().orElseThrow(), parsed.mode());
         }
         // Interactive REPL shape (no -p): enter the read-eval loop (04-apis § 1.1).
-        return runInteractive(config);
+        return runInteractive(config, parsed.mode());
     }
 
     /**
@@ -177,31 +180,70 @@ public final class Main {
      * an exit code. The agent-loop construction (credentials, Bedrock client, tools, gate,
      * log) is the one production-only seam; the run-and-map logic it delegates to lives in
      * the unit-tested {@link OneShotRunner}.
+     *
+     * <p><b>Mode selects the workflow driver (ADR-0012, T-3.1).</b> {@link SessionMode#GREENFIELD}
+     * (from {@code --mode greenfield}) routes the one-shot through the greenfield phase state
+     * machine; the default {@link SessionMode#BROWNFIELD} routes it through the brownfield
+     * understand&rarr;change&rarr;verify driver. Both produce the {@code LoopOutcome run(String)}
+     * seam {@link OneShotRunner} maps to an exit code, so the exit-code mapping is mode-agnostic.
      */
-    private static int runOneShot(ResolvedConfig config, String prompt) {
+    private static int runOneShot(ResolvedConfig config, String prompt, SessionMode mode) {
         Path workspaceRoot = Path.of("").toAbsolutePath();
         SessionStore sessions = SessionStore.forUserHome();
         try (EventLog log = sessions.openLog(ONE_SHOT_LINEAGE, ONE_SHOT_LINEAGE)) {
-            AgentLoop loop = new AgentLoopFactory().create(
-                    config, workspaceRoot, ONE_SHOT_LINEAGE, log, new NonInteractiveApprover(),
-                    sessions);
-            // T-1.6: route the one-shot through the brownfield workflow driver (ADR-0012,
-            // v1 brownfield-only) so the model explores->changes (the loop carries the
-            // brownfield playbook) then the driver verifies the change via the configured
-            // test command (AC-5.3). The runner maps the brownfield outcome to a LoopOutcome
-            // so OneShotRunner's exit-code mapping is unchanged.
-            // T-2.6 (US-16): record an OUTCOME signal when the run concludes — success derived from
-            // the verification command's exit status (AC-16.2) and appended to the session log
-            // (AC-16.1/AC-16.3). The brownfield run is free-form (not task-numbered) at M2, so the
-            // outcome's taskRef defaults to the session lineage id (ONE_SHOT_LINEAGE). The boundary
-            // clock matches the one the loop uses (ADR-0005). The recorder's derivation + append is
-            // a tested unit (OutcomeRecorder); this composition root only wires it.
-            OutcomeRecorder outcomeRecorder = new OutcomeRecorder(
-                    log, () -> Instant.now().toString(), ONE_SHOT_LINEAGE);
-            BrownfieldRunner brownfield = new BrownfieldRunner(BrownfieldDriver.overConfig(
-                    loop::run, new CommandExecutor(workspaceRoot), config), outcomeRecorder);
-            return new OneShotRunner(brownfield::run, System.out, System.err).run(prompt);
+            OneShotRunner.OneShotLoop runLoop = mode == SessionMode.GREENFIELD
+                    ? oneShotGreenfield(config, workspaceRoot, log, sessions)
+                    : oneShotBrownfield(config, workspaceRoot, log, sessions);
+            return new OneShotRunner(runLoop, System.out, System.err).run(prompt);
         }
+    }
+
+    /**
+     * Composes the one-shot brownfield run path (the default mode): the production agent loop, the
+     * brownfield workflow driver (ADR-0012), and the outcome recorder, returned as the
+     * {@code LoopOutcome run(String)} seam.
+     *
+     * <p>T-1.6: the one-shot runs through the brownfield driver so the model explores&rarr;changes
+     * (the loop carries the brownfield playbook) then the driver verifies the change via the
+     * configured test command (AC-5.3). T-2.6 (US-16): an OUTCOME signal is recorded when the run
+     * concludes &mdash; success derived from the verification command's exit status (AC-16.2) and
+     * appended to the session log (AC-16.1/AC-16.3). The boundary clock matches the loop's (ADR-0005).
+     */
+    private static OneShotRunner.OneShotLoop oneShotBrownfield(ResolvedConfig config,
+            Path workspaceRoot, EventLog log, SessionStore sessions) {
+        AgentLoop loop = new AgentLoopFactory().create(
+                config, workspaceRoot, ONE_SHOT_LINEAGE, log, new NonInteractiveApprover(),
+                sessions);
+        OutcomeRecorder outcomeRecorder = new OutcomeRecorder(
+                log, () -> Instant.now().toString(), ONE_SHOT_LINEAGE);
+        BrownfieldRunner brownfield = new BrownfieldRunner(BrownfieldDriver.overConfig(
+                loop::run, new CommandExecutor(workspaceRoot), config), outcomeRecorder);
+        return brownfield::run;
+    }
+
+    /**
+     * Composes the one-shot greenfield run path ({@code --mode greenfield}, ADR-0012, T-3.1): the
+     * greenfield phase state machine driven over phase-scoped agent loops (the pre-approval phases'
+     * loops withhold the Class-X source tools, AC-1.4), returned as the {@code LoopOutcome
+     * run(String)} seam.
+     *
+     * <p><b>No-terminal approval gate (one-shot).</b> A one-shot run has no developer terminal to
+     * approve a phase advance, so the approval gate denies every advance &mdash; the session shapes
+     * the requirements (AC-1.1) and stops at the first approval gate awaiting the developer's
+     * approval (ADR-0012, AC-2.3) without writing source (AC-1.4), the safe non-interactive stance
+     * (mirroring {@link NonInteractiveApprover}). The interactive REPL path is where a real
+     * per-phase approval prompt is wired (a later task, T-3.2); pulling that forward is out of T-3.1's
+     * scope.
+     */
+    private static OneShotRunner.OneShotLoop oneShotGreenfield(ResolvedConfig config,
+            Path workspaceRoot, EventLog log, SessionStore sessions) {
+        GreenfieldDriver.PhaseLoopFactory phaseLoops = new AgentLoopFactory()
+                .createGreenfieldPhaseLoopFactory(
+                        config, workspaceRoot, ONE_SHOT_LINEAGE, log, new NonInteractiveApprover(),
+                        sessions);
+        GreenfieldDriver driver = new GreenfieldDriver(phaseLoops, completedPhase -> false);
+        GreenfieldRunner greenfield = new GreenfieldRunner(driver);
+        return greenfield::run;
     }
 
     /**
@@ -217,7 +259,7 @@ public final class Main {
      * session log is held open across turns and closed on exit; per-event flushing keeps the
      * session resumable (NFR-LOG-DURABILITY).
      */
-    private static int runInteractive(ResolvedConfig config) {
+    private static int runInteractive(ResolvedConfig config, SessionMode mode) {
         Path workspaceRoot = Path.of("").toAbsolutePath();
         SessionStore sessions = SessionStore.forUserHome();
         BufferedReader reader = new BufferedReader(
@@ -229,21 +271,14 @@ public final class Main {
         try (EventLog log = sessions.openLog(ONE_SHOT_LINEAGE, ONE_SHOT_LINEAGE)) {
             Supplier<String> answerSource = lineSupplier(reader);
             Approver approver = new InteractiveApprover(answerSource, System.out);
-            AgentLoop loop = new AgentLoopFactory().create(
-                    config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver, sessions);
-            // T-1.6: each REPL turn is a brownfield understand->change->verify cycle (ADR-0012,
-            // v1 brownfield-only). The loop carries the brownfield playbook; the driver verifies
-            // each completed change via the configured test command (AC-5.3). The runner maps the
-            // brownfield outcome to a LoopOutcome so ReplRunner's per-turn handling is unchanged.
-            // T-2.6 (US-16): each concluded turn records an OUTCOME signal to the same session log,
-            // success derived from the verification exit status (AC-16.2/AC-16.1/AC-16.3). The
-            // free-form brownfield turn's taskRef defaults to the session lineage id; the boundary
-            // clock matches the loop's (ADR-0005). The derivation is the tested OutcomeRecorder unit.
-            OutcomeRecorder outcomeRecorder = new OutcomeRecorder(
-                    log, () -> Instant.now().toString(), ONE_SHOT_LINEAGE);
-            BrownfieldRunner brownfield = new BrownfieldRunner(BrownfieldDriver.overConfig(
-                    loop::run, new CommandExecutor(workspaceRoot), config), outcomeRecorder);
-            ReplRunner runner = new ReplRunner(brownfield::run, answerSource, interrupted::get,
+            // ADR-0012, T-3.1: mode selects the workflow driver for each REPL turn — the greenfield
+            // phase state machine or the brownfield understand->change->verify cycle. Both produce
+            // the LoopOutcome run(String) seam ReplRunner drives, so the per-turn handling is
+            // mode-agnostic.
+            ReplRunner.ReplLoop turnLoop = mode == SessionMode.GREENFIELD
+                    ? interactiveGreenfield(config, workspaceRoot, log, approver, sessions)
+                    : interactiveBrownfield(config, workspaceRoot, log, approver, sessions);
+            ReplRunner runner = new ReplRunner(turnLoop, answerSource, interrupted::get,
                     config.permissionMode(), System.out, System.err);
             return runner.run();
         } catch (CredentialResolutionException noCredentials) {
@@ -254,6 +289,53 @@ public final class Main {
             System.err.println("codingagent: " + noCredentials.getMessage());
             return ExitCode.MODEL_BACKEND.code();
         }
+    }
+
+    /**
+     * Composes an interactive REPL turn's brownfield run path (the default mode): the production
+     * agent loop, the brownfield workflow driver (ADR-0012), and the outcome recorder, returned as
+     * the {@code LoopOutcome run(String)} seam {@link ReplRunner} drives per turn.
+     *
+     * <p>T-1.6: each REPL turn is a brownfield understand&rarr;change&rarr;verify cycle &mdash; the
+     * loop carries the brownfield playbook and the driver verifies each completed change via the
+     * configured test command (AC-5.3). T-2.6 (US-16): each concluded turn records an OUTCOME signal
+     * to the same session log (AC-16.1/AC-16.2/AC-16.3). The boundary clock matches the loop's
+     * (ADR-0005).
+     */
+    private static ReplRunner.ReplLoop interactiveBrownfield(ResolvedConfig config,
+            Path workspaceRoot, EventLog log, Approver approver, SessionStore sessions) {
+        AgentLoop loop = new AgentLoopFactory().create(
+                config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver, sessions);
+        OutcomeRecorder outcomeRecorder = new OutcomeRecorder(
+                log, () -> Instant.now().toString(), ONE_SHOT_LINEAGE);
+        BrownfieldRunner brownfield = new BrownfieldRunner(BrownfieldDriver.overConfig(
+                loop::run, new CommandExecutor(workspaceRoot), config), outcomeRecorder);
+        return brownfield::run;
+    }
+
+    /**
+     * Composes an interactive REPL turn's greenfield run path ({@code --mode greenfield}, ADR-0012,
+     * T-3.1): the greenfield phase state machine over phase-scoped agent loops (the pre-approval
+     * phases withhold the Class-X source tools, AC-1.4), returned as the {@code LoopOutcome
+     * run(String)} seam {@link ReplRunner} drives per turn.
+     *
+     * <p><b>Approval gate (T-3.1 minimal-viable; T-3.2 plugs in the real one).</b> T-3.1 delivers the
+     * phase state machine, the per-phase gates, and the {@link GreenfieldDriver.ApprovalGate} seam.
+     * The real per-phase approval prompt &mdash; printing the phase's deliverable, reading the
+     * developer's yes/no, and recording the approval timestamp into the artifact &mdash; is T-3.2's
+     * artifact-authoring work (AC-1.5). To avoid pulling that scope forward, T-3.1 wires a
+     * deny-by-default gate: the session shapes the requirements (AC-1.1) and stops at the first
+     * approval gate awaiting the developer's approval (ADR-0012, AC-2.3) without writing source
+     * (AC-1.4). T-3.2 replaces this seam with the interactive timestamped approver.
+     */
+    private static ReplRunner.ReplLoop interactiveGreenfield(ResolvedConfig config,
+            Path workspaceRoot, EventLog log, Approver approver, SessionStore sessions) {
+        GreenfieldDriver.PhaseLoopFactory phaseLoops = new AgentLoopFactory()
+                .createGreenfieldPhaseLoopFactory(
+                        config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver, sessions);
+        GreenfieldDriver driver = new GreenfieldDriver(phaseLoops, completedPhase -> false);
+        GreenfieldRunner greenfield = new GreenfieldRunner(driver);
+        return greenfield::run;
     }
 
     /**

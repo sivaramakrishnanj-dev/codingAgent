@@ -27,6 +27,8 @@ import com.srk.codingagent.tool.WriteFileTool;
 import com.srk.codingagent.tool.memory.ReadMemoryTool;
 import com.srk.codingagent.tool.memory.WriteMemoryTool;
 import com.srk.codingagent.workflow.BrownfieldPlaybook;
+import com.srk.codingagent.workflow.GreenfieldPhase;
+import com.srk.codingagent.workflow.GreenfieldPlaybook;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -164,6 +166,52 @@ final class ToolRegistryComposer {
     }
 
     /**
+     * The live {@link ModelClient} the composer was built over (the one un-coverable step's
+     * product). Exposed so {@link AgentLoopFactory} assembles every loop &mdash; the brownfield
+     * one-shot/REPL loop and each greenfield phase loop &mdash; over the SAME wire path (D2-safe by
+     * construction), and the sub-agent child loop shares it too.
+     *
+     * @return the model client; never {@code null}.
+     */
+    ModelClient modelClient() {
+        return modelClient;
+    }
+
+    /**
+     * The lineage-scoped parent {@link GrantStore} the composer was built over. Exposed so the
+     * loop's permission gate and the sub-agent orchestrator share the SAME store (INV-10): the gate
+     * consults it for remembered grants and the orchestrator mints each child's fresh empty store
+     * from it.
+     *
+     * @return the parent grant store; never {@code null}.
+     */
+    GrantStore parentGrants() {
+        return parentGrants;
+    }
+
+    /**
+     * The two-tier {@link MemoryStore} the composer was built over. Exposed so the loop's compaction
+     * learning-harvest shares the SAME store the memory tools and system-prompt index use (AC-18.5
+     * reuses the propose-and-approve path, not a duplicate).
+     *
+     * @return the memory store; never {@code null}.
+     */
+    MemoryStore memoryStore() {
+        return memoryStore;
+    }
+
+    /**
+     * The boundary clock (ADR-0005) the composer was built over. Exposed so the loop draws every
+     * event's timestamp from the SAME boundary clock the memory-write and sub-agent events use (the
+     * loop never calls {@code Instant.now()} itself).
+     *
+     * @return the boundary clock; never {@code null}.
+     */
+    Supplier<String> clock() {
+        return clock;
+    }
+
+    /**
      * Composes the live tool registry the parent agent loop offers the model: the ten tools the
      * model sees on a real {@code codingagent} run (C7).
      *
@@ -174,6 +222,61 @@ final class ToolRegistryComposer {
         handlers.add(new ReadMemoryTool(memoryStore, repoKey));
         handlers.add(new WriteMemoryTool(memoryStore, log, clock, originSession, repoKey));
         handlers.add(new SpawnSubAgentTool(orchestrator()));
+        return ToolRegistry.of(handlers);
+    }
+
+    /**
+     * Composes the phase-scoped tool registry a greenfield run offers the model in a given
+     * {@link GreenfieldPhase} (C3, ADR-0012 greenfield side). This is the gate-covered seam that
+     * <em>structurally</em> enforces AC-1.4: while in a pre-approval phase
+     * ({@link GreenfieldPhase#isPreApproval()} &mdash; requirements/design/tasks), the registry
+     * <em>withholds</em> the Class-X source tools ({@code write_file}/{@code edit_file}/
+     * {@code run_command}), so the model cannot execute a Class X operation against source files
+     * (AC-1.4) &mdash; the tools are simply absent from the {@code toolConfig}, not merely denied at
+     * the gate. The implementation phase, reached only after the design + task breakdown are
+     * approved (AC-2.3), gets the full live toolset (the same ten tools {@link #parentRegistry()}
+     * offers a brownfield run).
+     *
+     * <p><b>Why withholding, not gate-denial.</b> The permission gate (C8) denies a Class-X tool
+     * the model <em>calls</em>; but a denial still surfaces the tool to the model, lets it attempt
+     * the call, and depends on the gate's mode/grant state being correct. Withholding the tool
+     * makes the safety AC a property of the toolset the model ever sees, independent of permission
+     * mode &mdash; the same structural-withholding discipline the child sub-agent registry uses to
+     * keep {@code spawn_subagent} out of a child (no unbounded recursion, ADR-0010). A unit test
+     * pins, under the coverage gate, that the pre-approval registry contains no source-write tool.
+     *
+     * <p>The read-only explore tools ({@code read_file}/{@code grep}/{@code glob}/{@code list},
+     * Class R) and {@code read_memory} (Class R) are available in every phase &mdash; reads are
+     * always safe (RD-4) and let the agent explore and recall during the requirements/design
+     * dialogue. The pre-approval registry deliberately also withholds {@code write_memory} and
+     * {@code spawn_subagent} (both Class X; a child could itself write source), keeping the
+     * pre-approval surface read-only.
+     *
+     * @param phase the greenfield phase whose tool registry is needed; must not be {@code null}.
+     * @return the phase-scoped registry: read-only tools for a pre-approval phase, the full live
+     *         toolset for the implementation phase; never {@code null}.
+     * @throws NullPointerException if {@code phase} is {@code null}.
+     */
+    ToolRegistry greenfieldRegistry(GreenfieldPhase phase) {
+        if (Objects.requireNonNull(phase, "phase").isPreApproval()) {
+            return preApprovalRegistry();
+        }
+        return parentRegistry();
+    }
+
+    /**
+     * The read-only registry the greenfield pre-approval phases (requirements/design/tasks) offer
+     * the model: the four explore tools plus {@code read_memory}, all Class R. No source-write
+     * Class-X tool is present, so a source write is structurally impossible during the pre-approval
+     * dialogue (AC-1.4). Mirrors the structural-withholding shape of {@link #childToolRegistry()}.
+     */
+    private ToolRegistry preApprovalRegistry() {
+        List<ToolHandler> handlers = new ArrayList<>();
+        handlers.add(new ReadFileTool(workspaceRoot));
+        handlers.add(new GrepTool(workspaceRoot));
+        handlers.add(new GlobTool(workspaceRoot));
+        handlers.add(new ListTool(workspaceRoot));
+        handlers.add(new ReadMemoryTool(memoryStore, repoKey));
         return ToolRegistry.of(handlers);
     }
 
@@ -216,6 +319,43 @@ final class ToolRegistryComposer {
      */
     List<String> parentSystemPrompt() {
         List<String> blocks = new ArrayList<>(BrownfieldPlaybook.systemPrompt());
+        List<MemoryIndexLine> index = memoryStore.loadIndexes(repoKey);
+        if (!index.isEmpty()) {
+            blocks.add(renderMemoryIndexBlock(index));
+        }
+        return List.copyOf(blocks);
+    }
+
+    /**
+     * Assembles the greenfield agent loop's system-prompt blocks for a given {@link GreenfieldPhase}
+     * (C3, ADR-0012 greenfield side): the per-phase {@link GreenfieldPlaybook} blocks (the common
+     * greenfield contract &mdash; requirements-before-source AC-1.1, ask-don't-write-source-early
+     * AC-1.3, the no-source-write pre-approval rule AC-1.4, approval-before-implementation AC-2.3 &mdash;
+     * plus the phase-specific block) PLUS, when memory exists, the same always-loaded memory-index
+     * block {@link #parentSystemPrompt()} appends (ADR-0007 "Index + selective load", INV-14).
+     *
+     * <p><b>Why this assembly lives here (the T-2.4 D5 lesson, applied to greenfield).</b> Like the
+     * brownfield prompt assembly, the greenfield prompt &mdash; the lever that primes the model
+     * through the phase state machine and reinforces the no-source-write rule &mdash; must be
+     * assembled in this NOT-coverage-excluded seam so a unit test pins that the greenfield prompt
+     * (and the memory index) reaches the model's Converse request; the factory
+     * ({@link AgentLoopFactory}) is JaCoCo-excluded, so the same live-vs-unit gap would recur if the
+     * logic lived there. The factory only carries the assembled blocks to the loop's {@code system}
+     * argument.
+     *
+     * <p>Re-read-fresh, not cached (INV-14, AC-14.2) and empty-index &rarr; no memory section
+     * (AC-14.3): identical to {@link #parentSystemPrompt()} &mdash; the index is loaded fresh via
+     * {@link MemoryStore#loadIndexes} and the index block is appended only when at least one entry
+     * exists.
+     *
+     * @param phase the greenfield phase whose system prompt is needed; must not be {@code null}.
+     * @return the system-prompt blocks for the greenfield loop's {@code system} argument in
+     *         {@code phase}: the per-phase playbook blocks, plus the memory-index block when the
+     *         index is non-empty; never {@code null} or empty.
+     * @throws NullPointerException if {@code phase} is {@code null}.
+     */
+    List<String> greenfieldSystemPrompt(GreenfieldPhase phase) {
+        List<String> blocks = new ArrayList<>(GreenfieldPlaybook.systemPrompt(phase));
         List<MemoryIndexLine> index = memoryStore.loadIndexes(repoKey);
         if (!index.isEmpty()) {
             blocks.add(renderMemoryIndexBlock(index));

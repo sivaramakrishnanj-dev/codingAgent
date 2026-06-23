@@ -1,14 +1,17 @@
 package com.srk.codingagent.cli;
 
+import com.srk.codingagent.persistence.SessionMode;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
 /**
  * The parsed command-line arguments this task's CLI scope understands: the one-shot
- * prompt ({@code -p} / {@code --prompt}), the two standard informational flags
+ * prompt ({@code -p} / {@code --prompt}), the working-mode selection
+ * ({@code --mode greenfield|brownfield}), the two standard informational flags
  * ({@code --help}, {@code --version}), and the session subcommands {@code resume
  * [<session-id>]} and {@code sessions} (04-apis § 1.2). Parsing is deliberately narrow —
- * the full proposed flag set ({@code --mode} / {@code --model} / {@code --permission-mode}
+ * the rest of the proposed flag set ({@code --model} / {@code --permission-mode}
  * / {@code --profile} / {@code --region} / {@code --attach} / {@code --debug}) and the
  * other subcommands ({@code memory}, {@code config}) belong to later tasks — but an
  * unrecognized flag or an unexpected positional is rejected as a usage error so a bad
@@ -29,6 +32,15 @@ import java.util.Optional;
  *       (AC-15.2).</li>
  * </ul>
  *
+ * <p><b>Working mode (ADR-0012, T-3.1).</b> The {@code --mode greenfield|brownfield} flag
+ * selects the session's workflow driver; it is orthogonal to {@link Kind} (it applies to the
+ * one-shot and interactive shapes that run the agent, not to the informational flags or the
+ * session subcommands). {@link #mode()} reports the selected {@link SessionMode}; brownfield
+ * is the implicit default when {@code --mode} is absent (the one-shot/REPL/brownfield path the
+ * earlier milestones built). "Mode is fixed for a session" (02-architecture § 1.2, C3 key
+ * invariant), so the flag is parsed once here and never changes mid-session. An unknown mode
+ * value is a fail-fast usage error (exit {@code 2}).
+ *
  * <p>The {@code resume}/{@code sessions} subcommands are recognized only as the leading
  * argument (the subcommand position); a {@code resume}/{@code sessions} word anywhere else,
  * or any other bare positional, stays a fail-fast usage error. Parsing never starts the
@@ -43,6 +55,15 @@ public final class CliArguments {
 
     /** The flag that begins a one-shot prompt (long form). */
     static final String PROMPT_LONG = "--prompt";
+
+    /** The flag that selects the session's working mode (04-apis § 1.3, ADR-0012). */
+    static final String MODE = "--mode";
+
+    /** The {@code --mode} value selecting the greenfield workflow driver (ADR-0012). */
+    static final String MODE_GREENFIELD = "greenfield";
+
+    /** The {@code --mode} value selecting the brownfield workflow driver (the default). */
+    static final String MODE_BROWNFIELD = "brownfield";
 
     /** The flag that requests usage help. */
     static final String HELP = "--help";
@@ -79,30 +100,33 @@ public final class CliArguments {
     private final String prompt;
     private final String infoFlag;
     private final String sessionId;
+    private final SessionMode mode;
 
-    private CliArguments(Kind kind, String prompt, String infoFlag, String sessionId) {
+    private CliArguments(
+            Kind kind, String prompt, String infoFlag, String sessionId, SessionMode mode) {
         this.kind = kind;
         this.prompt = prompt;
         this.infoFlag = infoFlag;
         this.sessionId = sessionId;
+        this.mode = mode;
     }
 
     /**
      * Parses the raw argument array into the recognized CLI shape.
      *
      * @param args the raw command-line arguments; {@code null} is treated as no arguments
-     *             (the interactive shape) so the launcher's {@code main}-style signature
-     *             stays robust.
+     *             (the interactive shape, brownfield mode) so the launcher's {@code main}-style
+     *             signature stays robust.
      * @return the parsed arguments; never {@code null}.
      * @throws UsageException if {@code -p} / {@code --prompt} is given without a (non-blank)
-     *                        value, an unrecognized flag is supplied, the {@code sessions}
-     *                        subcommand is given an unexpected extra argument, or the
-     *                        {@code resume} subcommand is given a blank id (bad invocation →
-     *                        exit {@code 2}).
+     *                        value, {@code --mode} is given without a recognized value, an
+     *                        unrecognized flag is supplied, the {@code sessions} subcommand is
+     *                        given an unexpected extra argument, or the {@code resume} subcommand
+     *                        is given a blank id (bad invocation → exit {@code 2}).
      */
     public static CliArguments parse(String[] args) {
         if (args == null || args.length == 0) {
-            return new CliArguments(Kind.INTERACTIVE, null, null, null);
+            return new CliArguments(Kind.INTERACTIVE, null, null, null, SessionMode.BROWNFIELD);
         }
         // The session subcommands are bare leading words (not flags); recognize them in the
         // subcommand position before the flag scan, which rejects bare positionals.
@@ -112,13 +136,23 @@ public final class CliArguments {
         if (SESSIONS.equals(args[0])) {
             return parseSessions(args);
         }
+        // The flag scan: --mode sets the working mode and continues scanning (it is orthogonal to
+        // the kind); -p / --help / --version are terminal kind selectors. brownfield is the
+        // implicit default when --mode is absent.
+        SessionMode mode = SessionMode.BROWNFIELD;
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
+            if (MODE.equals(arg)) {
+                mode = requireModeValue(args, i, arg);
+                i++; // consume the mode value as well
+                continue;
+            }
             if (HELP.equals(arg) || VERSION.equals(arg)) {
-                return new CliArguments(Kind.INFO, null, arg, null);
+                return new CliArguments(Kind.INFO, null, arg, null, mode);
             }
             if (PROMPT_SHORT.equals(arg) || PROMPT_LONG.equals(arg)) {
-                return new CliArguments(Kind.ONE_SHOT, requirePromptValue(args, i, arg), null, null);
+                return new CliArguments(
+                        Kind.ONE_SHOT, requirePromptValue(args, i, arg), null, null, mode);
             }
             if (arg.startsWith("-")) {
                 throw new UsageException(arg, "unknown flag: " + arg);
@@ -127,14 +161,15 @@ public final class CliArguments {
             // usage error rather than silently dropping it (fail fast, exit 2).
             throw new UsageException(arg, "unexpected argument: " + arg);
         }
-        return new CliArguments(Kind.INTERACTIVE, null, null, null);
+        // No -p among the (mode-only) flags: the interactive REPL shape, in the selected mode.
+        return new CliArguments(Kind.INTERACTIVE, null, null, null, mode);
     }
 
     /** Parses {@code resume} / {@code resume <session-id>} (04-apis § 1.2, AC-7.1/7.2/7.4). */
     private static CliArguments parseResume(String[] args) {
         if (args.length == 1) {
             // Bare `resume`: list resumable sessions (most-recent-first), no id selected.
-            return new CliArguments(Kind.RESUME, null, null, null);
+            return new CliArguments(Kind.RESUME, null, null, null, SessionMode.BROWNFIELD);
         }
         String id = args[1];
         if (id == null || id.isBlank()) {
@@ -144,7 +179,7 @@ public final class CliArguments {
             // resume takes at most one id; an extra word is a malformed invocation.
             throw new UsageException(args[2], "unexpected argument after resume id: " + args[2]);
         }
-        return new CliArguments(Kind.RESUME, null, null, id);
+        return new CliArguments(Kind.RESUME, null, null, id, SessionMode.BROWNFIELD);
     }
 
     /** Parses the {@code sessions} subcommand (04-apis § 1.2, AC-15.2). */
@@ -153,7 +188,31 @@ public final class CliArguments {
             // `sessions` takes no arguments; an extra word is a malformed invocation.
             throw new UsageException(args[1], "unexpected argument after sessions: " + args[1]);
         }
-        return new CliArguments(Kind.SESSIONS, null, null, null);
+        return new CliArguments(Kind.SESSIONS, null, null, null, SessionMode.BROWNFIELD);
+    }
+
+    /**
+     * Resolves the value of {@code --mode}: {@code greenfield} or {@code brownfield} (ADR-0012).
+     * A missing value or an unrecognized one is a fail-fast usage error naming {@code --mode}
+     * (exit {@code 2}, G2).
+     */
+    private static SessionMode requireModeValue(String[] args, int flagIndex, String flag) {
+        if (flagIndex + 1 >= args.length) {
+            throw new UsageException(flag, flag + " requires a mode value (greenfield|brownfield)");
+        }
+        String value = args[flagIndex + 1];
+        if (value == null || value.isBlank()) {
+            throw new UsageException(
+                    flag, flag + " requires a non-blank mode value (greenfield|brownfield)");
+        }
+        String normalized = value.toLowerCase(Locale.ROOT);
+        if (MODE_GREENFIELD.equals(normalized)) {
+            return SessionMode.GREENFIELD;
+        }
+        if (MODE_BROWNFIELD.equals(normalized)) {
+            return SessionMode.BROWNFIELD;
+        }
+        throw new UsageException(value, "unknown mode: " + value + " (expected greenfield|brownfield)");
     }
 
     private static String requirePromptValue(String[] args, int flagIndex, String flag) {
@@ -204,5 +263,19 @@ public final class CliArguments {
      */
     public Optional<String> sessionId() {
         return Optional.ofNullable(sessionId);
+    }
+
+    /**
+     * The session's working mode selected by {@code --mode} (ADR-0012, T-3.1):
+     * {@link SessionMode#GREENFIELD} for {@code --mode greenfield}, else
+     * {@link SessionMode#BROWNFIELD} (the implicit default when {@code --mode} is absent). Always
+     * present and never {@code null}; the launcher dispatches the agent-running shapes
+     * ({@link Kind#ONE_SHOT}, {@link Kind#INTERACTIVE}) to the matching workflow driver. For the
+     * informational flags and the session subcommands the value is the default and unused.
+     *
+     * @return the selected working mode; never {@code null}.
+     */
+    public SessionMode mode() {
+        return mode;
     }
 }

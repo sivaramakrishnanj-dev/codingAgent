@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.srk.codingagent.persistence.SessionMode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -203,5 +204,97 @@ class CliArgumentsTest {
 
         assertEquals("id-2", thrown.offendingArgument(),
                 "the usage error names the unexpected extra argument after the resume id");
+    }
+
+    // --- 04-apis § 1.3 / ADR-0012 : --mode selects the workflow driver (T-3.1) -------------------
+
+    @Test
+    @DisplayName("04-apis § 1.3/ADR-0012: brownfield is the implicit default mode when --mode is absent")
+    void defaultModeIsBrownfield() {
+        // Oracle: 04-apis § 1.1 ("start interactive session (mode from config/flag)") + ADR-0012 —
+        // brownfield (the understand->change->verify path the earlier milestones built) is the
+        // implicit default when --mode is not given. Every shape without --mode reports BROWNFIELD.
+        assertEquals(SessionMode.BROWNFIELD, CliArguments.parse(new String[] {}).mode(),
+                "no --mode → the interactive shape is brownfield by default");
+        assertEquals(SessionMode.BROWNFIELD,
+                CliArguments.parse(new String[] {"-p", "fix the bug"}).mode(),
+                "no --mode → a one-shot run is brownfield by default");
+    }
+
+    @Test
+    @DisplayName("04-apis § 1.3/ADR-0012: --mode greenfield selects the greenfield workflow driver")
+    void modeGreenfieldSelectsGreenfield() {
+        // Oracle: 04-apis § 1.3 "--mode <greenfield|brownfield>: workflow mode" (US-1..5) + ADR-0012.
+        // --mode greenfield must select the GREENFIELD workflow for the agent-running shapes
+        // (one-shot and interactive), orthogonal to the Kind.
+        CliArguments oneShot = CliArguments.parse(new String[] {"--mode", "greenfield", "-p", "build a CLI"});
+        assertEquals(CliArguments.Kind.ONE_SHOT, oneShot.kind(),
+                "--mode is orthogonal to the kind; -p still selects the one-shot shape");
+        assertEquals(SessionMode.GREENFIELD, oneShot.mode(),
+                "04-apis § 1.3: --mode greenfield selects the greenfield workflow");
+
+        CliArguments interactive = CliArguments.parse(new String[] {"--mode", "greenfield"});
+        assertEquals(CliArguments.Kind.INTERACTIVE, interactive.kind(),
+                "--mode with no -p is the interactive shape");
+        assertEquals(SessionMode.GREENFIELD, interactive.mode(),
+                "04-apis § 1.3: an interactive greenfield session is selected by --mode greenfield");
+    }
+
+    @Test
+    @DisplayName("04-apis § 1.3: --mode brownfield selects the brownfield workflow explicitly")
+    void modeBrownfieldSelectsBrownfield() {
+        // Oracle: 04-apis § 1.3 — brownfield is an explicit, recognized --mode value (not only the
+        // implicit default). --mode brownfield selects BROWNFIELD.
+        CliArguments parsed = CliArguments.parse(new String[] {"--mode", "brownfield", "-p", "fix it"});
+
+        assertEquals(SessionMode.BROWNFIELD, parsed.mode(),
+                "04-apis § 1.3: --mode brownfield selects the brownfield workflow explicitly");
+    }
+
+    @Test
+    @DisplayName("04-apis § 1.3: --mode is case-insensitive in its value")
+    void modeValueIsCaseInsensitive() {
+        // Oracle: 04-apis § 1.3 — the mode value names the workflow; a case difference is the same
+        // workflow (the parser normalizes the value). GREENFIELD and Greenfield select greenfield.
+        assertEquals(SessionMode.GREENFIELD,
+                CliArguments.parse(new String[] {"--mode", "GREENFIELD"}).mode(),
+                "--mode value matching is case-insensitive");
+        assertEquals(SessionMode.GREENFIELD,
+                CliArguments.parse(new String[] {"--mode", "Greenfield"}).mode());
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: --mode without a value is a usage error naming --mode")
+    void modeWithoutValueIsUsageError() {
+        // Oracle: cli-exit-codes "2 usage/config — bad invocation detected BEFORE doing work". A
+        // --mode with no following value is malformed; reject it naming --mode (G2).
+        UsageException thrown = assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"--mode"}));
+
+        assertEquals("--mode", thrown.offendingArgument(),
+                "the usage error names the --mode flag missing its value (G2)");
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: an unknown --mode value is a usage error naming the bad value")
+    void unknownModeValueIsUsageError() {
+        // Oracle: § 3.2 "bad CLI args → exit 2". A --mode value that is neither greenfield nor
+        // brownfield is rejected fail-fast, naming the offending value (G2).
+        UsageException thrown = assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"--mode", "sideways"}));
+
+        assertEquals("sideways", thrown.offendingArgument(),
+                "the usage error names the unknown mode value (G2)");
+        assertTrue(thrown.getMessage().toLowerCase(java.util.Locale.ROOT).contains("greenfield"),
+                "the message names the recognized mode values; was: " + thrown.getMessage());
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: --mode with a blank value is a usage error")
+    void modeWithBlankValueIsUsageError() {
+        // Oracle: § 3.2 "bad CLI args → exit 2". A blank --mode value names no workflow; reject it.
+        assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"--mode", "   "}),
+                "a blank --mode value is a usage error");
     }
 }

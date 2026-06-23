@@ -24,8 +24,10 @@ import com.srk.codingagent.tool.memory.LearningApprover;
 import com.srk.codingagent.tool.memory.LearningExtractor;
 import com.srk.codingagent.tool.memory.LearningProposer;
 import com.srk.codingagent.tool.memory.MemoryLearningHarvester;
+import com.srk.codingagent.workflow.GreenfieldDriver;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -142,26 +144,102 @@ public final class AgentLoopFactory {
         Objects.requireNonNull(approver, "approver");
         Objects.requireNonNull(sessions, "sessions");
 
+        ToolRegistryComposer composer = composer(config, workspaceRoot, log, approver, sessions,
+                sessionLineage);
+        ToolRegistry tools = composer.parentRegistry();
+        return assembleLoop(composer, config, log, sessionLineage, approver, sessions, tools,
+                composer.parentSystemPrompt());
+    }
+
+    /**
+     * Builds the production greenfield phase-loop factory (C3, ADR-0012): the
+     * {@link GreenfieldDriver.PhaseLoopFactory} the {@link GreenfieldDriver} runs each
+     * {@link com.srk.codingagent.workflow.GreenfieldPhase} through. The one un-coverable step
+     * (resolving SigV4 credentials and constructing the live {@link ModelClient}) happens once here;
+     * the per-phase loop is then assembled from the gate-covered {@link ToolRegistryComposer}, which
+     * decides &mdash; testably &mdash; the phase-scoped tool registry (pre-approval phases withhold
+     * the Class-X source tools, AC-1.4) and the per-phase greenfield system prompt. Each phase gets
+     * its own {@link AgentLoop} (different registry + prompt); they share the live {@link ModelClient},
+     * permission gate, log, and compaction seam.
+     *
+     * @param config         the resolved configuration; must not be {@code null}.
+     * @param workspaceRoot  the target repository directory the file tools are rooted at; must not
+     *                       be {@code null}.
+     * @param sessionLineage the session lineage / repo key / origin session the gate, memory, and
+     *                       sub-agent orchestrator are scoped to; non-blank.
+     * @param log            the open session event log; must not be {@code null}.
+     * @param approver       the approval seam the gate uses; must not be {@code null}.
+     * @param sessions       the session store the sub-agent orchestrator opens child logs from;
+     *                       must not be {@code null}.
+     * @return a phase-loop factory yielding a phase-scoped {@link AgentLoop} turn per greenfield
+     *         phase; never {@code null}.
+     * @throws NullPointerException if a required argument is {@code null}.
+     * @throws com.srk.codingagent.model.credentials.CredentialResolutionException if no usable SigV4
+     *         credentials can be resolved (AC-8.9 → exit 4).
+     */
+    public GreenfieldDriver.PhaseLoopFactory createGreenfieldPhaseLoopFactory(
+            ResolvedConfig config, Path workspaceRoot, String sessionLineage, EventLog log,
+            Approver approver, SessionStore sessions) {
+        Objects.requireNonNull(config, "config");
+        Objects.requireNonNull(workspaceRoot, "workspaceRoot");
+        Objects.requireNonNull(log, "log");
+        Objects.requireNonNull(approver, "approver");
+        Objects.requireNonNull(sessions, "sessions");
+
+        ToolRegistryComposer composer = composer(config, workspaceRoot, log, approver, sessions,
+                sessionLineage);
+        return phase -> {
+            ToolRegistry tools = composer.greenfieldRegistry(phase);
+            AgentLoop loop = assembleLoop(composer, config, log, sessionLineage, approver, sessions,
+                    tools, composer.greenfieldSystemPrompt(phase));
+            return loop::run;
+        };
+    }
+
+    /**
+     * Builds the gate-covered {@link ToolRegistryComposer} over the live {@link ModelClient} and the
+     * shared lineage-scoped collaborators. The one un-coverable step (credentials → Bedrock client →
+     * {@link ModelClient}) happens here; the composer it returns is constructible and exercisable
+     * without a live AWS call, so its registry/prompt decisions are pinned by unit tests.
+     *
+     * <p>INV-10: the parent grant store is shared by the gate and the sub-agent orchestrator (via
+     * the composer). ADR-0005: the boundary clock + child-session-id supplier are captured at the
+     * boundary (no {@code UUID.randomUUID()} inside the orchestration). The {@link MemoryStore} is
+     * shared by the tool registry and the compaction learning harvest (AC-18.5).
+     */
+    private ToolRegistryComposer composer(ResolvedConfig config, Path workspaceRoot, EventLog log,
+            Approver approver, SessionStore sessions, String sessionLineage) {
         BedrockCredentials credentials = credentialResolver.resolve(config.awsProfile());
         BedrockRuntimeClient bedrock = clientFactory.create(credentials, config.region());
         ModelClient modelClient = new ModelClient(bedrock);
-
-        // INV-10: lift the parent grant store to a local so BOTH the gate and the sub-agent
-        // orchestrator (via the composer) share the same lineage-scoped store — the orchestrator
-        // mints each child's fresh empty store from it (forSubAgent), and the gate consults it for
-        // the parent's remembered grants. ADR-0005: the boundary clock + child-session-id supplier
-        // (and the derived-session-id supplier the compaction seam uses) are captured here at the
-        // boundary (no UUID.randomUUID() inside the orchestration). The MemoryStore is lifted to a
-        // local so the tool registry AND the compaction learning-harvest share the same store
-        // (AC-18.5 reuses the propose-and-approve path, not a duplicate).
         GrantStore parentGrants = GrantStore.forSession(sessionLineage);
         MemoryStore memoryStore = MemoryStore.forUserHome();
         Supplier<String> clock = () -> Instant.now().toString();
         Supplier<String> childSessionIds = () -> UUID.randomUUID().toString();
-        ToolRegistryComposer composer = new ToolRegistryComposer(
+        return new ToolRegistryComposer(
                 modelClient, config, workspaceRoot, log, memoryStore, sessions,
                 parentGrants, approver, sessionLineage, sessionLineage, clock, childSessionIds);
-        ToolRegistry tools = composer.parentRegistry();
+    }
+
+    /**
+     * Assembles an {@link AgentLoop} from an already-built composer, the given tool registry, and
+     * the given system-prompt blocks &mdash; the shared loop-wiring the one-shot/REPL (brownfield)
+     * and the greenfield phase loops both use. The permission gate, budget guard, compaction seam,
+     * and disposer are wired identically; only the registry and system prompt differ (brownfield's
+     * full registry + brownfield playbook vs. greenfield's phase-scoped registry + per-phase
+     * greenfield playbook).
+     */
+    private AgentLoop assembleLoop(ToolRegistryComposer composer, ResolvedConfig config,
+            EventLog log, String sessionLineage, Approver approver, SessionStore sessions,
+            ToolRegistry tools, List<String> systemPrompt) {
+        // Reuse the composer's shared collaborators so the gate shares the orchestrator's grant
+        // store (INV-10), the compaction harvest shares the tool registry's memory store (AC-18.5),
+        // every loop runs over the same ModelClient wire path (D2-safe), and every event draws its
+        // timestamp from the one boundary clock (ADR-0005).
+        ModelClient modelClient = composer.modelClient();
+        GrantStore parentGrants = composer.parentGrants();
+        MemoryStore memoryStore = composer.memoryStore();
+        Supplier<String> clock = composer.clock();
         PermissionGate gate = new PermissionGate(config.permissionMode(), parentGrants, approver);
         // ADR-0006 / § 6.A.1: thread the live session's tool definitions into the compaction seam.
         // The summarizer Converse call replays the original transcript verbatim — which carries
@@ -183,24 +261,23 @@ public final class AgentLoopFactory {
         // ModelCapabilityProfile); this composition root only wires them.
         ModelCapabilityProfile profile = ModelCapabilityProfile.forModelId(
                 config.modelId(), CONSERVATIVE_DEFAULT_CONTEXT_WINDOW_TOKENS);
-        // ADR-0012 (T-1.6): v1 is brownfield-only (02-architecture § 7 "the brownfield loop...
-        // Enables now"), so the loop carries the brownfield playbook system prompt — the lever
-        // that primes the model to explore-before-edit (AC-4.1/AC-5.1) and verify-after-change
-        // (AC-5.3). ADR-0007 (T-2.4 D5): the system prompt now ALSO carries the always-loaded
-        // two-tier memory index (loaded fresh per session start via MemoryStore.loadIndexes,
-        // INV-14) so the model has awareness of which curated entries exist and can call
-        // read_memory with the correct slug; an empty index adds no memory section. The playbook
-        // blocks + the index-load/render/combine logic live in the gate-covered ToolRegistryComposer
-        // seam (NOT this JaCoCo-excluded factory), so a unit test pins that index content reaches
-        // the prompt; the factory only carries the assembled blocks to the loop's `system` arg.
-        // ADR-0006 (T-2.8): the loop now carries the live compaction seam so that on the budget
-        // guard's COMPACT (AC-18.1), the loop summarizes->derives->continues in the derived session
-        // (T14) instead of surfacing-and-stopping. The summarize/derive/harvest logic is the tested
+        // ADR-0012: the loop carries the system-prompt blocks the caller assembled in the
+        // gate-covered ToolRegistryComposer — the brownfield playbook + memory index for a
+        // one-shot/REPL run (T-1.6, T-2.4 D5), or the per-phase greenfield playbook + memory index
+        // for a greenfield phase loop (T-3.1). ADR-0007 (T-2.4 D5): the assembled blocks include the
+        // always-loaded two-tier memory index (loaded fresh per session start via
+        // MemoryStore.loadIndexes, INV-14); an empty index adds no memory section. Keeping the
+        // playbook + index-load/render/combine logic in the composer (NOT this JaCoCo-excluded
+        // factory) lets a unit test pin that the prompt reaches the model; the factory only carries
+        // the assembled blocks to the loop's `system` arg.
+        // ADR-0006 (T-2.8): the loop carries the live compaction seam so that on the budget guard's
+        // COMPACT (AC-18.1), the loop summarizes->derives->continues in the derived session (T14)
+        // instead of surfacing-and-stopping. The summarize/derive/harvest logic is the tested
         // CompactingSeam + Compactor units; this composition root only wires them.
         return new AgentLoop(modelClient, tools, gate, log,
                 clock, TokenBudgetGuard.forConfig(config, profile), compaction,
                 OutputDisposer.forConfig(config), config.modelId(),
-                composer.parentSystemPrompt());
+                systemPrompt);
     }
 
     /**
