@@ -1,11 +1,11 @@
 ---
 doc: design-progress
 last_updated: 2026-06-23
-last_updated_at_commit: pending
+last_updated_at_commit: 7a10d31
 current_phase: 5
 current_sub_phase: handed-off-to-coordinator
 current_sub_phase_status: resolved
-next_action: spec-driven-coordinator resumes T-3.2-RD-D12-D13 after the DCR-3 amendment (greenfield mid-flow resume by re-deriving phase-state from stamped on-disk artifacts; AC-7.3 repo-keying brought forward to replace ONE_SHOT_LINEAGE; the D13 no-clobber guard documented). The amendment briefly borrowed current_sub_phase=amendment-DCR-3 then returned it here. design-progress.md returns to frozen until the next amendment or Phase 5 ends.
+next_action: T-3.2-RD-D12-D13 resolved + pushed (resolution fbd33c4, amendment 7a10d31, DCR-3) — greenfield mid-flow resume + AC-7.3 repo-keying-forward on the D13 clobber fix. M3 task work complete; next coordinator move is the G3 milestone gate (the main agent re-runs the live G3 greenfield smoke test: interrupt a phase mid-flow, then re-run --mode greenfield and confirm it resumes at the failed phase). design-progress.md frozen until the next amendment or Phase 5 ends.
 next_artifact_to_touch: design/07-tasks-progress.md
 ---
 
@@ -93,7 +93,7 @@ _(none yet)_
 - 4-tasks (07-tasks.md + .kiro/spec-driven.yaml) — resolved, **PHASE 4 COMPLETE — DESIGN BASELINE DONE, handed off to coordinator** (review: `reviews/2026-06-17-tasks-r1.md`) — `6e1d54f`
 - DCR-1 amendment for T-3.2-RD-D10 — greenfield driver-authored phase-deliverable persistence (AC-1.2/1.4/1.5/2.1/2.5, ADR-0012, C3/C7 in 02-architecture, T-3.2 in 07-tasks; review: `reviews/2026-06-23-amendment-greenfield-driver-authored-persistence-r1.md`) — `67b12b6`
 - DCR-2 amendment for T-3.2 — greenfield multi-turn phase dialogue + approve-to-finalize, plus D1 output-token-cap fix (AC-1.1/1.4/1.5/2.1/2.3/2.4/2.5, ADR-0012, C3 + § 2.1 C4 output-budget in 02-architecture, T-3.1/3.2/3.3 in 07-tasks; review: `reviews/2026-06-23-amendment-greenfield-multiturn-phase-dialogue-r1.md`) — `a9644b4`
-- DCR-3 amendment for T-3.2-RD-D12-D13 — greenfield mid-flow resume by re-deriving phase-state from stamped on-disk artifacts + AC-7.3 repo-keying forward (new AC-7.6, AC-1.5 stamp doubles as resume + D13 clobber-protection marker; ADR-0012 "Greenfield mid-flow resume" + DCR-3 Notes; C3 reconstruction + C15 repo-keying in 02-architecture; T-3.2 note + new T-3.4 in 07-tasks; CT-GF-1/CT-GF-2 in 06-formal/contract-tests § 7; review: `reviews/2026-06-23-amendment-greenfield-resume-r1.md`) — `pending`
+- DCR-3 amendment for T-3.2-RD-D12-D13 — greenfield mid-flow resume by re-deriving phase-state from stamped on-disk artifacts + AC-7.3 repo-keying forward (new AC-7.6, AC-1.5 stamp doubles as resume + D13 clobber-protection marker; ADR-0012 "Greenfield mid-flow resume" + DCR-3 Notes; C3 reconstruction + C15 repo-keying in 02-architecture; T-3.2 note + new T-3.4 in 07-tasks; CT-GF-1/CT-GF-2 in 06-formal/contract-tests § 7; review: `reviews/2026-06-23-amendment-greenfield-resume-r1.md`) — `7a10d31` (resumed task: `fbd33c4`)
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 

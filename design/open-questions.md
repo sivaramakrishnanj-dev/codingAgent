@@ -580,7 +580,7 @@ auto-invokes the designer.
     revised_from_original: false
 - designer_status: amended
 - amendment_commit: 7a10d31
-- resumed_task_commit: (pending — lands with the T-3.2-RD-D12-D13 resolution commit)
+- resumed_task_commit: fbd33c4
 - ripple_unresolved: |
     Designer reported ripple_unresolved: [] (none). The two pre-existing DCR-1/DCR-2 ripple items
     (the D8 AC-9.4 / ADR-0004 gate-decision-table write_artifact carve-out; the 07-tasks-progress.md
@@ -597,4 +597,4 @@ auto-invokes the designer.
     contract-tests.md. ADR-0012 resume clause + Option B (first-class phase events) recorded as rejected.
     Review: design/reviews/2026-06-23-amendment-greenfield-resume-r1.md.
 - budget: amendment #1 of 3 for T-3.2-RD-D12-D13; DCR-3, amendment #3 of 10 for milestone M3
-- status: open (amended — coordinator resuming the task-builder to implement D12 + AC-7.3 repo-keying on top of the shipped D13 fix; resumed_task_commit backfilled on resolution)
+- status: closed (DCR-3 amended at 7a10d31; resumed task resolved + pushed at fbd33c4 — D12 greenfield mid-flow resume + AC-7.3 repo-keying-forward on the D13 clobber fix; mvn clean verify green, 1072 tests, JaCoCo 0.80)
