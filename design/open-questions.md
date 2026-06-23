@@ -458,3 +458,27 @@ auto-invokes the designer.
     (coordinator-owned), not a live spec cross-reference; must not be retro-edited. Neither is a NEW ripple
     introduced by DCR-2; both surfaced to the user before code resume. Neither blocks DCR-2 resume.
 
+
+## Discussion items from T-3.2-RD-D11 — 2026-06-23
+
+### D1 — spec says persist "on approval"; impl writes the latest deliverable each round before the gate, then finalizes the converged one at approval (suggested: ac-update)
+- task: T-3.2-RD-D11
+- spec_refs: AC-1.5, ADR-0012 ("on approval the driver captures the converged deliverable ... persists it")
+- suggested_amendment_kind: ac-update
+- finding: AC-1.5 / ADR-0012 (DCR-2) read as "persist on approval". The implementation writes the
+  latest deliverable to the phase artifact (a truncating overwrite) EACH ROUND before the gate, then
+  finalizes (AC-1.5 stamp + advance) at approval. Writing each round is required by two existing
+  collaborators: InteractiveGreenfieldApproval presents the artifact before asking the developer to
+  confirm (present-before-confirm), and the tasks gate reads the on-disk breakdown to verify AC-2.5
+  traceability before stamping — both need the current deliverable on disk at the moment of the gate.
+  The CONVERGED, stamped, kept artifact is the one present at approval; a non-approve round never stamps
+  and the next refining turn overwrites with the refined deliverable. So the observable contract
+  ("the approved artifact holds the converged deliverable + the stamp") is met; only the literal wording
+  "persist ON approval" vs "write each round, finalize at approval" differs.
+- coordinator note: non-blocking; T-3.2-RD-D11 resolved cleanly (0 Blocker/Major; 1 Minor). This is a
+  one-line AC/ADR wording clarification, not a code defect — the code's observable behaviour matches the
+  intent. If the user wants AC-1.5 / ADR-0012 to state "the driver writes the latest deliverable each
+  round (present-before-confirm + tasks-gate traceability read) and finalizes the converged one at
+  approval", that is an ac-update amendment — user's call. Naturally bundles with the recurring greenfield
+  prose-clarification candidates (T-3.3 D1, T-2.8 D1, T-3.2-RD-D8 D1) the user may consolidate post-G3.
+- status: open (informational; no action required to proceed)
