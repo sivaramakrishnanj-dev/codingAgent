@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: e1299c6
+last_updated_at_commit: pending
 total_resolved_count: 23
 
 last_resolved:
@@ -12,8 +12,50 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-2.7
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-23T00:00:00+00:00
+  last_updated_at: 2026-06-23T00:00:00+00:00
 ---
+
+## In-flight
+
+- task: T-2.7
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  files_in_working_tree:
+    - (none yet — task start)
+  dcrs_consumed:
+    - (none)
+  started_at: 2026-06-23T00:00:00+00:00
+  last_updated_at: 2026-06-23T00:00:00+00:00
+  note: |
+    T-2.7 — "Wire sub-agent + memory tools into the live tool registry" (M2 integration/wiring;
+    regression-of-T-2.3/T-2.4; closes the live-vs-mocked gap that blocks G2). NOT a row in
+    07-tasks.md (coordinator does not edit the designer-owned tasks table); tracked here with full
+    traceability, same as the M0 D1/D2 regression tasks (T-0.2-RD1, T-0.5-RD2).
+    VERIFIED GAP: AgentLoopFactory.toolRegistry() (src/main/java/com/srk/codingagent/cli/AgentLoopFactory.java)
+    composes only 7 tools (read_file, grep, glob, list, write_file, edit_file, run_command). It never
+    registers spawn_subagent (SpawnSubAgentTool, NAME="spawn_subagent"), read_memory (ReadMemoryTool),
+    or write_memory (WriteMemoryTool) — all of which exist and are unit-tested. The
+    ChildAgentLoopFactory production seam (() -> agentLoop.run(prompt) over a REAL nested AgentLoop,
+    D2-safe by construction) is documented but never instantiated in production. So 2 of 3 G2 manual
+    criteria ("a sub-agent returns a summary", "a learning proposed->approved->recalled") are not
+    reachable from the live CLI. AgentLoopFactory is the JaCoCo-excluded composition root, which is
+    why no unit test caught it (same live-vs-mocked class as the M0 D1/D2 defects).
+    cited_spec_refs: ADR-0010, ADR-0007, INV-10, INV-11, INV-12, INV-13, INV-14, AC-17.1, AC-17.2,
+    AC-17.3, AC-17.4, AC-17.5, AC-17.6, AC-10.6, AC-12.1, AC-12.2, AC-12.3, AC-12.4, AC-14.1, AC-14.2,
+    AC-14.3, CT-INV-9, CT-INV-10, CT-INV-11, CT-INV-12, CT-SCH-11, CT-SCH-12.
 
 ## Milestone gates
 
