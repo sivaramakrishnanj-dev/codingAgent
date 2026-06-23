@@ -2,51 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-23
 last_updated_at_commit: pending
-total_resolved_count: 24
+total_resolved_count: 25
 
 last_resolved:
-  task: T-2.7
-  title: "Wire sub-agent + memory tools into the live tool registry (M2 integration; regression-of-T-2.3/T-2.4)"
+  task: T-2.8
+  title: "Wire compaction-with-derivation into the live agent loop (M2 integration; regression-of-T-2.2)"
   resolved_at: 2026-06-23
-  commit: 9b15572
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-2.8
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-23T09:00:00+05:30
-  last_updated_at: 2026-06-23T09:00:00+05:30
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-2.8
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-23T09:00:00+05:30
-  last_updated_at: 2026-06-23T09:00:00+05:30
-  notes: |
-    Coordinator-inserted M2 live-wiring regression task (compaction analogue of T-2.7;
-    regression-of-T-2.2). VERIFIED gap: on BudgetGuard.Decision.COMPACT the live AgentLoop
-    (loop/AgentLoop.java ~L197-200) only LOGS + returns LoopOutcome.surfaced(...) — it never
-    invokes the Compactor to summarize->derive->continue. AgentLoop's ctor has no Compactor
-    seam, and AgentLoopFactory.create never constructs a Compactor (new Compactor(...) appears
-    only in tests). So the G2 headline criterion "a long task compacts + continues" is not
-    reachable from the live CLI when the real TokenBudgetGuard (T-2.1) fires at 0.85xwindow.
-    Same green-against-mocks/broken-live class as T-2.7 + D1/D2. User standing decision: fix
-    via coordinator wiring task, then main agent runs the G2 real-Bedrock smoke test.
 
 ## Milestone gates
 
@@ -298,3 +265,14 @@ in_flight:
 - milestone: M2 (integration/wiring task; NOT a 07-tasks.md row — tracked here with full traceability like the M0 D1/D2 regression tasks T-0.2-RD1/T-0.5-RD2. Coordinator does not edit the designer-owned tasks table.)
 - task_type: regression/integration — closes the live-vs-mocked gap blocking G2 (same class as M0 D1/D2: green against mocks, broken live).
 - notes: VERIFIED GAP (coordinator-confirmed before dispatch): AgentLoopFactory.toolRegistry() (the JaCoCo-EXCLUDED production composition root) registered ONLY the 7 file/search/run tools (read_file/grep/glob/list/write_file/edit_file/run_command). It never registered spawn_subagent (SpawnSubAgentTool), read_memory (ReadMemoryTool) or write_memory (WriteMemoryTool) — all three existed + were unit-tested but were NEVER offered to the model on a live run — and the ChildAgentLoopFactory production seam (a real nested AgentLoop) was documented in Javadoc but never instantiated. So 2 of 3 G2 manual criteria ("a sub-agent returns a summary", "a learning proposed->approved->recalled") were unreachable from the live CLI. FIX: composition logic extracted out of the JaCoCo-excluded AgentLoopFactory into a NEW gate-covered seam ToolRegistryComposer (com.srk.codingagent.cli) — so the wiring is now COVERED by the 0.80 gate (the structural cause of the gap, an un-covered composition root, is removed). The composer registers all 10 live tools; builds a MemoryStore (injected, defaulting to ~/.codingagent per ADR-0007) behind read_memory (Class R) + write_memory (Class X, with the session EventLog + boundary clock + origin session + repoKey for the AC-12.4 MEMORY_WRITE event); and builds a SubAgentOrchestrator (C13) over a production ChildAgentLoopFactory seam = () -> childLoop.run(prompt) over a REAL nested AgentLoop reusing the PARENT's ModelClient — so the child's toolResult routes through the same D2-fixed text/json wire path by construction (NOT field presence). Child isolation per ADR-0010/INV-10/11/12: child gets its OWN session log (SessionStore.openLog — sidesteps the shared-writer hazard at N=1; parent log receives only SUBAGENT_SPAWN/SUBAGENT_RESULT on the parent thread), a FRESH no-inherited-grants gate (parentGrants.forSubAgent), and a child tool registry that EXCLUDES spawn_subagent + write_memory (no unbounded recursive spawn; curated-write stays the root session's lane — stated_assumption). Child-session-id supplier + clock captured at the AgentLoopFactory boundary (ADR-0005 — never UUID.randomUUID inside the orchestrator). AgentLoopFactory.create gained a SessionStore param, passed from Main's two existing SessionStore.forUserHome() call sites (runOneShot/runInteractive) — minimal additive change. NEW LiveToolRegistryCompositionTest (7 tests, the test that WOULD have caught this): asserts the registry AgentLoopFactory/composer actually produces contains all 10 tools by name with exact count, correct operation classes (read_memory=READ, write_memory=X, spawn_subagent=X per ADR-0007/0010), each renders a toolSpec, dispatching spawn_subagent runs a REAL nested loop over a scripted Bedrock double and returns a summary-ONLY result (AC-17.1/17.4/INV-11), and the memory tools dispatch to the real handlers over the SAME wired MemoryStore (write then read round-trips). 832 tests green under mvn clean verify (JaCoCo 0.80 BUNDLE gate met; ToolRegistryComposer 97% line); shaded codingagent.jar builds (15 MB). Self-checks: oracle-traceability=passed, reuse=passed (extended SearchToolsRegistrationTest's established registration-test precedent rather than duplicating). 0 Blocker/Major/Minor, 1 Nit, 0 Discussion. >>> G2 SMOKE-TEST NOTE: a live codingagent -p / REPL run now offers spawn_subagent + read_memory + write_memory to the model — the two previously-unreachable G2 criteria are now exercisable. Main agent runs the real-Bedrock G2 smoke test (compact+continue with INV-7 signature replay; spawn a sub-agent + get a summary back; propose->approve->recall a learning) next.
+
+## T-2.8 — Wire compaction-with-derivation into the live agent loop (M2 integration; regression-of-T-2.2)
+- commit: PENDING_SHA
+- review: design/reviews/code/T-2.8-r1.md
+- resolved: 2026-06-23
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M2 (integration/wiring task; NOT a 07-tasks.md row — tracked here with full traceability like T-2.7 and the M0 D1/D2 regression tasks. Coordinator does not edit the designer-owned tasks table.)
+- task_type: regression/integration — closes the SECOND live-vs-mocked gap blocking G2 (same class as T-2.7 and M0 D1/D2: green against mocks, broken live). This is the compaction analogue of T-2.7's sub-agent/memory wiring.
+- notes: VERIFIED GAP (coordinator-confirmed before dispatch): the Compactor (T-2.2) was fully built + unit-tested (incl. CompactionHarvestEndToEndTest doing a real summarize->harvest->derive) but NEVER wired into the live AgentLoop. On BudgetGuard.Decision.COMPACT the loop's T13 budget hook (loop/AgentLoop.java ~L197-200) only LOGGED "Budget guard signalled compaction; surfacing (compaction is T-2.1/T-2.2)" and returned LoopOutcome.surfaced(...); AgentLoop's ctor had no compaction collaborator; and AgentLoopFactory (the JaCoCo-excluded composition root) wired a REAL TokenBudgetGuard (T-2.1, so the 0.85xwindow threshold CAN fire on a live run) but never constructed a Compactor (new Compactor(...) appeared only in tests). So the G2 HEADLINE criterion ("a long task compacts + continues — derived session, original preserved, INV-7 signature replay") was unreachable from the live CLI: when the threshold fired on a real run the loop STOPPED (SURFACED) instead of compacting-and-continuing. FIX (T-2.7 precedent — business wiring in a gate-covered seam, not the excluded root): (1) NEW CompactionSeam interface in the loop package (default NONE, the analogue of BudgetGuard.NONE) — the loop's injected compaction hook + a CompactionResult record {continued(derivedTranscript) | surfaced(stopReason)}. (2) AgentLoop's T13 hook now, on COMPACT, INVOKES the seam: on a continued result it swaps the live transcript for the derived session's replayed messages[] and KEEPS DRIVING in the child (state machine A T14 -> S1; the next live Converse call happens in the derived conversation), and on a surfaced result (compaction failure, T15) it surfaces MODEL_CONTEXT_WINDOW_EXCEEDED which OneShotRunner ALREADY maps to exit 5 (CT-SM-7, cli-exit-codes 5) — so the failure path lands on exit 5 with ZERO change to the tested exit-code mapping. New 10-arg AgentLoop ctor; the 9-arg ctor delegates with CompactionSeam.NONE (backward compatible — existing callers + the sub-agent child loop unaffected; the no-compaction wiring still surfaces a COMPACT as before). (3) NEW gate-covered CompactingSeam (com.srk.codingagent.cli) wrapping the REAL Compactor: it threads the live session identity (repoKey + originalSessionId = ONE_SHOT_LINEAGE) the loop didn't hold, draws the derived session id from a boundary-captured supplier (ADR-0005 — never UUID.randomUUID inside the orchestration), runs one compaction-with-derivation (CompactionTrigger.THRESHOLD = the AC-18.1 auto path), and on success replays the derived session via the SAME SessionReplay the resume path uses (events->messages[], INV-7 reasoning signatures intact in the recent-tail verbatim turns). (4) AgentLoopFactory (JaCoCo-excluded) narrows to composing the seam: the summarizer model = config.summarizerModelId() if set else config.modelId() (ADR-0006); the MemoryStore is LIFTED to a shared local so the tool registry AND the compaction learning-harvest share ONE store + propose-and-approve path (AC-18.5 harvest-before-archive runs on a live compaction via MemoryLearningHarvester, NOT a duplicate of the write_memory wiring); recent-tail = 4 turns (documented compiled-in default — no NFR/config key pins it yet). NEW tests (the tests that WOULD have caught this): CompactingSeamTest (6 — derive-continues, parent byte-identical CT-INV-3, original preserved CT-INV-4, failed-compaction-surfaces-for-exit-5 CT-SM-7, boundary-id, over a scripted Bedrock double); LiveCompactionReachabilityTest (3 — a loop driven past the budget threshold actually invokes compaction and CONTINUES in a derived session NOT SURFACED, CT-SM-6, + AgentLoopFactory composes a loop with the seam present); AgentLoopTest evolved (the stale budgetGuardCompactSurfaces test that pinned the OLD broken-for-live SURFACED behavior -> 4 new compaction tests: continue, derived-transcript-on-the-wire, failure-surfaces-for-exit-5, NONE-still-surfaces; + 10-arg ctor null-check). 844 tests green under mvn clean verify (JaCoCo 0.80 BUNDLE gate met; AgentLoop 96/96 line incl. the new COMPACT branch; CompactingSeam 23/24); shaded codingagent.jar builds + launches. Self-checks: oracle-traceability=passed (expected values trace to AC-18.1/18.4/18.5, INV-4/5/7, CT-SM-6/7, CT-INV-3/4, state-machine A T13/T14/T15, cli-exit-codes 5, D2/T-0.5-RD2 wire shape — never to impl behavior), reuse=passed (reused Compactor/MemoryLearningHarvester/SessionReplay/TokenBudgetGuard + the ToolRegistryComposer extraction pattern; shared the memory propose-and-approve path, no duplication). 0 Blocker/Major/Minor, 1 Nit, 1 Discussion (D1 logged to open-questions). >>> G2 SMOKE-TEST NOTE: a live codingagent run whose usage crosses 0.85xwindow now SUMMARIZES->DERIVES->CONTINUES in a derived DERIVED_FROM session (original byte-identical, INV-7 signatures replayed) instead of stopping — the G2 headline criterion is now exercisable. Main agent runs the real-Bedrock G2 smoke test next, lowering contextCompactThreshold via config (key: contextCompactThreshold; window for us.anthropic.claude-opus-4-8 is 200k) so the threshold fires cheaply, plus a live sub-agent spawn and a propose->approve->recall memory cycle.

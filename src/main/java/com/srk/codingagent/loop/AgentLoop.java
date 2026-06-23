@@ -52,12 +52,17 @@ import org.slf4j.LoggerFactory;
  *   <li><b>{@link StopReason#END_TURN} / {@link StopReason#STOP_SEQUENCE} (T3 → S5).</b>
  *       The loop returns the final assistant text. {@code stop_sequence} is treated as
  *       {@code end_turn} (§ 3.1).</li>
+ *   <li><b>Budget seam (T13 → machine B).</b> After each turn's usage is logged, the loop
+ *       consults the {@link BudgetGuard}; on {@link BudgetGuard.Decision#COMPACT} it invokes
+ *       the {@link CompactionSeam} (summarize → derive → continue, ADR-0006). On a successful
+ *       derive (T14) the loop continues driving in the derived session; on a compaction failure
+ *       (T15) it surfaces. With the {@link BudgetGuard#NONE} / {@link CompactionSeam#NONE}
+ *       wiring it never compacts.</li>
  *   <li><b>Edge reasons (T4/T5 → S6/S7).</b> {@code max_tokens},
  *       {@code model_context_window_exceeded}, {@code guardrail_intervened},
  *       {@code content_filtered}, and the {@code malformed_*} reasons are surfaced as a
- *       {@link LoopOutcome.Kind#SURFACED} outcome; the budget/compaction handler
- *       (T-2.1/T-2.2) and the bounded repair-retry (state machine A T5) are deliberately
- *       NOT built here (see {@link BudgetGuard}).</li>
+ *       {@link LoopOutcome.Kind#SURFACED} outcome; the bounded repair-retry (state machine A
+ *       T5) is deliberately NOT built here.</li>
  * </ul>
  *
  * <p><b>Log-before-act (INV-2, CT-INV-2).</b> Every event is appended via
@@ -78,10 +83,11 @@ import org.slf4j.LoggerFactory;
  * {@code Instant.now()}; it draws every event's timestamp from the injected
  * {@code clock} {@link Supplier}, so a run is reproducible and tests are deterministic.
  *
- * <p><b>Out of scope (later tasks).</b> Compaction (S6), exit-code dispatch and one-shot
- * vs. REPL (S8 — the loop returns a {@link LoopOutcome}, it does not call
- * {@code System.exit}), {@code SIGINT} handling, and sub-agent orchestration are not
- * implemented here; the loop leaves clean seams for them.
+ * <p><b>Out of scope (later tasks).</b> Exit-code dispatch and one-shot vs. REPL (S8 — the
+ * loop returns a {@link LoopOutcome}, it does not call {@code System.exit}), {@code SIGINT}
+ * handling, and sub-agent orchestration are not implemented here; the loop leaves clean seams
+ * for them. Compaction (S6) is delegated to the injected {@link CompactionSeam}: the loop owns
+ * only consulting it at T13 and continuing-or-surfacing on its result.
  *
  * <p>Not thread-safe: one loop drives one session on a single thread (the C2 invariant —
  * one in-flight model call per conversation).
@@ -99,12 +105,18 @@ public final class AgentLoop {
     private final EventLog log;
     private final Supplier<String> clock;
     private final BudgetGuard budgetGuard;
+    private final CompactionSeam compaction;
     private final OutputDisposer disposer;
     private final String modelId;
     private final List<String> system;
 
     /**
-     * Creates a loop over its composed collaborators.
+     * Creates a loop over its composed collaborators with no compaction wired
+     * ({@link CompactionSeam#NONE} — a {@code COMPACT} signal surfaces, as it did before a
+     * compaction seam existed). Equivalent to
+     * {@link #AgentLoop(ModelClient, ToolRegistry, PermissionGate, EventLog, Supplier,
+     * BudgetGuard, CompactionSeam, OutputDisposer, String, List)} with
+     * {@link CompactionSeam#NONE}.
      *
      * @param modelClient the Converse adapter (T-0.5); must not be {@code null}.
      * @param tools       the tool registry (T-0.6), whose {@code toolConfig} is sent on
@@ -137,12 +149,58 @@ public final class AgentLoop {
             OutputDisposer disposer,
             String modelId,
             List<String> system) {
+        this(modelClient, tools, gate, log, clock, budgetGuard, CompactionSeam.NONE,
+                disposer, modelId, system);
+    }
+
+    /**
+     * Creates a loop over its composed collaborators, including the compaction seam
+     * (state machine A T13&rarr;T14/T15).
+     *
+     * @param modelClient the Converse adapter (T-0.5); must not be {@code null}.
+     * @param tools       the tool registry (T-0.6), whose {@code toolConfig} is sent on
+     *                    every call and whose handlers receive approved {@code toolUse}s;
+     *                    must not be {@code null}.
+     * @param gate        the permission gate (T-0.7) consulted before every side effect;
+     *                    must not be {@code null}.
+     * @param log         the session event log (T-0.4); must not be {@code null}.
+     * @param clock       the timestamp source for every appended event (ADR-0005 — the
+     *                    loop never calls {@code Instant.now()}); must not be {@code null}.
+     * @param budgetGuard the budget-check seam consulted after each turn (state machine A
+     *                    T13); use {@link BudgetGuard#NONE} for the no-compaction wiring;
+     *                    must not be {@code null}.
+     * @param compaction  the compaction seam invoked when {@code budgetGuard} returns
+     *                    {@link BudgetGuard.Decision#COMPACT} (state machine A T13&rarr;machine
+     *                    B): on success the loop continues in the derived session (T14), on
+     *                    failure it surfaces (T15). Use {@link CompactionSeam#NONE} for the
+     *                    no-compaction wiring; must not be {@code null}.
+     * @param disposer    the output disposer (C6, US-19) consulted between persisting a tool
+     *                    result and returning it to the model context: it reduces an oversized
+     *                    result (head+tail) for context while the full output stays in the log
+     *                    (AC-19.1/19.2); must not be {@code null}.
+     * @param modelId     the Bedrock model id sent on every Converse call; non-blank.
+     * @param system      the system-prompt blocks, or {@code null} for none.
+     * @throws NullPointerException     if any required argument is {@code null}.
+     * @throws IllegalArgumentException if {@code modelId} is blank.
+     */
+    public AgentLoop(
+            ModelClient modelClient,
+            ToolRegistry tools,
+            PermissionGate gate,
+            EventLog log,
+            Supplier<String> clock,
+            BudgetGuard budgetGuard,
+            CompactionSeam compaction,
+            OutputDisposer disposer,
+            String modelId,
+            List<String> system) {
         this.modelClient = Objects.requireNonNull(modelClient, "modelClient");
         this.tools = Objects.requireNonNull(tools, "tools");
         this.gate = Objects.requireNonNull(gate, "gate");
         this.log = Objects.requireNonNull(log, "log");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.budgetGuard = Objects.requireNonNull(budgetGuard, "budgetGuard");
+        this.compaction = Objects.requireNonNull(compaction, "compaction");
         this.disposer = Objects.requireNonNull(disposer, "disposer");
         if (Objects.requireNonNull(modelId, "modelId").isBlank()) {
             throw new IllegalArgumentException("modelId must be non-blank");
@@ -177,7 +235,10 @@ public final class AgentLoop {
     }
 
     /** The S1 -> ... loop: call the model, log the turn, dispatch on stop reason, repeat. */
-    private LoopOutcome drive(List<ConverseMessage> transcript) {
+    private LoopOutcome drive(List<ConverseMessage> seedTranscript) {
+        // A mutable handle so a successful compaction (T14) can swap the live transcript for the
+        // derived session's replayed messages[] and the loop keeps driving in the child.
+        List<ConverseMessage> transcript = seedTranscript;
         while (true) {
             // S1: one in-flight model call per conversation (the full transcript is resent;
             // Converse is stateless).
@@ -192,11 +253,27 @@ public final class AgentLoop {
             append(turn.usage());
             transcript.add(ConverseMessage.assistant(response.content()));
 
-            // T13 (budget seam): after the turn's usage is logged, consult the guard.
-            // Compaction (S6) is a later task; a real guard returning COMPACT is surfaced.
+            // T13 (budget seam): after the turn's usage is logged, consult the guard. On COMPACT
+            // (machine A T13 -> machine B) invoke the compaction seam: summarize -> derive -> the
+            // derived session's replayed messages[] (AC-18.1/18.4, INV-4/5/7). On success (LT3, T14)
+            // continue driving in the derived conversation; on failure (LT4 -> LT7, T15) surface so
+            // the one-shot boundary exits 5 (context-exhausted). With BudgetGuard.NONE the seam is
+            // never consulted (the no-compaction wiring).
             if (budgetGuard.evaluate(turn.usage()) == BudgetGuard.Decision.COMPACT) {
-                LOGGER.info("Budget guard signalled compaction; surfacing (compaction is T-2.1/T-2.2)");
-                return LoopOutcome.surfaced(response.stopReason());
+                LOGGER.info("Budget guard signalled compaction; invoking the compaction seam (T13)");
+                CompactionSeam.CompactionResult result =
+                        compaction.compact(transcript, response.stopReason());
+                if (!result.continued()) {
+                    LOGGER.info("Compaction did not continue; surfacing stopReason={} (T15)",
+                            result.surfacedStopReason());
+                    return LoopOutcome.surfaced(result.surfacedStopReason());
+                }
+                // T14 -> S1: continue in the derived session. The seam returned the derived
+                // session's replayed transcript (summary context + recent-tail verbatim turns,
+                // INV-7 signatures intact); the next Converse call happens in the child.
+                LOGGER.info("Compaction derived a successor session; continuing the loop in it (T14)");
+                transcript = new ArrayList<>(result.derivedTranscript());
+                continue;
             }
 
             switch (response.stopReason()) {
@@ -208,8 +285,9 @@ public final class AgentLoop {
                 default -> {
                     // T4/T5 -> S6/S7: max_tokens, model_context_window_exceeded,
                     // guardrail_intervened, content_filtered, malformed_* are surfaced
-                    // without running tools (the compaction / repair-retry handlers are
-                    // later tasks). The loop stops and reports the reason for T-0.9 to map.
+                    // without running tools (the bounded repair-retry handler is a later
+                    // task; the context-window backstop is handled at the budget seam above).
+                    // The loop stops and reports the reason for T-0.9 to map.
                     LOGGER.warn("Surfacing edge stop reason without acting: {}", response.stopReason());
                     return LoopOutcome.surfaced(response.stopReason());
                 }

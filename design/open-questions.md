@@ -209,3 +209,29 @@ auto-invokes the designer.
   that is a doc/adr-clarification amendment (no code or schema change — the code already
   matches the schema) — user's call. Could bundle with the deferred M1 consolidated amendment.
 - status: open (informational; no action required to proceed)
+
+## Discussion items from T-2.8 — 2026-06-23
+
+### D1 — AC-18.5 live learning-harvest seam is now wired but inert at v1 (suggested: ac-update)
+- task: T-2.8
+- spec_refs: AC-18.5 ("propose durable learnings for memory before archiving"), ADR-0007, AC-21.4/INV-13 (no auto-extract)
+- suggested_amendment_kind: ac-update
+- finding: T-2.8 wired the compaction learning-harvest seam (MemoryLearningHarvester over the
+  shared MemoryStore + LearningProposer) into the live AgentLoopFactory so AC-18.5's
+  harvest-before-archive ordering is structurally present on a LIVE compaction. But the seam is
+  inert at v1: the extractor is `LearningExtractor.NONE` (no production heuristic exists for
+  turning a compaction summary into durable-learning candidates — T-2.5 deliberately left
+  extraction a seam) and the one-shot approver is `LearningApprover.DENY_ALL` (the safe default
+  when no developer terminal is present on the `-p` path — AC-21.4/INV-13, never auto-extract). So
+  a live threshold compaction proposes ZERO learnings today: the harvest moment is reachable but
+  persists nothing. The summarize->derive->continue path itself is fully live (the G2 headline);
+  only the AC-18.5 harvest sub-step is reachable-but-inert.
+- coordinator note: non-blocking; T-2.8 resolved cleanly (0 Blocker/Major/Minor). This is a
+  defensible scoping choice — wiring a real extraction heuristic + an interactive approver is its
+  own piece of work, not a loop-wiring task, and the no-auto-extract default is the correct
+  anti-poisoning stance. When the interactive REPL wires a real LearningApprover (and a later task
+  adds a LearningExtractor heuristic), durable learnings will flow through this SAME already-wired
+  path with no re-wiring. If the user wants AC-18.5 to explicitly note that the live extraction
+  heuristic + interactive approval are a deferred sub-step (so the spec matches the reachable-
+  but-inert v1 state), that is an ac-update amendment — user's call. No action required to proceed.
+- status: open (informational; no action required to proceed)

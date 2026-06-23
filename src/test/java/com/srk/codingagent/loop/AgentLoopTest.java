@@ -765,6 +765,10 @@ class AgentLoopTest {
                 client, tools, gate, log, () -> TS, BudgetGuard.NONE, null, MODEL_ID, null));
         assertThrows(IllegalArgumentException.class, () -> new AgentLoop(
                 client, tools, gate, log, () -> TS, BudgetGuard.NONE, DISPOSER, "  ", null));
+        // The 10-arg constructor also requires the compaction seam (the no-compaction wiring uses
+        // CompactionSeam.NONE; null is rejected, matching the BudgetGuard.NONE contract).
+        assertThrows(NullPointerException.class, () -> new AgentLoop(
+                client, tools, gate, log, () -> TS, BudgetGuard.NONE, null, DISPOSER, MODEL_ID, null));
     }
 
     @Test
@@ -798,13 +802,122 @@ class AgentLoopTest {
     }
 
     @Test
-    @DisplayName("state machine A T13: a budget guard signalling COMPACT surfaces (compaction is T-2.x)")
-    void budgetGuardCompactSurfaces() {
-        // Oracle: state machine A T13 — usage crossing the budget threshold hands to the
-        // compaction machine (S6). Compaction is out of scope at T-0.8; the loop consults the
-        // injected BudgetGuard seam after a turn and, on COMPACT, surfaces rather than running
-        // tools or implementing compaction. A guard that always says COMPACT must make a
-        // tool_use turn surface (not dispatch the tool).
+    @DisplayName("state machine A T13->T14: on COMPACT the loop invokes the compaction seam and continues in the derived session (NOT surfaced)")
+    void budgetGuardCompactContinuesInDerivedSession() {
+        // Oracle: AC-18.1 / state machine A T13->T14 — "when token usage reaches the threshold,
+        // the agent shall compact ... and CONTINUE in a new derived conversation". The loop
+        // consults the BudgetGuard after a turn; on COMPACT it invokes the CompactionSeam, and on a
+        // CONTINUED result it continues driving in the derived transcript (NOT surfacing-and-
+        // stopping — the obsolete T-0.8 behaviour). Expected: with a guard that says COMPACT on the
+        // first turn and a seam that returns a derived transcript, the loop re-calls the model in
+        // the derived session and completes there. The seam here is a controllable real
+        // CompactionSeam (the lambda), not a mock of the SUT (AgentLoop) — the loop's continue-or-
+        // surface dispatch is the SUT.
+        ToolRegistry tools = ToolRegistry.of(List.of());
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(textTurn("compact me", "end_turn"))   // turn 1: triggers COMPACT before dispatch
+                .then(textTurn("done in derived session", "end_turn")); // turn 2: in the derived session
+        ModelClient modelClient = new ModelClient(bedrock);
+        PermissionGate gate = new PermissionGate(
+                PermissionMode.ASK_EVERY_TIME, GrantStore.forSession("root"), alwaysApprove());
+        // A guard that signals COMPACT once (the first turn) then CONTINUE, so the loop compacts
+        // after turn 1 and completes after the derived-session turn.
+        java.util.concurrent.atomic.AtomicInteger turnIndex = new java.util.concurrent.atomic.AtomicInteger(0);
+        BudgetGuard compactOnFirstTurn = usage ->
+                turnIndex.getAndIncrement() == 0 ? BudgetGuard.Decision.COMPACT : BudgetGuard.Decision.CONTINUE;
+        List<com.srk.codingagent.model.converse.ConverseMessage> derivedSeed = List.of(
+                com.srk.codingagent.model.converse.ConverseMessage.user(
+                        List.of(com.srk.codingagent.persistence.ContentBlock.text("[summary] continue here"))));
+        CompactionSeam seam = (transcript, stopReason) -> CompactionSeam.CompactionResult.continued(derivedSeed);
+        AgentLoop loop = new AgentLoop(modelClient, tools, gate, EventLog.over(new StringWriter(), "t"),
+                () -> TS, compactOnFirstTurn, seam, DISPOSER, MODEL_ID, null);
+
+        LoopOutcome outcome = loop.run("long task");
+
+        assertEquals(LoopOutcome.Kind.COMPLETED, outcome.kind(),
+                "AC-18.1/T14: on COMPACT the loop continues in the derived session and completes there (NOT surfaced)");
+        assertEquals(2, bedrock.callCount(),
+                "T14: the loop re-calls the model in the derived session after compacting");
+        assertEquals("done in derived session", outcome.finalText(),
+                "T14: the loop drives to completion in the derived conversation");
+    }
+
+    @Test
+    @DisplayName("state machine A T13->T14: the re-call after compaction carries the derived session's transcript, not the original's")
+    void compactionContinuesWithDerivedTranscriptOnTheWire() {
+        // Oracle: AC-18.4 / T14 — the loop CONTINUES "in a new derived conversation" carrying the
+        // carried-forward context. After compaction, the next Converse request must be the derived
+        // session's messages[] (the summary context block), not the original transcript. Assert
+        // against the captured re-call request (the real wire), not impl state — the D2-class
+        // discipline (assert the round-trip, not a field).
+        ToolRegistry tools = ToolRegistry.of(List.of());
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(textTurn("original-session answer", "end_turn"))
+                .then(textTurn("derived-session answer", "end_turn"));
+        ModelClient modelClient = new ModelClient(bedrock);
+        PermissionGate gate = new PermissionGate(
+                PermissionMode.ASK_EVERY_TIME, GrantStore.forSession("root"), alwaysApprove());
+        java.util.concurrent.atomic.AtomicInteger turnIndex = new java.util.concurrent.atomic.AtomicInteger(0);
+        BudgetGuard compactOnFirstTurn = usage ->
+                turnIndex.getAndIncrement() == 0 ? BudgetGuard.Decision.COMPACT : BudgetGuard.Decision.CONTINUE;
+        String summarySentinel = "[COMPACTED-SUMMARY-SENTINEL] continue without re-explaining";
+        List<com.srk.codingagent.model.converse.ConverseMessage> derivedSeed = List.of(
+                com.srk.codingagent.model.converse.ConverseMessage.user(
+                        List.of(com.srk.codingagent.persistence.ContentBlock.text(summarySentinel))));
+        CompactionSeam seam = (transcript, stopReason) -> CompactionSeam.CompactionResult.continued(derivedSeed);
+        AgentLoop loop = new AgentLoop(modelClient, tools, gate, EventLog.over(new StringWriter(), "t"),
+                () -> TS, compactOnFirstTurn, seam, DISPOSER, MODEL_ID, null);
+
+        loop.run("long task");
+
+        ConverseRequest reCall = bedrock.requests.get(1);
+        boolean carriesSummary = reCall.messages().stream()
+                .flatMap(m -> m.content().stream())
+                .map(b -> b.text())
+                .filter(t -> t != null)
+                .anyMatch(t -> t.contains("COMPACTED-SUMMARY-SENTINEL"));
+        assertTrue(carriesSummary,
+                "AC-18.4/T14: the re-call after compaction carries the derived session's summary context");
+    }
+
+    @Test
+    @DisplayName("state machine A T13->T15: a failed compaction (seam surfaces) stops the loop with the surfaced stop reason")
+    void compactionFailureSurfacesForExitFive() {
+        // Oracle: CT-SM-7 / state machine A T15 — "compaction failure path exits 5". When the
+        // compaction seam returns a SURFACED result (the summary/derive could not recover context,
+        // LT4->LT7), the loop must stop with that surfaced stop reason so the one-shot boundary maps
+        // it to exit 5. The seam surfaces MODEL_CONTEXT_WINDOW_EXCEEDED (OneShotRunner maps that to
+        // 5). Assert the loop returns SURFACED carrying that reason and does not re-call.
+        ToolRegistry tools = ToolRegistry.of(List.of());
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(textTurn("about to overflow", "end_turn"));
+        ModelClient modelClient = new ModelClient(bedrock);
+        PermissionGate gate = new PermissionGate(
+                PermissionMode.ASK_EVERY_TIME, GrantStore.forSession("root"), alwaysApprove());
+        CompactionSeam failingSeam = (transcript, stopReason) ->
+                CompactionSeam.CompactionResult.surfaced(StopReason.MODEL_CONTEXT_WINDOW_EXCEEDED);
+        AgentLoop loop = new AgentLoop(modelClient, tools, gate, EventLog.over(new StringWriter(), "t"),
+                () -> TS, usage -> BudgetGuard.Decision.COMPACT, failingSeam, DISPOSER, MODEL_ID, null);
+
+        LoopOutcome outcome = loop.run("long task");
+
+        assertEquals(1, bedrock.callCount(),
+                "T15: a failed compaction does not re-call the model; it surfaces and stops");
+        assertEquals(LoopOutcome.Kind.SURFACED, outcome.kind(),
+                "CT-SM-7/T15: a compaction failure surfaces (so the boundary exits 5)");
+        assertEquals(StopReason.MODEL_CONTEXT_WINDOW_EXCEEDED, outcome.stopReason(),
+                "CT-SM-7: the surfaced reason is the context-exhausted reason OneShotRunner maps to exit 5");
+    }
+
+    @Test
+    @DisplayName("CompactionSeam.NONE: the no-compaction wiring surfaces the turn's stop reason on COMPACT (BudgetGuard.NONE never reaches it)")
+    void compactionSeamNoneSurfaces() {
+        // Oracle: the no-compaction wiring is BudgetGuard.NONE + CompactionSeam.NONE — the analogue
+        // of the prior surface-on-COMPACT behaviour. CompactionSeam.NONE returns a SURFACED result
+        // carrying the turn's stop reason, so if a guard ever returns COMPACT with NONE wired, the
+        // loop surfaces rather than continuing (defensive: with BudgetGuard.NONE the seam is never
+        // consulted, but the contract is that NONE surfaces). Drive a guard that says COMPACT with
+        // the 9-arg constructor (which defaults the seam to CompactionSeam.NONE).
         RecordingTool tool = new RecordingTool("read_file", OperationClass.READ, "data");
         ToolRegistry tools = ToolRegistry.of(List.of(tool));
         ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
@@ -812,15 +925,21 @@ class AgentLoopTest {
         ModelClient modelClient = new ModelClient(bedrock);
         PermissionGate gate = new PermissionGate(
                 PermissionMode.ASK_EVERY_TIME, GrantStore.forSession("root"), alwaysApprove());
+        // 9-arg constructor: no compaction seam -> defaults to CompactionSeam.NONE.
         AgentLoop loop = new AgentLoop(modelClient, tools, gate, EventLog.over(new StringWriter(), "t"),
                 () -> TS, usage -> BudgetGuard.Decision.COMPACT, DISPOSER, MODEL_ID, null);
 
         LoopOutcome outcome = loop.run("read x");
 
-        assertEquals(1, bedrock.callCount(), "T13: the loop hands off after the turn, not after a re-call");
-        assertFalse(tool.ran.get(), "T13: on COMPACT the loop surfaces before dispatching tools");
+        assertFalse(tool.ran.get(),
+                "with CompactionSeam.NONE the loop surfaces on COMPACT before dispatching tools");
         assertEquals(LoopOutcome.Kind.SURFACED, outcome.kind(),
-                "T13 -> S6: a budget-threshold hit is surfaced (compaction is T-2.1/T-2.2)");
+                "CompactionSeam.NONE surfaces the turn's stop reason (the no-compaction wiring)");
+        // CompactionSeam.NONE surfaces the triggering turn's stop reason verbatim; the scripted
+        // turn here is a tool_use turn, so the surfaced reason is TOOL_USE (the no-compaction
+        // contract: NONE is a pass-through of the turn's stop reason, not a fixed value).
+        assertEquals(StopReason.TOOL_USE, outcome.stopReason(),
+                "CompactionSeam.NONE surfaces the triggering turn's stop reason verbatim");
     }
 
     @Test

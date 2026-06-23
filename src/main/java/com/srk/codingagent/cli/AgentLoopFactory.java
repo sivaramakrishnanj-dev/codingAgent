@@ -1,8 +1,11 @@
 package com.srk.codingagent.cli;
 
 import com.srk.codingagent.config.ResolvedConfig;
+import com.srk.codingagent.context.Compactor;
+import com.srk.codingagent.context.LearningHarvester;
 import com.srk.codingagent.context.OutputDisposer;
 import com.srk.codingagent.loop.AgentLoop;
+import com.srk.codingagent.loop.CompactionSeam;
 import com.srk.codingagent.loop.TokenBudgetGuard;
 import com.srk.codingagent.memory.MemoryStore;
 import com.srk.codingagent.model.ModelCapabilityProfile;
@@ -14,8 +17,13 @@ import com.srk.codingagent.permission.Approver;
 import com.srk.codingagent.permission.GrantStore;
 import com.srk.codingagent.permission.PermissionGate;
 import com.srk.codingagent.persistence.EventLog;
+import com.srk.codingagent.persistence.SessionReplay;
 import com.srk.codingagent.persistence.SessionStore;
 import com.srk.codingagent.tool.ToolRegistry;
+import com.srk.codingagent.tool.memory.LearningApprover;
+import com.srk.codingagent.tool.memory.LearningExtractor;
+import com.srk.codingagent.tool.memory.LearningProposer;
+import com.srk.codingagent.tool.memory.MemoryLearningHarvester;
 import com.srk.codingagent.workflow.BrownfieldPlaybook;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -65,6 +73,16 @@ public final class AgentLoopFactory {
      * instead; until then it is a compiled-in default in this composition root.
      */
     private static final int CONSERVATIVE_DEFAULT_CONTEXT_WINDOW_TOKENS = 100_000;
+
+    /**
+     * How many recent verbatim turns the live compaction carries forward into the derived session
+     * (the configurable tail ADR-0006 names). v1 carries the last four message turns so the derived
+     * conversation keeps the immediate working context (the model's last move and its tool results)
+     * verbatim — preserving their reasoning signatures (INV-7) — alongside the summary. There is no
+     * config key for this yet (no NFR pins the tail size); it is a compiled-in default in this
+     * composition root until one exists, mirroring the conservative-window default above.
+     */
+    private static final int LIVE_COMPACTION_RECENT_TAIL_TURNS = 4;
 
     private final CredentialResolver credentialResolver;
     private final BedrockClientFactory clientFactory;
@@ -132,15 +150,21 @@ public final class AgentLoopFactory {
         // orchestrator (via the composer) share the same lineage-scoped store — the orchestrator
         // mints each child's fresh empty store from it (forSubAgent), and the gate consults it for
         // the parent's remembered grants. ADR-0005: the boundary clock + child-session-id supplier
-        // are captured here at the boundary (the orchestrator never calls UUID.randomUUID itself).
+        // (and the derived-session-id supplier the compaction seam uses) are captured here at the
+        // boundary (no UUID.randomUUID() inside the orchestration). The MemoryStore is lifted to a
+        // local so the tool registry AND the compaction learning-harvest share the same store
+        // (AC-18.5 reuses the propose-and-approve path, not a duplicate).
         GrantStore parentGrants = GrantStore.forSession(sessionLineage);
+        MemoryStore memoryStore = MemoryStore.forUserHome();
         Supplier<String> clock = () -> Instant.now().toString();
         Supplier<String> childSessionIds = () -> UUID.randomUUID().toString();
         ToolRegistry tools = new ToolRegistryComposer(
-                modelClient, config, workspaceRoot, log, MemoryStore.forUserHome(), sessions,
+                modelClient, config, workspaceRoot, log, memoryStore, sessions,
                 parentGrants, approver, sessionLineage, sessionLineage, clock, childSessionIds)
                 .parentRegistry();
         PermissionGate gate = new PermissionGate(config.permissionMode(), parentGrants, approver);
+        CompactionSeam compaction = compactionSeam(
+                modelClient, config, log, memoryStore, sessions, sessionLineage, clock);
 
         // ADR-0005: the loop draws every event's timestamp from this boundary clock.
         // US-19/ADR-0006: the disposer reduces oversized tool/command output for context at
@@ -159,9 +183,56 @@ public final class AgentLoopFactory {
         // that primes the model to explore-before-edit (AC-4.1/AC-5.1) and verify-after-change
         // (AC-5.3). The playbook content + the verify-loop wiring live in the tested workflow
         // unit; the factory only carries the prompt to the loop's `system` arg.
+        // ADR-0006 (T-2.8): the loop now carries the live compaction seam so that on the budget
+        // guard's COMPACT (AC-18.1), the loop summarizes->derives->continues in the derived session
+        // (T14) instead of surfacing-and-stopping. The summarize/derive/harvest logic is the tested
+        // CompactingSeam + Compactor units; this composition root only wires them.
         return new AgentLoop(modelClient, tools, gate, log,
-                clock, TokenBudgetGuard.forConfig(config, profile),
+                clock, TokenBudgetGuard.forConfig(config, profile), compaction,
                 OutputDisposer.forConfig(config), config.modelId(),
                 BrownfieldPlaybook.systemPrompt());
+    }
+
+    /**
+     * Builds the live {@link CompactionSeam} (T-2.8): a {@link CompactingSeam} over a real
+     * {@link Compactor} threaded with the live session identity and a boundary-captured
+     * derived-session-id supplier (ADR-0005).
+     *
+     * <p><b>Summarizer model (ADR-0006).</b> The summary Converse call uses the configured cheaper
+     * summarizer model ({@link ResolvedConfig#summarizerModelId()}) when set, else the main model
+     * ({@link ResolvedConfig#modelId()}).
+     *
+     * <p><b>Learning harvest (AC-18.5), sharing the propose-and-approve path.</b> The Compactor's
+     * {@link LearningHarvester} is wired as a {@link MemoryLearningHarvester} over the SAME
+     * {@link MemoryStore} the tool registry uses and a {@link LearningProposer} built from the same
+     * boundary clock + session identity — the one propose-and-approve path the explicit
+     * {@code write_memory} tool also funnels through (no duplicate wiring). The extractor is
+     * {@link LearningExtractor#NONE} (v1 ships no summary-extraction heuristic — T-2.5 left it a
+     * seam; inventing one is out of scope), and the one-shot approver is {@link LearningApprover#DENY_ALL}
+     * (the safe default when no developer terminal is present, AC-21.4/INV-13 — never auto-extract).
+     * So the harvest seam runs before archive on a live compaction (AC-18.5) yet persists nothing
+     * at v1, the correct anti-poisoning stance. When the interactive REPL wires a real approver +
+     * extractor (a later task), durable learnings flow through this same path.
+     */
+    private CompactionSeam compactionSeam(
+            ModelClient modelClient, ResolvedConfig config, EventLog log, MemoryStore memoryStore,
+            SessionStore sessions, String sessionLineage, Supplier<String> clock) {
+        String summarizerModelId = config.summarizerModelId() == null
+                ? config.modelId()
+                : config.summarizerModelId();
+        SessionReplay replay = new SessionReplay();
+        LearningProposer proposer = new LearningProposer(
+                memoryStore, log, LearningApprover.DENY_ALL, clock, sessionLineage, sessionLineage);
+        LearningHarvester harvester = new MemoryLearningHarvester(LearningExtractor.NONE, proposer);
+        Compactor compactor = new Compactor(
+                modelClient, sessions, replay, clock, summarizerModelId,
+                LIVE_COMPACTION_RECENT_TAIL_TURNS, harvester);
+        // ADR-0005: the derived session id is captured at this boundary (never inside the
+        // orchestration). v1 derives a timestamp-suffixed id from the lineage + boundary clock so
+        // the derived log path is deterministic and differs from the original (INV-4).
+        Supplier<String> derivedSessionIds =
+                () -> sessionLineage + "-derived-" + UUID.randomUUID();
+        return new CompactingSeam(
+                compactor, sessions, replay, sessionLineage, sessionLineage, derivedSessionIds);
     }
 }
