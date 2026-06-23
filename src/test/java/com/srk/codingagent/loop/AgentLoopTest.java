@@ -881,6 +881,90 @@ class AgentLoopTest {
     }
 
     @Test
+    @DisplayName("D4 (regression-of-T-2.8): a COMPACT on a tool_use turn hands the compaction seam a well-formed (toolUse/toolResult-paired) transcript, not a dangling toolUse (§ 6.A.1 / INV-6)")
+    void compactionOnToolUseTurnReceivesWellFormedTranscript() {
+        // Oracle: § 6.A.1 / INV-6 — the verified Bedrock Converse wire rule. "Every tool_use
+        // block must have a corresponding tool_result block in the next message." Any messages[]
+        // sent to Bedrock — INCLUDING the summarizer's verbatim replay during compaction — must
+        // satisfy this pairing. State machine B LT1->LT2 pins WHEN compaction may run: between
+        // COMPLETE turns; a tool_use turn is not complete until its tool_result is appended. So
+        // when the budget guard returns COMPACT on a tool_use turn, the transcript handed to the
+        // compaction seam MUST already carry the matching tool_result (no dangling tool_use that
+        // a pairing-enforcing Bedrock rejects with the D4 ValidationException).
+        //
+        // This is the live-only regression a mocked Bedrock never replayed: the pre-fix loop
+        // appended the assistant tool_use turn, evaluated the budget guard, and called
+        // compaction.compact(transcript, ...) BEFORE appending the tool_result — so the captured
+        // transcript ended in a dangling tool_use. The assertion below enforces the WIRE pairing
+        // contract (the defect), so it FAILS against the pre-fix ordering and PASSES after the fix.
+        // The seam is a controllable real CompactionSeam (the lambda) that captures the transcript
+        // it is handed; the SUT is AgentLoop's ordering of dispatch vs. budget-seam.
+        RecordingTool tool = new RecordingTool("read_file", OperationClass.READ, "file contents");
+        ToolRegistry tools = ToolRegistry.of(List.of(tool));
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(toolUseTurn("reading", "tu_d4", "read_file", Map.of("path", "x.txt")))
+                .then(textTurn("done in derived session", "end_turn"));
+        ModelClient modelClient = new ModelClient(bedrock);
+        PermissionGate gate = new PermissionGate(
+                PermissionMode.ASK_EVERY_TIME, GrantStore.forSession("root"), alwaysApprove());
+        // COMPACT on the first (tool_use) turn, CONTINUE thereafter, so the loop compacts on the
+        // tool_use turn and then completes in the derived session.
+        java.util.concurrent.atomic.AtomicInteger turnIndex = new java.util.concurrent.atomic.AtomicInteger(0);
+        BudgetGuard compactOnFirstTurn = usage ->
+                turnIndex.getAndIncrement() == 0 ? BudgetGuard.Decision.COMPACT : BudgetGuard.Decision.CONTINUE;
+        // A real CompactionSeam (the lambda) that captures the transcript it is handed, then
+        // CONTINUES (a benign derived seed) so the loop proceeds.
+        java.util.concurrent.atomic.AtomicReference<List<com.srk.codingagent.model.converse.ConverseMessage>> captured =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        List<com.srk.codingagent.model.converse.ConverseMessage> derivedSeed = List.of(
+                com.srk.codingagent.model.converse.ConverseMessage.user(
+                        List.of(com.srk.codingagent.persistence.ContentBlock.text("[summary] continue here"))));
+        CompactionSeam capturingSeam = (transcript, stopReason) -> {
+            captured.set(transcript);
+            return CompactionSeam.CompactionResult.continued(derivedSeed);
+        };
+        AgentLoop loop = new AgentLoop(modelClient, tools, gate, EventLog.over(new StringWriter(), "t"),
+                () -> TS, compactOnFirstTurn, capturingSeam, DISPOSER, MODEL_ID, null);
+
+        loop.run("read x.txt");
+
+        List<com.srk.codingagent.model.converse.ConverseMessage> handed = captured.get();
+        assertTrue(handed != null,
+                "the compaction seam must have been invoked on the tool_use turn's COMPACT");
+        assertToolUseToolResultPaired(handed);
+    }
+
+    /**
+     * Enforces the § 6.A.1 / INV-6 wire pairing rule over a transcript: every {@code toolUse}
+     * content block (carrying a {@code toolUseId}) must have its matching {@code toolResult}
+     * (same {@code toolUseId}) in the IMMEDIATELY following message, and the transcript must not
+     * end in a dangling {@code toolUse}. This is exactly what a pairing-enforcing Bedrock
+     * enforces on any {@code messages[]} it receives — including the summarizer's verbatim replay
+     * during compaction. The assertion asserts the structural wire contract (the D4 defect), not
+     * that the loop reorders.
+     */
+    private static void assertToolUseToolResultPaired(
+            List<com.srk.codingagent.model.converse.ConverseMessage> transcript) {
+        for (int i = 0; i < transcript.size(); i++) {
+            for (com.srk.codingagent.persistence.ContentBlock block : transcript.get(i).content()) {
+                if (block instanceof com.srk.codingagent.persistence.ContentBlock.ToolUse toolUse) {
+                    assertTrue(i + 1 < transcript.size(),
+                            "§ 6.A.1/INV-6: toolUse '" + toolUse.toolUseId() + "' must be followed by a "
+                                    + "message carrying its toolResult — it is the last message (dangling "
+                                    + "tool_use), which live Bedrock rejects (the D4 ValidationException)");
+                    boolean nextCarriesMatchingResult = transcript.get(i + 1).content().stream()
+                            .filter(b -> b instanceof com.srk.codingagent.persistence.ContentBlock.ToolResult)
+                            .map(b -> ((com.srk.codingagent.persistence.ContentBlock.ToolResult) b).toolUseId())
+                            .anyMatch(id -> toolUse.toolUseId().equals(id));
+                    assertTrue(nextCarriesMatchingResult,
+                            "§ 6.A.1/INV-6: the message immediately after toolUse '" + toolUse.toolUseId()
+                                    + "' must carry a toolResult with the same toolUseId");
+                }
+            }
+        }
+    }
+
+    @Test
     @DisplayName("state machine A T13->T15: a failed compaction (seam surfaces) stops the loop with the surfaced stop reason")
     void compactionFailureSurfacesForExitFive() {
         // Oracle: CT-SM-7 / state machine A T15 — "compaction failure path exits 5". When the
@@ -910,7 +994,7 @@ class AgentLoopTest {
     }
 
     @Test
-    @DisplayName("CompactionSeam.NONE: the no-compaction wiring surfaces the turn's stop reason on COMPACT (BudgetGuard.NONE never reaches it)")
+    @DisplayName("CompactionSeam.NONE: the no-compaction wiring surfaces the turn's stop reason on COMPACT, after the tool_use turn completes (BudgetGuard.NONE never reaches it)")
     void compactionSeamNoneSurfaces() {
         // Oracle: the no-compaction wiring is BudgetGuard.NONE + CompactionSeam.NONE — the analogue
         // of the prior surface-on-COMPACT behaviour. CompactionSeam.NONE returns a SURFACED result
@@ -918,6 +1002,15 @@ class AgentLoopTest {
         // loop surfaces rather than continuing (defensive: with BudgetGuard.NONE the seam is never
         // consulted, but the contract is that NONE surfaces). Drive a guard that says COMPACT with
         // the 9-arg constructor (which defaults the seam to CompactionSeam.NONE).
+        //
+        // The budget seam is consulted at a COMPLETE-turn boundary (state machine B LT1 -> LT2 —
+        // "a turn completes" then the threshold check; T13's source S1/S0 -> S6 is between
+        // complete turns). A tool_use turn is NOT complete until its toolResult is appended
+        // (§ 6.A.1 / INV-6 — every toolUse must be followed by its matching toolResult). So on a
+        // tool_use turn the loop first completes the turn (dispatches the tool, appends the
+        // toolResult), THEN consults the budget seam on the now well-formed transcript: the tool
+        // therefore RAN before NONE surfaces. (This is exactly the D4 ordering: complete the turn
+        // before the seam so compaction never sees a dangling toolUse.)
         RecordingTool tool = new RecordingTool("read_file", OperationClass.READ, "data");
         ToolRegistry tools = ToolRegistry.of(List.of(tool));
         ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
@@ -931,8 +1024,9 @@ class AgentLoopTest {
 
         LoopOutcome outcome = loop.run("read x");
 
-        assertFalse(tool.ran.get(),
-                "with CompactionSeam.NONE the loop surfaces on COMPACT before dispatching tools");
+        assertTrue(tool.ran.get(),
+                "LT1/§ 6.A.1: the tool_use turn completes (tool runs, toolResult appended) before "
+                        + "the budget seam is consulted on the well-formed transcript");
         assertEquals(LoopOutcome.Kind.SURFACED, outcome.kind(),
                 "CompactionSeam.NONE surfaces the turn's stop reason (the no-compaction wiring)");
         // CompactionSeam.NONE surfaces the triggering turn's stop reason verbatim; the scripted
@@ -940,6 +1034,10 @@ class AgentLoopTest {
         // contract: NONE is a pass-through of the turn's stop reason, not a fixed value).
         assertEquals(StopReason.TOOL_USE, outcome.stopReason(),
                 "CompactionSeam.NONE surfaces the triggering turn's stop reason verbatim");
+        // The scripted model has exactly one turn; the loop surfaces on that turn (NONE does not
+        // continue), so it never re-calls.
+        assertEquals(1, bedrock.callCount(),
+                "CompactionSeam.NONE surfaces on the triggering turn and does not re-call");
     }
 
     @Test

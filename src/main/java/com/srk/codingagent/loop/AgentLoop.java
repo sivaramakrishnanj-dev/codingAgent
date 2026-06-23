@@ -253,12 +253,31 @@ public final class AgentLoop {
             append(turn.usage());
             transcript.add(ConverseMessage.assistant(response.content()));
 
-            // T13 (budget seam): after the turn's usage is logged, consult the guard. On COMPACT
-            // (machine A T13 -> machine B) invoke the compaction seam: summarize -> derive -> the
-            // derived session's replayed messages[] (AC-18.1/18.4, INV-4/5/7). On success (LT3, T14)
-            // continue driving in the derived conversation; on failure (LT4 -> LT7, T15) surface so
-            // the one-shot boundary exits 5 (context-exhausted). With BudgetGuard.NONE the seam is
-            // never consulted (the no-compaction wiring).
+            // T6->T9 (complete the turn BEFORE the budget seam): on a TOOL_USE turn the
+            // assistant turn just appended ends the transcript in a dangling toolUse block. A
+            // tool_use turn is NOT complete until its toolResult is appended (state machine B
+            // LT1 — "a turn completes"; § 6.A.1 / INV-6 — every toolUse must be followed by its
+            // matching toolResult). So dispatch the tool(s) and append the batched toolResult
+            // here, pairing the transcript, BEFORE consulting the budget guard. This guarantees
+            // the compaction seam below always summarizes a well-formed (toolUse/toolResult-
+            // paired) transcript, never a dangling toolUse that live Bedrock rejects with a
+            // ValidationException (the D4 regression). The budget signal is preserved: it is
+            // still evaluated once for this turn's usage immediately after, at the now-paired
+            // boundary.
+            if (response.stopReason() == StopReason.TOOL_USE) {
+                transcript.add(dispatchTools(response.content()));
+            }
+
+            // T13 (budget seam): after the turn's usage is logged AND the transcript is in a
+            // well-formed (paired) state for this turn, consult the guard. On COMPACT (machine A
+            // T13 -> machine B) invoke the compaction seam: summarize -> derive -> the derived
+            // session's replayed messages[] (AC-18.1/18.4, INV-4/5/7). On success (LT3, T14)
+            // continue driving in the derived conversation; on failure (LT4 -> LT7, T15) surface
+            // so the one-shot boundary exits 5 (context-exhausted). With BudgetGuard.NONE the
+            // seam is never consulted (the no-compaction wiring). Because a TOOL_USE turn's
+            // toolResult has already been appended above, the transcript handed to the seam is
+            // toolUse/toolResult-paired at every stop reason (T13's source is S1/S0 -> S6, a
+            // between-complete-turns boundary).
             if (budgetGuard.evaluate(turn.usage()) == BudgetGuard.Decision.COMPACT) {
                 LOGGER.info("Budget guard signalled compaction; invoking the compaction seam (T13)");
                 CompactionSeam.CompactionResult result =
@@ -277,7 +296,10 @@ public final class AgentLoop {
             }
 
             switch (response.stopReason()) {
-                case TOOL_USE -> transcript.add(dispatchTools(response.content()));
+                case TOOL_USE -> {
+                    // T10 -> S1: the toolResult was appended above (completing the turn before
+                    // the budget seam); just re-call the model in the next iteration.
+                }
                 case END_TURN, STOP_SEQUENCE -> {
                     // T3 -> S5: stop_sequence is treated as end_turn (§ 3.1).
                     return LoopOutcome.completed(finalText(response.content()));
