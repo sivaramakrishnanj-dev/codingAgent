@@ -4,6 +4,7 @@ import com.srk.codingagent.config.ResolvedConfig;
 import com.srk.codingagent.context.OutputDisposer;
 import com.srk.codingagent.loop.AgentLoop;
 import com.srk.codingagent.loop.BudgetGuard;
+import com.srk.codingagent.memory.MemoryIndexLine;
 import com.srk.codingagent.memory.MemoryStore;
 import com.srk.codingagent.model.converse.ModelClient;
 import com.srk.codingagent.permission.Approver;
@@ -25,6 +26,7 @@ import com.srk.codingagent.tool.ToolRegistry;
 import com.srk.codingagent.tool.WriteFileTool;
 import com.srk.codingagent.tool.memory.ReadMemoryTool;
 import com.srk.codingagent.tool.memory.WriteMemoryTool;
+import com.srk.codingagent.workflow.BrownfieldPlaybook;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,6 +50,16 @@ import java.util.function.Supplier;
  * the factory was coverage-excluded. Moving the composition here makes the live registry the SUT
  * of {@code LiveToolRegistryCompositionTest}: the wiring contract (which tools the model sees,
  * with which operation classes) is now pinned by a gate-covered test, not by an excluded class.
+ *
+ * <p><b>Also the system-prompt assembly seam (the T-2.4 D5 gap).</b> For the same coverage-gate
+ * reason, {@link #parentSystemPrompt()} assembles the parent loop's system-prompt blocks here —
+ * the brownfield playbook priming (C3, ADR-0012) PLUS the always-loaded memory index (ADR-0007
+ * "Index + selective load"), loaded fresh per session start via {@link MemoryStore#loadIndexes}
+ * (INV-14). The factory previously handed the loop only the static playbook and never injected the
+ * memory index, so a live session could not see which curated entries existed and had to guess a
+ * slug for {@code read_memory}. Keeping the assembly in this gate-covered seam lets a unit test pin
+ * that index content reaches the prompt; the factory now only carries the assembled blocks to the
+ * loop.
  *
  * <p><b>The ten production tools.</b> read/grep/glob/list (Class R), write/edit (Class X),
  * run_command (Class X) — the existing seven — plus:
@@ -163,6 +175,71 @@ final class ToolRegistryComposer {
         handlers.add(new WriteMemoryTool(memoryStore, log, clock, originSession, repoKey));
         handlers.add(new SpawnSubAgentTool(orchestrator()));
         return ToolRegistry.of(handlers);
+    }
+
+    /**
+     * Assembles the parent agent loop's system-prompt blocks: the brownfield playbook priming
+     * (C3, ADR-0012 — explore-before-edit / verify-after-change) PLUS, when memory exists, an
+     * always-loaded memory-index block (ADR-0007 "Index + selective load" — both tiers' indexes
+     * load into the system prompt at session start so the model has cheap awareness of which
+     * curated entries it can pull in full via {@code read_memory(slug)}).
+     *
+     * <p><b>Why this assembly lives here (the T-2.4 D5 gap).</b> The factory previously handed the
+     * loop only {@link BrownfieldPlaybook#systemPrompt()}; the memory index — built and maintained
+     * on disk by {@code write_memory} and read by {@link MemoryStore#loadIndexes} — was never
+     * injected into the live system prompt. A real-Bedrock session therefore had to GUESS a slug to
+     * call {@code read_memory} and could not recall stored learnings. Like the tool composition
+     * (the T-2.7 gap), this assembly must live in a NOT-coverage-excluded seam so a unit test pins
+     * the contract that index content reaches the prompt; the factory ({@link AgentLoopFactory}) is
+     * JaCoCo-excluded, so the same defect would recur if the logic lived there.
+     *
+     * <p><b>Re-read-fresh, not cached (INV-14, AC-14.2).</b> The index is loaded by calling
+     * {@link MemoryStore#loadIndexes} at the moment this method runs — i.e. when the loop is
+     * assembled for the run (session start). {@code MemoryStore} holds no masking cache (every
+     * {@code loadIndexes} reads from disk), so an entry written on one session appears on the NEXT
+     * session's prompt build; no caching is introduced here.
+     *
+     * <p><b>Empty index → no memory section (AC-14.3).</b> When {@code loadIndexes} returns empty
+     * (neither tier has an {@code INDEX.md} yet), the returned blocks are exactly the playbook
+     * blocks — no fabricated memory heading. The index block is appended only when at least one
+     * entry exists.
+     *
+     * <p>The block sits in the cacheable static prefix (ADR-0006), alongside the playbook blocks and
+     * the tool definitions, and renders the GLOBAL-then-PROJECT ordering {@code loadIndexes} returns:
+     * a short heading explaining the entries can be retrieved in full via {@code read_memory(slug)},
+     * then one {@code - [slug] description} line per index entry so the slug AND its one-line
+     * description are visible to the model.
+     *
+     * @return the system-prompt blocks for the parent loop's {@code system} argument: the playbook
+     *         blocks, plus the memory-index block when the index is non-empty; never {@code null} or
+     *         empty.
+     */
+    List<String> parentSystemPrompt() {
+        List<String> blocks = new ArrayList<>(BrownfieldPlaybook.systemPrompt());
+        List<MemoryIndexLine> index = memoryStore.loadIndexes(repoKey);
+        if (!index.isEmpty()) {
+            blocks.add(renderMemoryIndexBlock(index));
+        }
+        return List.copyOf(blocks);
+    }
+
+    /**
+     * Renders the always-loaded memory-index block (ADR-0007): a short heading naming the curated
+     * entries and the {@code read_memory(slug)} retrieval path, then one {@code - [slug]
+     * description} line per index entry (in the GLOBAL-then-PROJECT order {@code loadIndexes}
+     * returns) so the model can see each slug and its one-line description and pick the right slug.
+     */
+    private static String renderMemoryIndexBlock(List<MemoryIndexLine> index) {
+        StringBuilder block = new StringBuilder(
+                "Curated memory. You have a memory of curated learnings from past work in this "
+                        + "repository and across projects. The entries below are always available; "
+                        + "when one looks relevant, retrieve its full content with "
+                        + "read_memory(slug) before acting on the request. The available entries "
+                        + "(slug and one-line description) are:");
+        for (MemoryIndexLine line : index) {
+            block.append("\n- [").append(line.slug()).append("] ").append(line.description());
+        }
+        return block.toString();
     }
 
     /**

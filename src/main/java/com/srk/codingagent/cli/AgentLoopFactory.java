@@ -24,7 +24,6 @@ import com.srk.codingagent.tool.memory.LearningApprover;
 import com.srk.codingagent.tool.memory.LearningExtractor;
 import com.srk.codingagent.tool.memory.LearningProposer;
 import com.srk.codingagent.tool.memory.MemoryLearningHarvester;
-import com.srk.codingagent.workflow.BrownfieldPlaybook;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Objects;
@@ -159,10 +158,10 @@ public final class AgentLoopFactory {
         MemoryStore memoryStore = MemoryStore.forUserHome();
         Supplier<String> clock = () -> Instant.now().toString();
         Supplier<String> childSessionIds = () -> UUID.randomUUID().toString();
-        ToolRegistry tools = new ToolRegistryComposer(
+        ToolRegistryComposer composer = new ToolRegistryComposer(
                 modelClient, config, workspaceRoot, log, memoryStore, sessions,
-                parentGrants, approver, sessionLineage, sessionLineage, clock, childSessionIds)
-                .parentRegistry();
+                parentGrants, approver, sessionLineage, sessionLineage, clock, childSessionIds);
+        ToolRegistry tools = composer.parentRegistry();
         PermissionGate gate = new PermissionGate(config.permissionMode(), parentGrants, approver);
         // ADR-0006 / § 6.A.1: thread the live session's tool definitions into the compaction seam.
         // The summarizer Converse call replays the original transcript verbatim — which carries
@@ -187,8 +186,13 @@ public final class AgentLoopFactory {
         // ADR-0012 (T-1.6): v1 is brownfield-only (02-architecture § 7 "the brownfield loop...
         // Enables now"), so the loop carries the brownfield playbook system prompt — the lever
         // that primes the model to explore-before-edit (AC-4.1/AC-5.1) and verify-after-change
-        // (AC-5.3). The playbook content + the verify-loop wiring live in the tested workflow
-        // unit; the factory only carries the prompt to the loop's `system` arg.
+        // (AC-5.3). ADR-0007 (T-2.4 D5): the system prompt now ALSO carries the always-loaded
+        // two-tier memory index (loaded fresh per session start via MemoryStore.loadIndexes,
+        // INV-14) so the model has awareness of which curated entries exist and can call
+        // read_memory with the correct slug; an empty index adds no memory section. The playbook
+        // blocks + the index-load/render/combine logic live in the gate-covered ToolRegistryComposer
+        // seam (NOT this JaCoCo-excluded factory), so a unit test pins that index content reaches
+        // the prompt; the factory only carries the assembled blocks to the loop's `system` arg.
         // ADR-0006 (T-2.8): the loop now carries the live compaction seam so that on the budget
         // guard's COMPACT (AC-18.1), the loop summarizes->derives->continues in the derived session
         // (T14) instead of surfacing-and-stopping. The summarize/derive/harvest logic is the tested
@@ -196,7 +200,7 @@ public final class AgentLoopFactory {
         return new AgentLoop(modelClient, tools, gate, log,
                 clock, TokenBudgetGuard.forConfig(config, profile), compaction,
                 OutputDisposer.forConfig(config), config.modelId(),
-                BrownfieldPlaybook.systemPrompt());
+                composer.parentSystemPrompt());
     }
 
     /**
