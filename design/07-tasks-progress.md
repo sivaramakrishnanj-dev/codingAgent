@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: 9b15572
+last_updated_at_commit: pending
 total_resolved_count: 24
 
 last_resolved:
@@ -12,8 +12,41 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-2.8
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-23T09:00:00+05:30
+  last_updated_at: 2026-06-23T09:00:00+05:30
 ---
+
+## In-flight
+
+- task: T-2.8
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  files_in_working_tree: []
+  dcrs_consumed: []
+  started_at: 2026-06-23T09:00:00+05:30
+  last_updated_at: 2026-06-23T09:00:00+05:30
+  notes: |
+    Coordinator-inserted M2 live-wiring regression task (compaction analogue of T-2.7;
+    regression-of-T-2.2). VERIFIED gap: on BudgetGuard.Decision.COMPACT the live AgentLoop
+    (loop/AgentLoop.java ~L197-200) only LOGS + returns LoopOutcome.surfaced(...) — it never
+    invokes the Compactor to summarize->derive->continue. AgentLoop's ctor has no Compactor
+    seam, and AgentLoopFactory.create never constructs a Compactor (new Compactor(...) appears
+    only in tests). So the G2 headline criterion "a long task compacts + continues" is not
+    reachable from the live CLI when the real TokenBudgetGuard (T-2.1) fires at 0.85xwindow.
+    Same green-against-mocks/broken-live class as T-2.7 + D1/D2. User standing decision: fix
+    via coordinator wiring task, then main agent runs the G2 real-Bedrock smoke test.
 
 ## Milestone gates
 
