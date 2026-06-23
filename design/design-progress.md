@@ -1,7 +1,7 @@
 ---
 doc: design-progress
 last_updated: 2026-06-23
-last_updated_at_commit: pending
+last_updated_at_commit: a9644b4
 current_phase: 5
 current_sub_phase: handed-off-to-coordinator
 current_sub_phase_status: resolved
