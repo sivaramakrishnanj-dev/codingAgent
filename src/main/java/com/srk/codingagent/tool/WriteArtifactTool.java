@@ -31,6 +31,15 @@ import software.amazon.awssdk.core.document.Document;
  * <p>Inputs: {@code path} (required, target-repo-relative, must resolve under {@code design/}) and
  * {@code content} (required). The result is a short ok-summary string reporting the artifact path
  * and size, so the model has a concise confirmation without echoing the whole document back.
+ *
+ * <p><b>The input schema is the design-doc-artifact schema, not the generic write-file schema
+ * (T-3.2-RD-D9).</b> {@link #inputSchema()} returns {@link ToolSchemas#writeArtifact()} — the same
+ * field <em>names</em> ({@code path}, {@code content}) the generic source-write tool uses, but with
+ * field <em>descriptions</em> that state this tool's design-doc contract (a {@code design/}-relative
+ * artifact path, with the concrete {@code design/00-requirements.md} example, and the full markdown
+ * deliverable). Reusing the generic write-file schema's "file to write" descriptions read like a
+ * source-file writer to the model and — against the greenfield prompt's no-source-write rule — made
+ * the live model never call the tool, so the design-doc content was never persisted.
  */
 public final class WriteArtifactTool implements ToolHandler {
 
@@ -63,7 +72,14 @@ public final class WriteArtifactTool implements ToolHandler {
 
     @Override
     public Document inputSchema() {
-        return ToolSchemas.writeFile();
+        // The DEDICATED design-doc-artifact schema (T-3.2-RD-D9), not the generic write_file schema.
+        // Its field descriptions state the design-doc contract (a path under design/, with the
+        // concrete artifact-path example, and the markdown deliverable content) so the schema the
+        // model fills its arguments from agrees with this tool's purpose and the greenfield prompt's
+        // no-source-write rule — the prior reuse of the write_file schema's "file to write"
+        // descriptions read like a generic source-file writer and steered the live model away from
+        // calling the tool at all (RD-7, AC-1.2, AC-2.1; ADR-0012).
+        return ToolSchemas.writeArtifact();
     }
 
     @Override

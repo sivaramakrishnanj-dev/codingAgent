@@ -112,4 +112,34 @@ class WriteArtifactToolTest {
                 "the tool declares an input schema for the toolSpec");
         ToolRegistry.of(java.util.List.of(tool)).toToolConfiguration();
     }
+
+    @Test
+    @DisplayName("RD-7/AC-1.2/AC-2.1 (T-3.2-RD-D9): the inputSchema describes a design/ design-doc artifact, not a generic source file")
+    void inputSchemaDescribesADesignDocArtifactNotASourceFile(@TempDir Path targetRepo) {
+        // Oracle: RD-7 — greenfield persists requirements/design/tasks "as markdown in the target
+        // project"; AC-1.2/AC-2.1 — those deliverables are markdown ARTIFACTS; C7 — a tool's schema and
+        // its handler agree. The schema the model fills its arguments from must describe the design-doc
+        // artifact this tool writes (a design/ path), NOT a generic source-file write — the D9 root
+        // cause was the schema reusing the generic write_file field descriptions ("...path of the file
+        // to write" / "The full new contents of the file"), which read as a source-file writer and,
+        // against the greenfield no-source-write prompt, steered the live model away from calling the
+        // tool, so the design-doc content never persisted. The expected tokens (design/, the
+        // ARTIFACT_DIR) trace to GreenfieldArtifactStore.ARTIFACT_DIR + AC-1.2/RD-7 ("markdown
+        // artifact"), not to the schema's prose. The schema is rendered into the toolSpec the model
+        // sees, so assert against that rendered JSON.
+        WriteArtifactTool tool = new WriteArtifactTool(new GreenfieldArtifactStore(targetRepo));
+        String schemaJson = software.amazon.awssdk.services.bedrockruntime.model.ToolInputSchema
+                .fromJson(tool.inputSchema()).json().toString().toLowerCase(java.util.Locale.ROOT);
+
+        assertTrue(schemaJson.contains(GreenfieldArtifactStore.ARTIFACT_DIR + "/"),
+                "RD-7/AC-1.2: the schema steers the model to a " + GreenfieldArtifactStore.ARTIFACT_DIR
+                        + "/ artifact path; was: " + schemaJson);
+        assertTrue(schemaJson.contains("design document") || schemaJson.contains("design-doc")
+                        || schemaJson.contains("artifact"),
+                "RD-7 (C7): the schema describes a design document/artifact, not a generic source-file "
+                        + "write; was: " + schemaJson);
+        assertTrue(schemaJson.contains("\"path\"") && schemaJson.contains("\"content\""),
+                "C7: the schema still requires the path + content fields the handler reads; was: "
+                        + schemaJson);
+    }
 }

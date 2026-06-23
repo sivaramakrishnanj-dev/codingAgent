@@ -64,6 +64,41 @@ final class ToolSchemas {
     }
 
     /**
+     * The {@code write_artifact} input schema: required {@code path} and {@code content}, with
+     * <em>design-doc-artifact</em> field descriptions (RD-7, AC-1.2, AC-2.1; ADR-0012).
+     *
+     * <p><b>Why this is distinct from {@link #writeFile()} (the T-3.2-RD-D9 root cause).</b> The
+     * {@code write_artifact} tool deliberately keeps the same field <em>names</em> as
+     * {@link #writeFile()} ({@code path}, {@code content}) — {@link WriteArtifactTool#handle} reads
+     * those names and the greenfield prompt references them — but it must NOT reuse {@code writeFile()}
+     * 's field <em>descriptions</em>. Those describe a generic source-file write ("Workspace-relative
+     * path of the file to write", "The full new contents of the file"), which directly contradicts the
+     * greenfield pre-approval prompt's emphatic "do not write source / you write design documents this
+     * way, not source code". A model handed a tool whose machine-readable schema reads like a generic
+     * file writer, while the prompt forbids writing files/source, declines to call it — so on the live
+     * path {@code write_artifact} was never invoked and the design-doc content never persisted (only the
+     * approval-gate stamp landed). These descriptions instead state the tool's real contract — a
+     * design-doc markdown artifact under {@code design/}, with the concrete artifact-path example the
+     * model fills {@code path} from — so the schema the model reads agrees with the tool's purpose and
+     * the prompt.
+     *
+     * @return the input-schema document for {@code write_artifact}.
+     */
+    static Document writeArtifact() {
+        return objectSchema(
+                Map.of(
+                        "path", stringProperty(
+                                "The target-repo-relative path of the design-doc artifact to write, "
+                                        + "under the design/ directory — e.g. design/00-requirements.md, "
+                                        + "design/01-design.md, or design/02-tasks.md. This is a design "
+                                        + "document, not a source file."),
+                        "content", stringProperty(
+                                "The full markdown content of this phase's deliverable (the complete "
+                                        + "requirements, design, or task-breakdown document).")),
+                List.of("path", "content"));
+    }
+
+    /**
      * The {@code run_command} input schema: required {@code command} string
      * (04-apis § 3, ADR-0003).
      *
