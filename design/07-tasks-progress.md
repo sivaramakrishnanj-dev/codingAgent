@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: 30a4868
+last_updated_at_commit: pending
 total_resolved_count: 31
 
 last_resolved:
@@ -12,8 +12,46 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-3.1-RD-D6
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-23T14:05:00-07:00
+  last_updated_at: 2026-06-23T14:05:00-07:00
 ---
+
+## In-flight
+
+- task: T-3.1-RD-D6
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  open_action_items_for_implementer: []
+  open_action_items_for_tester: []
+  files_in_working_tree: []
+  dcrs_consumed: []
+  started_at: 2026-06-23T14:05:00-07:00
+  last_updated_at: 2026-06-23T14:05:00-07:00
+  note: |
+    Regression/wiring fix (regression-of-T-3.1, label T-3.1-RD-D6) for verified
+    defect D6 — same recurring class as T-2.7/T-2.8/D3/D4/D5: capability built +
+    unit-tested via scripted decisions, but a live input not wired. The greenfield
+    phase-approval ApprovalDecision is hard-coded `completedPhase -> false` on BOTH
+    live Main paths (Main.oneShotGreenfield ~L250, Main.interactiveGreenfield ~L350),
+    so a live REPL greenfield run shapes requirements (AC-1.1), writes no source
+    (AC-1.4), pauses AWAITING_APPROVAL, and can NEVER advance to design->tasks->
+    implement. Fix: wire the INTERACTIVE REPL greenfield path's ApprovalDecision to
+    read the developer's y/N from the same answerSource/stdin the InteractiveApprover
+    already uses, presenting each phase's deliverable before collecting the decision
+    (AC-1.5). One-shot `-p` greenfield stays DECLINE-by-default (non-interactive
+    cannot prompt). User-directed; STOP before M4 after resolution (pre-G3 gap).
 
 ## Milestone gates
 
