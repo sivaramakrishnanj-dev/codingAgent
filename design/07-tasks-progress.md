@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: bb81f33
+last_updated_at_commit: pending
 total_resolved_count: 35
 
 last_resolved:
@@ -12,8 +12,62 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-3.2-RD-D10
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-23T17:00:00+00:00
+  last_updated_at: 2026-06-23T17:00:00+00:00
 ---
+
+## In-flight
+
+- task: T-3.2-RD-D10
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  open_action_items_for_implementer: []
+  open_action_items_for_tester: []
+  files_in_working_tree: []
+  dcrs_consumed: []
+  started_at: 2026-06-23T17:00:00+00:00
+  last_updated_at: 2026-06-23T17:00:00+00:00
+  note: |
+    REGRESSION of T-3.2 (4th: D6 approval, D7 prompt, D8 approval-contention, D9 schema all
+    landed but greenfield artifact persistence STILL fails live). Live ground truth (latest
+    clean G3 run, D9 in place): write_artifact executes ZERO times across the whole greenfield
+    run; the only GreenfieldArtifactStore log line is the gate's "Appended approval line" stamp,
+    NEVER "Wrote greenfield artifact". The model reaches stopReason=END_TURN in each pre-approval
+    phase WITHOUT emitting a write_artifact tool_use — it answers in prose and stops. So
+    design/00-requirements.md + design/01-design.md hold only approval stamps; design/02-tasks.md
+    is never created; AC-2.5 traceability correctly refuses tasks; greenfield never reaches
+    implement. The D9 probe proved the plumbing is correct when a write_artifact tool_use IS
+    scripted (dispatch->tool->store->disk works, session reaches implement). The remaining gap is
+    EMPIRICAL: the live model does not reliably CALL write_artifact from the current greenfield
+    phase prompt — a prompt-engineering / Converse-wiring problem the mocked task-builder tests
+    cannot catch by construction (they script the tool_use).
+    USER-AUTHORIZED DEEPER LIVE INVESTIGATION (more spend/time accepted): set up a TIGHT live repro
+    (single greenfield REQUIREMENTS phase against the real model, tiny fixed idea, disposable temp
+    workspace — NOT this repo), observe whether the model emits write_artifact + whether content
+    persists, then ITERATE the prompt/wiring empirically until the live model reliably calls
+    write_artifact with substantive content. Likely levers: lead with the tool-call instruction;
+    make unambiguous the turn is NOT complete until write_artifact is called; possibly use
+    Converse toolChoice to require/encourage the tool call (NOTE: no toolChoice is set anywhere in
+    the codebase today — ConverseWireMapper.toRequest sets toolConfig but never toolChoice); ensure
+    prompt path + field names exactly match the design-doc write_artifact schema. Lock in with the
+    change + a test exercising the real path + a DOCUMENTED live-verification step (what was run
+    live, observed write_artifact fire + content) as the evidence, since this defect class is only
+    observable live. If after genuine live iteration the model still won't reliably call the tool,
+    raise design-change-needed proposing the DRIVER author the deliverable deterministically in
+    code (capture the model's prose answer, driver writes the artifact) rather than depending on
+    the model to call write_artifact. STOP before M4 on resolution.
 
 ## Milestone gates
 
