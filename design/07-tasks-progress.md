@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: 1fc2709
+last_updated_at_commit: pending
 total_resolved_count: 27
 
 last_resolved:
@@ -12,8 +12,43 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight: null
+in_flight:
+  task: T-2.4-RD-D5
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-23T11:20:00-07:00
+  last_updated_at: 2026-06-23T11:20:00-07:00
 ---
+
+## In-flight
+
+- task: T-2.4-RD-D5
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  files_in_working_tree: []
+  dcrs_consumed: []
+  started_at: 2026-06-23T11:20:00-07:00
+  last_updated_at: 2026-06-23T11:20:00-07:00
+  note: |
+    Live-only integration/wiring fix (regression-of-T-2.4, recall side). D5 verified defect:
+    the memory INDEX is built + maintained on disk (MemoryStore.loadIndexes, INV-14) but is
+    NEVER injected into the live system prompt, so a fresh session is blind to what memory
+    entries exist and cannot read_memory the right slug (it guesses). Wire the index into the
+    live system prompt per ADR-0007 (always-loaded index → pull full entry on demand), honoring
+    re-read-fresh (INV-14): load both tiers' INDEX lines at session start and inject them
+    alongside the BrownfieldPlaybook blocks. Empty index → no memory section. Follow the T-2.7
+    pattern: place the assembly in a gate-COVERED seam (the JaCoCo-excluded AgentLoopFactory must
+    not be the only place the logic lives). Add a live-reachability test asserting the index
+    content reaches the prompt the live loop is constructed with (slug + description visible),
+    plus empty-index and re-read-fresh coverage.
 
 ## Milestone gates
 
