@@ -2,62 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-23
 last_updated_at_commit: pending
-total_resolved_count: 33
+total_resolved_count: 34
 
 last_resolved:
-  task: T-3.2-RD-D7
-  title: "Greenfield prompt: each pre-approval phase persists its deliverable content via write_artifact before approval (D7 fix)"
+  task: T-3.2-RD-D8
+  title: "Greenfield pre-approval write_artifact auto-approved at the gate so deliverable content persists on a live shared-stdin run (D8 fix)"
   resolved_at: 2026-06-23
-  commit: 6b4f736
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-3.2-RD-D8
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-23T10:00:00+05:30
-  last_updated_at: 2026-06-23T10:00:00+05:30
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-3.2-RD-D8
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  open_action_items_for_implementer: []
-  open_action_items_for_tester: []
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-23T10:00:00+05:30
-  last_updated_at: 2026-06-23T10:00:00+05:30
-  note: |
-    Regression-of-T-3.2 (single-agent). D8: live greenfield REPL run still does not land
-    requirements-artifact CONTENT on disk after the D7 prompt fix. Coordinator investigation
-    (code read, no live call) confirms hypothesis (b): in Main.runInteractive the ONE shared
-    stdin answerSource feeds THREE consumers — ReplRunner.lineSource, the InteractiveApprover
-    (permission-gate y/N), and the InteractiveGreenfieldApproval (phase y/N). write_artifact is
-    Class X (SIDE_EFFECTING); the pre-approval registry (ToolRegistryComposer.preApprovalRegistry)
-    offers it; the gate runs in ASK_EVERY_TIME (RD-3 default) so PermissionGate.evaluate routes
-    write_artifact to InteractiveApprover.confirm, which consumes a stdin line. With only one 'y'
-    fed (for the phase gate), the write_artifact gate prompt got a non-affirmative/EOF answer →
-    DENIED → content never written; the single 'y' then approved the phase → ArtifactApprovalGate
-    appended only the stamp. The existing D7 test (GreenfieldArtifactPersistenceTest) used an
-    always-approve Approver, so it never exercised the InteractiveApprover stdin path that broke.
-    Fix per directive: treat the design/-confined write_artifact as the sanctioned pre-approval
-    action (auto-approved / not separately prompted within greenfield pre-approval phases), while
-    KEEPING source-write tools (write_file/edit_file/run_command) withheld so AC-1.4 holds
-    structurally. Preserve AC-2.3 phase gate, AC-1.5 timestamp, AC-2.5 traceability, AC-9.4 for
-    real source-write Class X. Add a test over the PRODUCTION approval wiring (shared stdin,
-    ASK_EVERY_TIME) asserting the artifact CONTAINS deliverable content then the stamp.
 
 ## Milestone gates
 
@@ -417,3 +373,13 @@ in_flight:
 - dcrs_consumed: []
 - label: regression-of-T-3.2 (T-3.2-RD-D7). Live-only fix surfaced by the G3 real-Bedrock greenfield smoke test; NOT a numbered 07-tasks.md row. Same recurring class as T-2.7/T-2.8/D3/D4/D5/D6 (capability built + unit-tested, but the LIVE behavior did not exercise it). Coordinator STOPS at gate G3 before M4 after this; the main agent re-runs the G3 smoke test next.
 - notes: >>> VERIFIED DEFECT D7 FIXED. On the live G3 greenfield run, across the requirements AND design phases the model called write_artifact ZERO times (instrumented count = 0); only the ArtifactApprovalGate's approval-stamp append fired — so design/00-requirements.md and design/01-design.md held ONLY the approval stamp ("Approved: ... at <ts>."), no substantive deliverable content. At the TASKS phase the agent (correctly) refused to fabricate a breakdown from an empty requirements artifact, and AC-2.5 traceability then refused the tasks approval (no real design/02-tasks.md) — so greenfield could not reach tasks->implement live. RD-7/AC-1.2/AC-2.1 were unmet on the LIVE path even though the write_artifact tool + GreenfieldArtifactStore are built and the tool is already registered in the pre-approval registry. ROOT CAUSE (one place): the per-phase greenfield system prompt (GreenfieldPlaybook) discussed each deliverable in prose but never directed the model that each pre-approval phase's deliverable IS the written artifact, authored via write_artifact at its path before the phase turn completes. FIX (Phase A, pure prompt fix, no tool/store/gate/registry change): added a distinct ARTIFACT_WRITE_TOOL = "write_artifact" constant (kept separate from EXPLORE_TOOLS/SOURCE_CHANGE_TOOLS so naming it in pre-approval prompts does not name a source-change tool — AC-1.4 preserved); added a common block mandating the model persist each pre-approval phase's substantive content via write_artifact before asking for approval (a phase turn is NOT complete until the real full content is written); enriched each pre-approval phaseBlock (REQUIREMENTS/DESIGN/TASKS) to name its artifact path (design/00-requirements.md, design/01-design.md, design/02-tasks.md) + write_artifact, with the path drawn from GreenfieldArtifact.forPhase().relativePath() (reuse — prompt and artifact enum stay in step, no re-derivation). IMPLEMENT block unchanged (still the only phase naming the source-change tools). Phase B (tests): extended GreenfieldPlaybookTest (+2: prompt-content oracles for the artifact-write directive + the ARTIFACT_WRITE_TOOL-vs-source-tool safety; class total 11); new GreenfieldArtifactPersistenceTest (cli/, +3) — the live-path contract test that drives a real greenfield phase AgentLoop over a scripted Bedrock double emitting a write_artifact tool-use and asserts the artifact ON DISK holds the model-authored content (the real D7 contract — deliverable content persisted — NOT "the phase returns text"), plus a captured-Converse-request assertion that the per-phase prompt the model receives names write_artifact + its path. Reuses the established ScriptedBedrockClient hand-rolled double (no Mockito, no live AWS); does NOT duplicate GreenfieldArtifactCompositionTest (that pins composition; this pins live end-to-end). MUST-STAY-GREEN confirmed: GreenfieldPlaybookTest (11), GreenfieldDriverTest phase-gating + AC-1.4 structural withholding (10), ArtifactApprovalGateTest (7), GreenfieldArtifactAuthoringTest (2), GreenfieldWiringTest (3), live composition tests all green; AC-1.4 holds (no pre-approval prompt names write_file/edit_file/run_command). mvn clean verify GREEN (1005 tests, 0 failures/errors/skipped; JaCoCo BUNDLE line 91.71% >= 0.80 gate; shaded codingagent.jar builds; coordinator-independent verify re-run also green). Self-checks: oracle-traceability=passed (expected values trace to RD-7/AC-1.2/AC-2.1/AC-1.4 + GreenfieldArtifact.relativePath()/heading(), never to the playbook's exact wording or to composer/tool code), reuse=passed (reused ScriptedBedrockClient double + GreenfieldArtifact path source; no parallel composer/duplicated logic). 0 Blocker / 0 Major / 1 Minor / 1 Nit / 1 Discussion. No AWS/Bedrock calls (scripted double). DISCUSSION ITEM (D1, suggested_amendment_kind=none): the prompt fix STEERS but cannot FORCE write_artifact; the structural backstop already exists one layer down (ArtifactApprovalGate refuses the TASKS gate when the breakdown is untraceable per AC-2.5, and an empty artifact is untraceable, so a skipped write cannot silently reach implementation). G3 SMOKE-TEST NOTE for the main agent: re-run the live greenfield arc and confirm write_artifact now fires with substantive content per phase, tasks trace to requirements, and the implement phase writes+verifies at least one source file — the prompt fix is the necessary change; the live run is the proof. No DCR warranted (this is exactly the fix the recorded D7 defect asked for). The task-builder agent's first turn was cut off by a connection drop mid-response (45 tool uses); the same agent was resumed with its in-context Phase A/B/C state intact, finished the new test, ran the full verify, wrote the review, and returned the handoff — no work lost, no double-build of conflicting changes.
+
+## T-3.2-RD-D8 — Greenfield pre-approval write_artifact auto-approved at the gate so deliverable content persists on a live shared-stdin run (D8 fix)
+- commit: pending
+- review: design/reviews/code/T-3.2-RD-D8-r1.md
+- resolved: 2026-06-23
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- label: regression-of-T-3.2 (T-3.2-RD-D8). Live-only fix surfaced by a clean G3 real-Bedrock greenfield REPL re-run AFTER the D7 prompt fix. Same recurring class (capability built + unit-tested, but the LIVE behavior did not exercise it — here the existing D7 persistence test used an always-approve Approver, so it never crossed the production stdin approval path). Coordinator STOPS at gate G3 before M4 after this; the main agent re-runs the G3 smoke test next, feeding inputs accounting for the (now reduced) stdin approval consumers.
+- notes: >>> ROOT CAUSE CONFIRMED (hypothesis b, by a new production-wiring test, NOT assumed). After the D7 prompt fix the model DOES attempt write_artifact (2 log lines, up from 0), but design/00-requirements.md still held ONLY the approval stamp — no requirements content. write_artifact is Class X (SIDE_EFFECTING); on the live REPL path AgentLoop.gateRequestFor routes it through PermissionGate as GateRequest.forTool(..., write_artifact, SIDE_EFFECTING). In the production-default ASK_EVERY_TIME mode (RD-3/AC-8.4) PermissionGate.evaluate calls approver.confirm(...) — the real stdin-backed InteractiveApprover — which reads from the SAME answerSource Main.runInteractive hands the phase-approval InteractiveGreenfieldApproval (Main shares ONE answerSource across ReplRunner + InteractiveApprover + InteractiveGreenfieldApproval). With only one realistic developer 'y', the write_artifact gate prompt and the phase gate contend for that single stdin line: the content write is denied (non-affirmative/EOF) and only the approval-gate's appendLine stamp lands. The new test reproduced both observable variants (content-denied/no-file with empty stdin; content-written-but-no-stamp when the 'y' is consumed by the write prompt) with the carve-out disabled, and both resolve with it enabled. FIX (Phase A): a narrow carve-out in PermissionGate.evaluate (C8, the single coverage-counted authorization chokepoint — NOT the JaCoCo-excluded AgentLoopFactory/Main), placed AFTER the denylist test and BEFORE the per-mode switch: a write_artifact Class-X call is auto-approved in every mode without a separate per-operation prompt. Keyed on the tool NAME write_artifact (not the operation class), so ONLY the one path-confined, pre-approval-only tool is exempt; write_file/edit_file/run_command (and any other SIDE_EFFECTING tool) keep full per-mode gating (AC-9.4). Safe by construction: write_artifact is instantiated only in ToolRegistryComposer.preApprovalRegistry() (absent from the brownfield parent + sub-agent child registries) and GreenfieldArtifactStore confines every write to design/, so it can never reach a source file — AC-1.4 stays structurally enforced by the withheld source-write tools; placing it after the denylist preserves AC-10.4/INV-9. Tension resolved: AC-9.4's literal "prompt before every Class X" vs ADR-0012's "the agent writes only design markdown … until the breakdown is approved" + RD-7/AC-1.2/AC-2.1's content-persistence requirement; ADR-0012 supplies the affirmative authority and AC-9.4 is unchanged for every RD-4 source-write Class X, so implementable as code with no spec amendment. Phase B (tests): new GreenfieldSharedStdinArtifactPersistenceTest (cli/, +3) over the PRODUCTION approval wiring (real InteractiveApprover over a shared answerSource, ASK_EVERY_TIME) — the path the always-approve D7 test missed — asserting the artifact CONTAINS the deliverable content then the stamp; PermissionGateTest (+4) pinning the carve-out + AC-9.4/INV-9 preservation for source-write/denylisted Class X. The regression test was verified to FAIL with the carve-out disabled and PASS with it enabled. mvn clean verify GREEN (1012 tests, 0 failures/errors/skipped; JaCoCo BUNDLE gate 0.80 met; PermissionGate.java 99% line; coordinator-independent verify re-run also green). Self-checks: oracle-traceability=passed (expected values trace to RD-7/AC-1.2/AC-2.1/AC-9.4/AC-1.4 + GreenfieldArtifact.relativePath(), never to PermissionGate code), reuse=passed (reused the established ScriptedBedrockClient double + Main's production wiring shape; no duplicate composer). 0 Blocker / 0 Major / 0 Minor / 1 Nit / 1 Discussion. No AWS/Bedrock calls (scripted double + production approval wiring). DISCUSSION ITEM (D1, suggested_amendment_kind=ac-update): AC-9.4's "prompt before every Class X" reads absolutely; the team may want an explicit clause excepting the ADR-0012-sanctioned design/-confined write_artifact pre-approval write — the behaviour is ALREADY authorized by ADR-0012 (so no code/spec change is required to ship the fix), this is prose precision; logged to open-questions.md. COORDINATOR NOTE (situational): the tool-name-keyed carve-out also auto-approves write_artifact in READ_ONLY mode (where a Class-X write would otherwise be denied per AC-9.2). write_artifact is only ever in the greenfield pre-approval registry, and a READ_ONLY greenfield session is contradictory by design intent (ADR-0012 sanctions the design-markdown write); the carve-out does NOT change AC-9.2 for the enumerated source-write tools. Defensible, documented in stated_assumptions + the review; flagged for the user's awareness, non-blocking. G3 SMOKE-TEST NOTE for the main agent: re-run the live greenfield arc; with the carve-out, the single 'y' is no longer contended by a per-op write_artifact prompt, so the requirements/design/tasks artifacts should now carry substantive content + the approval stamp.

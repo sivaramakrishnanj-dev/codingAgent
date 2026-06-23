@@ -4,6 +4,7 @@ import com.srk.codingagent.config.PermissionMode;
 import com.srk.codingagent.persistence.OperationClass;
 import com.srk.codingagent.persistence.PermissionDecisionOutcome;
 import com.srk.codingagent.tool.RunCommandTool;
+import com.srk.codingagent.tool.WriteArtifactTool;
 import com.srk.codingagent.tool.WriteFileTool;
 import java.nio.file.Path;
 import java.util.Objects;
@@ -37,6 +38,23 @@ import org.slf4j.LoggerFactory;
  * even in {@code UNRESTRICTED} (AC-9.3 carve-out). Class R is auto-approved in every mode
  * before any mode-specific logic (AC-9.6). A denylisted command never produces or matches
  * a grant.
+ *
+ * <p><b>Sanctioned greenfield design-markdown write (ADR-0012, RD-7, AC-1.2, AC-2.1).</b> After
+ * the denylist test, a {@code write_artifact} Class-X call is auto-approved in every mode without a
+ * separate per-operation prompt. ADR-0012 makes the design-markdown write the one write the agent
+ * is allowed before the task breakdown is approved ("the agent writes only design markdown … until
+ * the breakdown is approved"), and RD-7 / AC-1.2 / AC-2.1 require the requirements/design/tasks
+ * <em>content</em> to be persisted into the target project. The carve-out is narrow and safe by
+ * construction: {@code write_artifact} is offered only by the greenfield pre-approval registry (it
+ * is absent from the brownfield parent registry and the sub-agent child registry) and its
+ * {@link com.srk.codingagent.tool.GreenfieldArtifactStore} confines every write to the target repo's
+ * {@code design/} directory, so it can never reach a source file. AC-1.4 stays structurally enforced
+ * by the withheld source-write tools, and the general RD-4 source-write Class-X operations
+ * ({@code write_file}/{@code edit_file}/{@code run_command}, the web-lookup delegate, the sub-agent
+ * spawn) keep their full per-mode gating — AC-9.4's "prompt before every Class X" is unchanged for
+ * them. Without this, on a live {@code ASK_EVERY_TIME} run the per-op {@code write_artifact} prompt
+ * and the phase-approval gate contend for the developer's single stdin line, starving one of them so
+ * the deliverable content is never persisted (the T-3.2-RD-D8 regression).
  *
  * <p><b>Out of scope here (T-0.8 / T-1.1).</b> The gate decides; it does not run the tool,
  * append events, or emit the {@code TOOL_RESULT(denied)} — the loop does that with the
@@ -93,6 +111,26 @@ public final class PermissionGate {
         boolean denylisted = isDenylistedCommand(request);
         if (denylisted) {
             return evaluateDenylisted(request);
+        }
+
+        // The sanctioned greenfield pre-approval design-markdown write (ADR-0012, RD-7, AC-1.2,
+        // AC-2.1): write_artifact is the ONE write the agent is allowed before the breakdown is
+        // approved ("the agent writes only design markdown … until the breakdown is approved").
+        // It is auto-approved here WITHOUT a separate per-operation prompt so the deliverable
+        // content actually reaches the phase artifact on a live run, where the gate's approver and
+        // the phase-approval gate share one stdin and a single per-op prompt for write_artifact
+        // would otherwise consume the developer's one 'y' and starve the phase gate (the D8
+        // regression). This carve-out is narrow and safe by construction: write_artifact is offered
+        // ONLY by the greenfield pre-approval registry (never the brownfield/child registries) and
+        // its GreenfieldArtifactStore confines every write to the target repo's design/ directory,
+        // so it can never reach a source file — AC-1.4 stays structurally enforced by the withheld
+        // source-write tools (write_file/edit_file/run_command). It runs AFTER the denylist test so
+        // a destructive command never benefits from it, and the general RD-4 source-write Class X
+        // operations keep their full per-mode gating (AC-9.4 unchanged for them).
+        if (isSanctionedArtifactWrite(request)) {
+            LOGGER.debug("Auto-approving the sanctioned greenfield design-markdown write {} "
+                    + "(ADR-0012; design/-confined, source unreachable)", request.toolUseId());
+            return autoApprove(request, null, false);
         }
 
         return switch (mode) {
@@ -173,6 +211,20 @@ public final class PermissionGate {
 
     private static boolean isWrite(GateRequest request) {
         return WriteFileTool.NAME.equals(request.toolName());
+    }
+
+    /**
+     * Whether this request is the sanctioned greenfield pre-approval design-markdown write
+     * ({@code write_artifact}) ADR-0012 makes the one write allowed before the breakdown is
+     * approved (RD-7, AC-1.2, AC-2.1). It is identified by tool name alone: {@code write_artifact}
+     * is offered only by the greenfield pre-approval registry and is confined to the target repo's
+     * {@code design/} directory by its {@link com.srk.codingagent.tool.GreenfieldArtifactStore}, so
+     * it can never target a source file. The general source-write Class X tools
+     * ({@code write_file}/{@code edit_file}/{@code run_command}) are NOT covered and keep their full
+     * per-mode gating (AC-9.4).
+     */
+    private static boolean isSanctionedArtifactWrite(GateRequest request) {
+        return WriteArtifactTool.NAME.equals(request.toolName());
     }
 
     private GateDecision autoApprove(GateRequest request, String matchedGrant, boolean denylisted) {

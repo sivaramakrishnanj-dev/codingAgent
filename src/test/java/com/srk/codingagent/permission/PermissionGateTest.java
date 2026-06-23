@@ -11,6 +11,7 @@ import com.srk.codingagent.persistence.PermissionDecisionOutcome;
 import com.srk.codingagent.persistence.PermissionDecisionPayload;
 import com.srk.codingagent.tool.ReadFileTool;
 import com.srk.codingagent.tool.RunCommandTool;
+import com.srk.codingagent.tool.WriteArtifactTool;
 import com.srk.codingagent.tool.WriteFileTool;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
@@ -71,6 +72,10 @@ class PermissionGateTest {
 
     private static GateRequest writeRequest(String path) {
         return GateRequest.forWrite("tu-w", path, "changed");
+    }
+
+    private static GateRequest writeArtifactRequest() {
+        return GateRequest.forTool("tu-a", WriteArtifactTool.NAME, OperationClass.SIDE_EFFECTING);
     }
 
     // --- AC-9.6 / RD-4: Class R is non-gated in EVERY mode ---
@@ -320,6 +325,89 @@ class PermissionGateTest {
         PermissionDecisionPayload payload = decision.toPayload("tu-c");
         assertEquals(PermissionDecisionOutcome.DENY, payload.decision(),
                 "a denied op records a deny PERMISSION_DECISION the loop pairs with TOOL_RESULT(denied)");
+    }
+
+    // --- ADR-0012 / RD-7 / AC-1.2 / AC-2.1: the sanctioned greenfield design-markdown write ---
+
+    @Test
+    @DisplayName("ADR-0012/RD-7/AC-1.2/AC-2.1: write_artifact is auto-approved without prompting in every mode (the sanctioned pre-approval design-markdown write)")
+    void writeArtifactAutoApprovedWithoutPromptInEveryMode() {
+        // Oracle: ADR-0012 — "the agent writes only design markdown … until the breakdown is
+        // approved"; RD-7 / AC-1.2 / AC-2.1 — the requirements/design/tasks CONTENT must be persisted
+        // into the target project. For the design/-confined write_artifact tool to actually persist
+        // the deliverable on a live ASK_EVERY_TIME run (where the gate's approver and the phase gate
+        // share one stdin), the gate must auto-approve it WITHOUT consulting the approver. The
+        // expected outcome (approve, no prompt) traces to ADR-0012/RD-7/AC-1.2/AC-2.1, not to gate
+        // code; it must hold in every mode (the write is sanctioned independent of the mode).
+        for (PermissionMode mode : PermissionMode.values()) {
+            StubApprover approver = denying(); // even a denying approver must not be consulted
+            GateDecision decision = gate(mode, approver).evaluate(writeArtifactRequest());
+            assertTrue(decision.approved(),
+                    "ADR-0012/RD-7: the sanctioned design-markdown write is approved in " + mode);
+            assertFalse(decision.shouldPrompt(),
+                    "the sanctioned design-markdown write is not separately prompted in " + mode);
+            assertEquals(0, approver.promptCount(),
+                    "the approver is never consulted for write_artifact in " + mode);
+            assertNull(decision.matchedGrant(),
+                    "the design-markdown write is approved by the carve-out, not via a grant, in " + mode);
+        }
+    }
+
+    @Test
+    @DisplayName("AC-9.4 preserved: write_file and run_command (general source-write Class X) STILL prompt in ASK_EVERY_TIME — the carve-out does not weaken the gate for them")
+    void carveOutDoesNotWeakenSourceWriteClassX() {
+        // Oracle: AC-9.4 — "while in ASK_EVERY_TIME, the agent shall prompt before every Class X
+        // operation." The write_artifact carve-out must NOT generalize to the RD-4 source-write
+        // Class X tools: a write_file and a run_command must each still consult the approver in
+        // ASK_EVERY_TIME (AC-1.4 / AC-5.2 stay enforced). Expected: each prompts exactly once.
+        StubApprover approver = approving();
+        PermissionGate gate = gate(PermissionMode.ASK_EVERY_TIME, approver);
+
+        gate.evaluate(writeRequest("/ws/src/Foo.java"));
+        gate.evaluate(commandRequest("mvn test"));
+
+        assertEquals(2, approver.promptCount(),
+                "AC-9.4: write_file and run_command still prompt; the write_artifact carve-out is "
+                        + "scoped to write_artifact only");
+    }
+
+    @Test
+    @DisplayName("INV-9 preserved: a denylisted destructive run_command still prompts and is never silently approved — the carve-out runs AFTER the denylist test")
+    void carveOutRunsAfterDenylist() {
+        // Oracle: AC-10.4 / INV-9 — a destructive command always prompts (denied outright in
+        // READ_ONLY), never auto-approved. The write_artifact carve-out runs after the denylist test,
+        // so it can never short-circuit a denylisted command. A denylisted run_command (not a
+        // write_artifact) must still hit the denylist path: prompt in UNRESTRICTED, deny in READ_ONLY.
+        StubApprover unrestricted = approving();
+        GateDecision promptDecision = gate(PermissionMode.UNRESTRICTED, unrestricted)
+                .evaluate(commandRequest("rm -rf build"));
+        assertTrue(promptDecision.denylisted(), "the destructive command is denylisted");
+        assertTrue(promptDecision.shouldPrompt(),
+                "a denylisted command still prompts even with the write_artifact carve-out present");
+        assertEquals(1, unrestricted.promptCount());
+
+        GateDecision readOnly = gate(PermissionMode.READ_ONLY, approving())
+                .evaluate(commandRequest("rm -rf build"));
+        assertEquals(PermissionDecisionOutcome.DENY, readOnly.outcome(),
+                "AC-10.4: a denylisted command is denied outright in READ_ONLY (the carve-out does not bypass this)");
+    }
+
+    @Test
+    @DisplayName("AC-9.4 holds for an unknown Class X tool: only write_artifact is carved out, not every SIDE_EFFECTING tool")
+    void carveOutIsScopedToWriteArtifactToolNameOnly() {
+        // Oracle: AC-9.4 — only the sanctioned design-markdown write (write_artifact) is exempt; a
+        // different SIDE_EFFECTING tool (e.g. a coarse web/subagent tool) must still prompt in
+        // ASK_EVERY_TIME. This guards against the carve-out being keyed on the operation class rather
+        // than the specific sanctioned tool name.
+        StubApprover approver = approving();
+        GateRequest otherClassX = GateRequest.forTool("tu-x", "spawn_subagent", OperationClass.SIDE_EFFECTING);
+
+        GateDecision decision = gate(PermissionMode.ASK_EVERY_TIME, approver).evaluate(otherClassX);
+
+        assertTrue(decision.shouldPrompt(),
+                "AC-9.4: a non-write_artifact Class X tool still prompts in ASK_EVERY_TIME");
+        assertEquals(1, approver.promptCount(),
+                "only write_artifact is carved out; other SIDE_EFFECTING tools are unaffected");
     }
 
     // --- AC-9.1: exactly four modes, all handled by the gate ---

@@ -255,3 +255,30 @@ auto-invokes the designer.
   heuristic + interactive approval are a deferred sub-step (so the spec matches the reachable-
   but-inert v1 state), that is an ac-update amendment — user's call. No action required to proceed.
 - status: open (informational; no action required to proceed)
+
+## Discussion items from T-3.2-RD-D8 — 2026-06-23
+
+### D1 — AC-9.4 "prompt before every Class X" reads absolutely; the ADR-0012-sanctioned design/-confined write_artifact pre-approval write is an exception in practice (suggested: ac-update)
+- task: T-3.2-RD-D8
+- spec_refs: AC-9.4 ("While in ASK_EVERY_TIME, the agent shall prompt before every Class X operation"), ADR-0012 ("the agent writes only design markdown … until the breakdown is approved"), RD-7, AC-1.2, AC-2.1
+- suggested_amendment_kind: ac-update
+- finding: The D8 fix auto-approves the `write_artifact` Class-X tool at the PermissionGate (without a
+  per-operation prompt) within greenfield pre-approval phases, because a per-op prompt contending with
+  the phase-approval gate for the developer's single shared stdin line was starving the content write
+  (the D8 regression). AC-9.4 literally says "prompt before every Class X operation", which on its face
+  includes write_artifact. The behaviour is ALREADY authorized by ADR-0012 (design-markdown writes are
+  the one sanctioned write before the breakdown is approved) + RD-7/AC-1.2/AC-2.1 (the content MUST be
+  persisted), and the carve-out is narrow (tool-name-keyed, design/-confined, source-write Class X and
+  the destructive denylist keep full gating). So no spec amendment is required to SHIP the fix — the
+  task-builder implemented it as code without one. The open question is purely prose precision: whether
+  AC-9.4 should carry an explicit clause noting the design/-confined write_artifact pre-approval
+  exception so the formal AC matches the live behaviour.
+- coordinator note: non-blocking; T-3.2-RD-D8 resolved cleanly (0 Blocker/Major/Minor). If the user
+  wants AC-9.4 (or ADR-0004's gate decision table) to state the write_artifact pre-approval exception
+  explicitly, that is an ac-update amendment — user's call. Naturally bundles with the recurring
+  greenfield-prose amendment candidates (T-3.3 D1, T-2.8 D1). A related, narrower observation: the
+  tool-name-keyed carve-out also auto-approves write_artifact in READ_ONLY (vs AC-9.2's "deny all
+  Class X"); write_artifact is only ever in the greenfield pre-approval registry and a READ_ONLY
+  greenfield session is contradictory by design intent, so this is defensible and documented, but the
+  user may wish to fold a READ_ONLY note into the same clarification. No action required to proceed.
+- status: open (informational; no action required to proceed)
