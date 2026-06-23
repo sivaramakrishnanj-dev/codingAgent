@@ -2,56 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-23
 last_updated_at_commit: pending
-total_resolved_count: 31
+total_resolved_count: 32
 
 last_resolved:
-  task: T-3.3
-  title: "Greenfield implement loop: one task at a time, verify each before next"
+  task: T-3.1-RD-D6
+  title: "Greenfield REPL phase-approval: stdin-backed ApprovalDecision presents each phase's deliverable then reads y/N (D6 fix)"
   resolved_at: 2026-06-23
-  commit: 30a4868
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-3.1-RD-D6
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-23T14:05:00-07:00
-  last_updated_at: 2026-06-23T14:05:00-07:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-3.1-RD-D6
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  open_action_items_for_implementer: []
-  open_action_items_for_tester: []
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-23T14:05:00-07:00
-  last_updated_at: 2026-06-23T14:05:00-07:00
-  note: |
-    Regression/wiring fix (regression-of-T-3.1, label T-3.1-RD-D6) for verified
-    defect D6 — same recurring class as T-2.7/T-2.8/D3/D4/D5: capability built +
-    unit-tested via scripted decisions, but a live input not wired. The greenfield
-    phase-approval ApprovalDecision is hard-coded `completedPhase -> false` on BOTH
-    live Main paths (Main.oneShotGreenfield ~L250, Main.interactiveGreenfield ~L350),
-    so a live REPL greenfield run shapes requirements (AC-1.1), writes no source
-    (AC-1.4), pauses AWAITING_APPROVAL, and can NEVER advance to design->tasks->
-    implement. Fix: wire the INTERACTIVE REPL greenfield path's ApprovalDecision to
-    read the developer's y/N from the same answerSource/stdin the InteractiveApprover
-    already uses, presenting each phase's deliverable before collecting the decision
-    (AC-1.5). One-shot `-p` greenfield stays DECLINE-by-default (non-interactive
-    cannot prompt). User-directed; STOP before M4 after resolution (pre-G3 gap).
 
 ## Milestone gates
 
@@ -391,3 +353,13 @@ in_flight:
 - dcrs_consumed: []
 - milestone: M3 (THIRD and LAST M3 task; deps T-3.1 + T-1.4, both resolved). Closes M3 -> milestone gate G3.
 - notes: The greenfield IMPLEMENT phase now implements the approved tasks ONE AT A TIME in breakdown order, verifying each before the next, REUSING the T-1.4 VerifyLoop (US-3, AC-3.1/3.2/3.3/3.4). Built: (1) GreenfieldImplementLoop (workflow/) — reads the approved tasks artifact (T-3.2's design/02-tasks.md) in breakdown order (AC-3.1, via the new TaskTraceability.tasksInOrder which reuses TaskTraceability's TASK_LINE regex — one source of truth for "what is a task line", not a second parser); implements each task via an agent-loop turn (the IMPLEMENT-phase loop, which has the source-write Class X tools per T-3.1); verifies each via the REUSED VerifyLoop (VerifyLoop.forConfig(executor, config, remedy) — the SAME seam BrownfieldDriver reuses, NOT a parallel verify cycle, confirmed by reuse_self_check) with a RemedyAttempt that drives a remedy turn from the failing output; on VERIFIED marks the task complete in the tasks artifact before the next (AC-3.3, via the REUSED T-3.2 GreenfieldArtifactStore); on EXHAUSTED (verify failed after NFR-VERIFY-MAX-ITERATIONS=5) STOPS and surfaces rather than advancing (AC-3.4). (2) ImplementOutcome (workflow/ record) — Disposition{ALL_VERIFIED, VERIFY_EXHAUSTED, NO_TEST_COMMAND, NO_TASKS} + allVerified/verifyExhausted/noTestCommand/noTasks + accessors (mirrors BrownfieldOutcome rather than overloading LoopOutcome's StopReason schema vocabulary, which has no verify-exhausted member — CT-SCH-3). (3) loop.RemedyPrompt (new shared class) — DRY-extracted during Phase C self-review from BrownfieldDriver's private RemedyPrompt so both drivers share one failure-feedback prompt builder (BrownfieldDriver.RemedyPrompt removed; the only external ref, BrownfieldDriverTest, updated — a reuse IMPROVEMENT, not scope creep). LIVE WIRING (continues the built-but-not-wired discipline): GreenfieldImplementLoop.asLoopTurn() adapts the loop to the IMPLEMENT-phase GreenfieldDriver.LoopTurn seam (option a — keeps the GreenfieldDriver structure intact); ToolRegistryComposer.greenfieldImplementLoopTurn(loopTurn) is the gate-covered seam that wires the terminal IMPLEMENT phase to the implement loop; AgentLoopFactory.createGreenfieldDriver threads the CommandExecutor + config so the per-task VerifyLoop is built from the configured test command; GreenfieldImplementCompositionTest (cli/, gate-covered) asserts the implement loop is constructed + reachable from the composition root at the terminal phase. mvn clean verify green (987 tests, +41 from 946; JaCoCo BUNDLE line 91.62% >= 0.80 gate; GreenfieldImplementLoop/ImplementOutcome/TaskTraceability/loop.RemedyPrompt/BrownfieldDriver all 100% line). Self-checks: oracle-traceability=passed (expected values trace to US-3/AC-3.1/3.2/3.3/3.4 + ADR-0012 implement clause + the exit-code-contract G4 verification-vs-process-exit separation, never to impl), reuse=passed (reused VerifyLoop+VerifyOutcome+RemedyAttempt T-1.4 seam, GreenfieldArtifactStore T-3.2, TaskTraceability's TASK_LINE regex; DRY-extracted the shared RemedyPrompt). 0 Blocker/0 Major/0 Minor/1 Nit/1 Discussion. STATED ASSUMPTIONS (sound, within scope): (a) AC-3.4 "stop and surface" = the loop stops (does not advance) and carries the failing task id + last failure output in its outcome, surfaced via completed phase text (exit 0), NOT a non-zero process exit — grounded in exit-code contract G4 (verification signal distinct from agent-process exit) and the established BrownfieldRunner verify-exhausted mapping; alternative (map to a surfaced LoopOutcome/StopReason) rejected because StopReason is the fixed Converse-stop-reason schema (CT-SCH-3) with no verify-exhausted member. (b) AC-20.6 no-test-command halts the loop (reports NO_TEST_COMMAND) rather than marking tasks complete without verification — the configured command is preferred; absence is a config state to report. DISCUSSION ITEM logged to open-questions (D1, suggested ac-update): AC-3.5 (single-specific-task request, type Op/optional) is not implemented as a distinct request shape — the minimal loop implements the full approved breakdown; per the task guidance a Discussion note is the prescribed disposition; promote to mandatory + pin a request shape only if the team later wants it. >>> G3 GATE: T-3.3 CLOSES M3. The full idea->requirements->design->tasks->implement greenfield pipeline is now built + wired live: --mode greenfield -> phase machine (T-3.1) -> per-phase approval gates + artifact authoring + timestamps + AC->task traceability (T-3.2) -> implement-one-task-at-a-time-and-verify-each (T-3.3, reusing the T-1.4 verify loop). The greenfield-phase-gating CT (the §6 gap) is green. Coordinator stops at gate G3 for the main agent's real-Bedrock G3 smoke test in a disposable sandbox.
+
+## T-3.1-RD-D6 — Greenfield REPL phase-approval: stdin-backed ApprovalDecision presents each phase's deliverable then reads y/N (D6 fix)
+- commit: pending
+- review: design/reviews/code/T-3.1-RD-D6-r1.md
+- resolved: 2026-06-23
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- label: regression-of-T-3.1 (T-3.1-RD-D6). Pre-G3 live-input wiring fix, user-directed. NOT a numbered 07-tasks.md row; same recurring class as T-2.7/T-2.8/D3/D4/D5 (capability built + unit-tested via scripted decisions, but a live input not wired). Coordinator STOPS before M4 after this — the main agent runs the G3 real-Bedrock smoke test next.
+- notes: >>> VERIFIED DEFECT D6 FIXED. The greenfield per-phase ApprovalDecision was hard-coded `completedPhase -> false` on BOTH live Main paths (Main.oneShotGreenfield ~L250 + NonInteractiveApprover; Main.interactiveGreenfield ~L350), with no input-driven ApprovalDecision anywhere in src/main — so a live greenfield REPL run shaped requirements (AC-1.1), wrote no source (AC-1.4), paused AWAITING_APPROVAL, and could NEVER advance to design->tasks->implement (the approval always returned false). The engine + AC-1.4/1.5 gating + artifact authoring + traceability + implement loop were all built/tested via scripted decisions; only "the developer says yes to a phase" live input was missing. FIX (user-chosen): wired the INTERACTIVE REPL greenfield path's ApprovalDecision to read the developer's y/N from the SAME answerSource/stdin the InteractiveApprover uses, presenting each completed phase's deliverable BEFORE collecting the decision (AC-1.5 / AC-10.1-style present-before-decide). Affirmative (y/yes, case-insensitive, whitespace-trimmed) -> approve (ArtifactApprovalGate then records the AC-1.5 approval timestamp into the phase artifact and the driver advances); anything else incl. blank/EOF/null -> decline (pause AWAITING_APPROVAL, no source, fail-closed). One-shot `-p` greenfield LEFT decline-by-default (a non-interactive run cannot prompt; mirrors NonInteractiveApprover) — NOT auto-approve. Built: (1) InteractiveGreenfieldApproval (cli/, NEW, coverage-counted seam, 100% line+branch 25/25) — the stdin-backed, deliverable-presenting ArtifactApprovalGate.ApprovalDecision; the deliverable presented is the phase's authored design-doc artifact read from GreenfieldArtifactStore (since ApprovalDecision.approve receives only the GreenfieldPhase, not the LoopOutcome text — chosen over widening the driver seam, which would break the GreenfieldDriverTest contract). (2) AffirmativeAnswer (cli/, NEW, 100% 4/4) — the shared y/yes fail-closed parser DRY-extracted from InteractiveApprover.isAffirmative so both prompts reuse one helper (no duplication; reuse_self_check=passed). (3) InteractiveApprover (modified) now delegates to AffirmativeAnswer.isAffirmative. (4) Main.interactiveGreenfield threads answerSource + System.out + a GreenfieldArtifactStore into the new decision instead of `completedPhase -> false`; Main stays JaCoCo-excluded (only threads the seam). LIVE-REACHABILITY TEST (the T-2.7/D5 lesson — wiring pinned in a NOT-coverage-excluded seam under the 0.80 gate): LiveGreenfieldApprovalReachabilityTest (cli/, NEW, 4 tests) asserts the real contract — affirmative stdin -> approve -> phase advances + AC-1.5 timestamp recorded in the artifact; "n"/EOF -> decline -> AWAITING_APPROVAL, no source; plus InteractiveGreenfieldApprovalTest (cli/, NEW, 9 tests). GreenfieldDriver UNCHANGED; GreenfieldDriverTest (phase-gating CT), ArtifactApprovalGateTest, LiveGreenfieldRegistryCompositionTest (AC-1.4 structural source-tool withholding), InteractiveApproverTest all stay green. mvn clean verify GREEN (894 surefire-reported tests / ~1000 incl parameterized, 0 failures/errors; JaCoCo BUNDLE >= 0.80 gate met; shaded codingagent.jar builds). Self-checks: oracle-traceability=passed (expected values trace to AC-1.5/AC-2.3/AC-1.4/AC-10.1 + the NonInteractiveApprover fail-closed precedent, never to impl), reuse=passed (extracted shared AffirmativeAnswer; reused GreenfieldArtifactStore/ArtifactApprovalGate; mirrored LiveCompactionReachabilityTest + LiveGreenfieldRegistryCompositionTest patterns). 0 Blocker / 0 Major / 0 Minor / 0 Nit / 0 Discussion. No AWS/Bedrock calls (reachability test uses scripted phase loops; no model call). >>> G3 READINESS: the greenfield phase pipeline is now USER-DRIVABLE end-to-end on the REPL — a `codingagent --mode greenfield` REPL session can drive requirements->design->tasks->implement by approving each phase gate (y). The main agent runs the G3 real-Bedrock smoke test next in a disposable sandbox.

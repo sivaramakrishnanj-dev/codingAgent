@@ -71,20 +71,12 @@ public final class InteractiveApprover implements Approver {
         // AC-10.1: present the exact operation BEFORE collecting the decision.
         prompt.println("Approve operation? " + request.presentation() + " [y/N]");
         String answer = answerSource.get();
-        if (isAffirmative(answer)) {
+        if (AffirmativeAnswer.isAffirmative(answer)) {
             LOGGER.info("Operation approved by developer: {}", request.presentation());
             return PermissionDecisionOutcome.APPROVE;
         }
         // AC-10.2: a non-affirmative answer (incl. EOF / blank) denies; no side effect runs.
         LOGGER.info("Operation denied by developer: {}", request.presentation());
         return PermissionDecisionOutcome.DENY;
-    }
-
-    private static boolean isAffirmative(String answer) {
-        if (answer == null) {
-            return false;
-        }
-        String normalized = answer.strip().toLowerCase(java.util.Locale.ROOT);
-        return normalized.equals("y") || normalized.equals("yes");
     }
 }

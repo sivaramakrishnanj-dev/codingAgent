@@ -14,6 +14,8 @@ import com.srk.codingagent.persistence.SessionMode;
 import com.srk.codingagent.persistence.SessionReplay;
 import com.srk.codingagent.persistence.SessionStore;
 import com.srk.codingagent.tool.CommandExecutor;
+import com.srk.codingagent.tool.GreenfieldArtifactStore;
+import com.srk.codingagent.workflow.ArtifactApprovalGate;
 import com.srk.codingagent.workflow.BrownfieldDriver;
 import com.srk.codingagent.workflow.BrownfieldRunner;
 import com.srk.codingagent.workflow.GreenfieldDriver;
@@ -282,7 +284,8 @@ public final class Main {
             // the LoopOutcome run(String) seam ReplRunner drives, so the per-turn handling is
             // mode-agnostic.
             ReplRunner.ReplLoop turnLoop = mode == SessionMode.GREENFIELD
-                    ? interactiveGreenfield(config, workspaceRoot, log, approver, sessions)
+                    ? interactiveGreenfield(
+                            config, workspaceRoot, log, approver, sessions, answerSource)
                     : interactiveBrownfield(config, workspaceRoot, log, approver, sessions);
             ReplRunner runner = new ReplRunner(turnLoop, answerSource, interrupted::get,
                     config.permissionMode(), System.out, System.err);
@@ -334,20 +337,29 @@ public final class Main {
      * offered to the model in the pre-approval phases (AC-1.2/AC-2.1), distinct from the withheld
      * source-write tools (AC-1.4).
      *
-     * <p><b>The per-phase approval decision the gate wraps.</b> T-3.2 delivers the timestamped,
-     * traceability-enforcing gate; the decision it wraps stays deny-by-default here, so the session
-     * shapes the requirements (AC-1.1) and stops at the first gate awaiting approval (ADR-0012,
-     * AC-2.3) without writing source (AC-1.4). The richer interactive deliverable-presenting prompt
-     * that supplies an affirmative decision (printing the phase's artifact and reading the
-     * developer's yes/no) is a thin follow-on over this seam &mdash; the load-bearing T-3.2 behaviour
-     * (record the timestamp + enforce traceability when a phase is confirmed) lives in the gate this
-     * wires, exercised through its decision seam.
+     * <p><b>The per-phase approval decision the gate wraps (T-3.1-RD-D6).</b> The REPL has a live
+     * developer terminal, so the decision the gate wraps is an {@link InteractiveGreenfieldApproval}:
+     * at each completed phase it presents that phase's deliverable (the requirements/design/tasks
+     * artifact, AC-1.5 present-before-confirm) and reads the developer's yes/no from the SAME
+     * {@code answerSource} the {@link InteractiveApprover} reads, then approves on an affirmative and
+     * declines (fail-closed) on anything else — a blank line, an unrecognized answer, or EOF/Ctrl-D
+     * (AC-1.4, mirroring {@link NonInteractiveApprover}). On approval the gate records the AC-1.5
+     * timestamp and (at the tasks gate) enforces traceability, and the driver advances toward
+     * implementation (AC-2.3); on a decline the session pauses awaiting approval without writing
+     * source (AC-1.4). The load-bearing present-then-decide logic lives in the coverage-counted
+     * {@link InteractiveGreenfieldApproval}; this excluded launcher only threads the REPL's input
+     * stream, its output stream, and the target-repo artifact store into it.
+     *
+     * @param answerSource the REPL's developer-input supplier (the same one the {@link InteractiveApprover}
+     *                     and the read-eval loop read) the per-phase y/N is collected from.
      */
     private static ReplRunner.ReplLoop interactiveGreenfield(ResolvedConfig config,
-            Path workspaceRoot, EventLog log, Approver approver, SessionStore sessions) {
+            Path workspaceRoot, EventLog log, Approver approver, SessionStore sessions,
+            Supplier<String> answerSource) {
+        ArtifactApprovalGate.ApprovalDecision decision = new InteractiveGreenfieldApproval(
+                answerSource, System.out, new GreenfieldArtifactStore(workspaceRoot));
         GreenfieldDriver driver = new AgentLoopFactory().createGreenfieldDriver(
-                config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver, sessions,
-                completedPhase -> false);
+                config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver, sessions, decision);
         GreenfieldRunner greenfield = new GreenfieldRunner(driver);
         return greenfield::run;
     }
