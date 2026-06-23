@@ -2,60 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-23
 last_updated_at_commit: pending
-total_resolved_count: 23
+total_resolved_count: 24
 
 last_resolved:
-  task: T-2.6
-  title: "Outcome signals (success + iterations from test exit)"
+  task: T-2.7
+  title: "Wire sub-agent + memory tools into the live tool registry (M2 integration; regression-of-T-2.3/T-2.4)"
   resolved_at: 2026-06-23
-  commit: e1299c6
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-2.7
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-23T00:00:00+00:00
-  last_updated_at: 2026-06-23T00:00:00+00:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-2.7
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree:
-    - (none yet — task start)
-  dcrs_consumed:
-    - (none)
-  started_at: 2026-06-23T00:00:00+00:00
-  last_updated_at: 2026-06-23T00:00:00+00:00
-  note: |
-    T-2.7 — "Wire sub-agent + memory tools into the live tool registry" (M2 integration/wiring;
-    regression-of-T-2.3/T-2.4; closes the live-vs-mocked gap that blocks G2). NOT a row in
-    07-tasks.md (coordinator does not edit the designer-owned tasks table); tracked here with full
-    traceability, same as the M0 D1/D2 regression tasks (T-0.2-RD1, T-0.5-RD2).
-    VERIFIED GAP: AgentLoopFactory.toolRegistry() (src/main/java/com/srk/codingagent/cli/AgentLoopFactory.java)
-    composes only 7 tools (read_file, grep, glob, list, write_file, edit_file, run_command). It never
-    registers spawn_subagent (SpawnSubAgentTool, NAME="spawn_subagent"), read_memory (ReadMemoryTool),
-    or write_memory (WriteMemoryTool) — all of which exist and are unit-tested. The
-    ChildAgentLoopFactory production seam (() -> agentLoop.run(prompt) over a REAL nested AgentLoop,
-    D2-safe by construction) is documented but never instantiated in production. So 2 of 3 G2 manual
-    criteria ("a sub-agent returns a summary", "a learning proposed->approved->recalled") are not
-    reachable from the live CLI. AgentLoopFactory is the JaCoCo-excluded composition root, which is
-    why no unit test caught it (same live-vs-mocked class as the M0 D1/D2 defects).
-    cited_spec_refs: ADR-0010, ADR-0007, INV-10, INV-11, INV-12, INV-13, INV-14, AC-17.1, AC-17.2,
-    AC-17.3, AC-17.4, AC-17.5, AC-17.6, AC-10.6, AC-12.1, AC-12.2, AC-12.3, AC-12.4, AC-14.1, AC-14.2,
-    AC-14.3, CT-INV-9, CT-INV-10, CT-INV-11, CT-INV-12, CT-SCH-11, CT-SCH-12.
 
 ## Milestone gates
 
@@ -296,3 +254,14 @@ in_flight:
 - dcrs_consumed: []
 - milestone: M2 (LAST task; closes M2 -> gate G2)
 - notes: The outcome-signal PRODUCER (C14, US-16) — the derivation+append the OUTCOME event type (already present from T-0.4: OutcomePayload {taskRef,success,iterations}, EventCodec-mapped, event.schema.json $defs.outcome, read by SessionStore.deriveMeta) had no writer for. New OutcomeRecorder (com.srk.codingagent.persistence) takes an EventLog + injected clock Supplier + taskRef and, given the terminal T-1.4 VerifyOutcome, DERIVES success = VerifyOutcome.verified() (true ONLY for Kind.VERIFIED = a zero exit from the configured test command within the bound; EXHAUSTED incl. the 124 timeout = failure) and iterations = VerifyOutcome.iterations(), then appends an OUTCOME event with a boundary-captured timestamp (AC-16.1/16.2, RD-10/INV-17/AC-20.4). Success lives in ONE place: derived from VerifyOutcome.verified(), never by re-checking result().exitCode(), so the zero-exit rule cannot drift from the verify loop. NO_TEST_COMMAND disposition (stated_assumption): record(VerifyOutcome) returns Optional.empty and appends NOTHING when no verification ran (Kind.NO_TEST_COMMAND) — AC-16.2 derives the signal from the verification command's exit status, so with no command there is no exit status and no signal; chose record-nothing over fabricating success or failure (both rejected; recordIfVerificationRan(Optional) is the convenience entry). AC-16.3 aggregatability: the on-disk JSONL OUTCOME line is the aggregatable form (the existing $defs.outcome shape SessionStore.deriveMeta folds into SessionMeta.outcomeSuccess); a test asserts the producer-emitted line round-trips and validates against event.schema.json via the same networknt validator EventSchemaContractTest uses (D2-guard: the emitted shape is checked on disk, not just success=true). WIRED into the live run path via a thin tested seam on BrownfieldRunner (2-arg ctor adding an optional OutcomeRecorder; old 1-arg ctor retained delegating with null — additive, no public-API break, run-path exit-code mapping unchanged); the un-unit-testable composition (recorder from the live EventLog + clock + taskRef) lives in JaCoCo-excluded Main.runOneShot/runInteractive. Brownfield is free-form (not task-numbered) at M2, so the live taskRef defaults to the session lineage id (Main.ONE_SHOT_LINEAGE "one-shot"); OutcomeRecorder carries whatever taskRef the caller supplies verbatim, so a real task-numbered caller (greenfield T-3.3) supplies a real id with no code change. +20 tests (OutcomeRecorderTest 15 incl. the schema-validation CT + the VERIFIED->true / EXHAUSTED->false / iterations / no-test-command truth table; BrownfieldRunnerTest +5 recording/wiring incl. taskRef="one-shot"). 825 tests green under mvn clean verify (JaCoCo 0.80 BUNDLE gate met; OutcomeRecorder 100% line+branch; BrownfieldRunner 36/37 line, the 1 missed = pre-existing T-1.6 verify-exhausted report formatting). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker/Major/Minor, 1 Nit, 0 Discussion. >>> G2 SMOKE-TEST NOTE: a live codingagent -p / REPL brownfield run that verifies now records an OUTCOME event (taskRef=one-shot, success from the verify exit) into the session JSONL — exercisable + inspectable at G2.
+
+## T-2.7 — Wire sub-agent + memory tools into the live tool registry (M2 integration; regression-of-T-2.3/T-2.4)
+- commit: pending
+- review: design/reviews/code/T-2.7-r1.md
+- resolved: 2026-06-23
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M2 (integration/wiring task; NOT a 07-tasks.md row — tracked here with full traceability like the M0 D1/D2 regression tasks T-0.2-RD1/T-0.5-RD2. Coordinator does not edit the designer-owned tasks table.)
+- task_type: regression/integration — closes the live-vs-mocked gap blocking G2 (same class as M0 D1/D2: green against mocks, broken live).
+- notes: VERIFIED GAP (coordinator-confirmed before dispatch): AgentLoopFactory.toolRegistry() (the JaCoCo-EXCLUDED production composition root) registered ONLY the 7 file/search/run tools (read_file/grep/glob/list/write_file/edit_file/run_command). It never registered spawn_subagent (SpawnSubAgentTool), read_memory (ReadMemoryTool) or write_memory (WriteMemoryTool) — all three existed + were unit-tested but were NEVER offered to the model on a live run — and the ChildAgentLoopFactory production seam (a real nested AgentLoop) was documented in Javadoc but never instantiated. So 2 of 3 G2 manual criteria ("a sub-agent returns a summary", "a learning proposed->approved->recalled") were unreachable from the live CLI. FIX: composition logic extracted out of the JaCoCo-excluded AgentLoopFactory into a NEW gate-covered seam ToolRegistryComposer (com.srk.codingagent.cli) — so the wiring is now COVERED by the 0.80 gate (the structural cause of the gap, an un-covered composition root, is removed). The composer registers all 10 live tools; builds a MemoryStore (injected, defaulting to ~/.codingagent per ADR-0007) behind read_memory (Class R) + write_memory (Class X, with the session EventLog + boundary clock + origin session + repoKey for the AC-12.4 MEMORY_WRITE event); and builds a SubAgentOrchestrator (C13) over a production ChildAgentLoopFactory seam = () -> childLoop.run(prompt) over a REAL nested AgentLoop reusing the PARENT's ModelClient — so the child's toolResult routes through the same D2-fixed text/json wire path by construction (NOT field presence). Child isolation per ADR-0010/INV-10/11/12: child gets its OWN session log (SessionStore.openLog — sidesteps the shared-writer hazard at N=1; parent log receives only SUBAGENT_SPAWN/SUBAGENT_RESULT on the parent thread), a FRESH no-inherited-grants gate (parentGrants.forSubAgent), and a child tool registry that EXCLUDES spawn_subagent + write_memory (no unbounded recursive spawn; curated-write stays the root session's lane — stated_assumption). Child-session-id supplier + clock captured at the AgentLoopFactory boundary (ADR-0005 — never UUID.randomUUID inside the orchestrator). AgentLoopFactory.create gained a SessionStore param, passed from Main's two existing SessionStore.forUserHome() call sites (runOneShot/runInteractive) — minimal additive change. NEW LiveToolRegistryCompositionTest (7 tests, the test that WOULD have caught this): asserts the registry AgentLoopFactory/composer actually produces contains all 10 tools by name with exact count, correct operation classes (read_memory=READ, write_memory=X, spawn_subagent=X per ADR-0007/0010), each renders a toolSpec, dispatching spawn_subagent runs a REAL nested loop over a scripted Bedrock double and returns a summary-ONLY result (AC-17.1/17.4/INV-11), and the memory tools dispatch to the real handlers over the SAME wired MemoryStore (write then read round-trips). 832 tests green under mvn clean verify (JaCoCo 0.80 BUNDLE gate met; ToolRegistryComposer 97% line); shaded codingagent.jar builds (15 MB). Self-checks: oracle-traceability=passed, reuse=passed (extended SearchToolsRegistrationTest's established registration-test precedent rather than duplicating). 0 Blocker/Major/Minor, 1 Nit, 0 Discussion. >>> G2 SMOKE-TEST NOTE: a live codingagent -p / REPL run now offers spawn_subagent + read_memory + write_memory to the model — the two previously-unreachable G2 criteria are now exercisable. Main agent runs the real-Bedrock G2 smoke test (compact+continue with INV-7 signature replay; spawn a sub-agent + get a summary back; propose->approve->recall a learning) next.

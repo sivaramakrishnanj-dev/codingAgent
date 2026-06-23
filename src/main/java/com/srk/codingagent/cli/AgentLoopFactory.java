@@ -4,6 +4,7 @@ import com.srk.codingagent.config.ResolvedConfig;
 import com.srk.codingagent.context.OutputDisposer;
 import com.srk.codingagent.loop.AgentLoop;
 import com.srk.codingagent.loop.TokenBudgetGuard;
+import com.srk.codingagent.memory.MemoryStore;
 import com.srk.codingagent.model.ModelCapabilityProfile;
 import com.srk.codingagent.model.converse.ModelClient;
 import com.srk.codingagent.model.credentials.BedrockClientFactory;
@@ -13,30 +14,23 @@ import com.srk.codingagent.permission.Approver;
 import com.srk.codingagent.permission.GrantStore;
 import com.srk.codingagent.permission.PermissionGate;
 import com.srk.codingagent.persistence.EventLog;
-import com.srk.codingagent.tool.CommandExecutor;
-import com.srk.codingagent.tool.EditFileTool;
-import com.srk.codingagent.tool.GlobTool;
-import com.srk.codingagent.tool.GrepTool;
-import com.srk.codingagent.tool.ListTool;
-import com.srk.codingagent.tool.ReadFileTool;
-import com.srk.codingagent.tool.RunCommandTool;
-import com.srk.codingagent.tool.ToolHandler;
+import com.srk.codingagent.persistence.SessionStore;
 import com.srk.codingagent.tool.ToolRegistry;
-import com.srk.codingagent.tool.WriteFileTool;
 import com.srk.codingagent.workflow.BrownfieldPlaybook;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
+import java.util.function.Supplier;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
 
 /**
  * Assembles the production {@link AgentLoop} for a one-shot run from a resolved
  * configuration: it resolves SigV4 credentials (ADR-0011), builds the Bedrock client
- * (C4), composes the file/search/run tools (read/grep/glob/list/write/edit/run, C7/C9/C10)
- * into a registry, wires the permission gate
- * (C8) over the configured mode with the supplied one-shot {@link Approver}, opens the
- * session event log (C14/C15), and hands the four collaborators to the {@link AgentLoop}
+ * (C4), composes the full live tool set (file/search/run C7/C9/C10, the memory tools C12,
+ * and the sub-agent tool C13) into a registry via {@link ToolRegistryComposer}, wires the
+ * permission gate (C8) over the configured mode with the supplied one-shot {@link Approver},
+ * opens the session event log (C14/C15), and hands the collaborators to the {@link AgentLoop}
  * (C2).
  *
  * <p>This is the production-only composition root the one-shot launcher uses; it makes the
@@ -44,6 +38,14 @@ import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
  * a thin, isolated seam, so the testable run-and-map logic lives entirely in
  * {@link OneShotRunner} (driven by a scripted Bedrock double). The factory makes no
  * Converse call itself; the loop does, only when run.
+ *
+ * <p><b>Tool composition lives in a gate-covered seam.</b> The set of tools the live run
+ * offers the model — and the sub-agent {@link ToolRegistryComposer} child-loop wiring — is
+ * assembled by {@link ToolRegistryComposer}, which (unlike this factory) is NOT coverage-
+ * excluded: it is constructible without a live AWS call (the already-built {@link ModelClient}
+ * is passed in), so a unit test pins the wiring contract (which tools the model sees, with
+ * which operation classes) under the coverage gate. This factory's job narrows to the one live
+ * step plus handing the composer its collaborators.
  *
  * <p><b>Credential failure surfaces (AC-8.9 → exit 4).</b> {@link #create} lets a
  * {@link com.srk.codingagent.model.credentials.CredentialResolutionException} propagate so
@@ -99,30 +101,46 @@ public final class AgentLoopFactory {
      *                       directory commands and file tools are rooted at); must not be
      *                       {@code null}.
      * @param sessionLineage the session lineage the permission gate's grant store is scoped
-     *                       to (INV-10); non-blank.
-     * @param log            the open session event log the loop appends to; must not be
-     *                       {@code null}.
+     *                       to (INV-10); it is also the repo key + origin session the memory
+     *                       tools and the sub-agent orchestrator are scoped to at v1; non-blank.
+     * @param log            the open session event log the loop appends to (and the parent log
+     *                       the memory-write provenance + sub-agent events are recorded in);
+     *                       must not be {@code null}.
      * @param approver       the approval seam (the one-shot {@link NonInteractiveApprover}
      *                       in production); must not be {@code null}.
+     * @param sessions       the session store the sub-agent orchestrator opens each child's OWN
+     *                       log from (ADR-0010 — the child never shares the parent's log);
+     *                       must not be {@code null}.
      * @return a composed {@link AgentLoop} ready to run a prompt; never {@code null}.
      * @throws NullPointerException if a required argument is {@code null}.
      * @throws com.srk.codingagent.model.credentials.CredentialResolutionException if no
      *         usable SigV4 credentials can be resolved (AC-8.9 → exit 4).
      */
     public AgentLoop create(ResolvedConfig config, Path workspaceRoot, String sessionLineage,
-            EventLog log, Approver approver) {
+            EventLog log, Approver approver, SessionStore sessions) {
         Objects.requireNonNull(config, "config");
         Objects.requireNonNull(workspaceRoot, "workspaceRoot");
         Objects.requireNonNull(log, "log");
         Objects.requireNonNull(approver, "approver");
+        Objects.requireNonNull(sessions, "sessions");
 
         BedrockCredentials credentials = credentialResolver.resolve(config.awsProfile());
         BedrockRuntimeClient bedrock = clientFactory.create(credentials, config.region());
         ModelClient modelClient = new ModelClient(bedrock);
 
-        ToolRegistry tools = toolRegistry(config, workspaceRoot);
-        PermissionGate gate = new PermissionGate(
-                config.permissionMode(), GrantStore.forSession(sessionLineage), approver);
+        // INV-10: lift the parent grant store to a local so BOTH the gate and the sub-agent
+        // orchestrator (via the composer) share the same lineage-scoped store — the orchestrator
+        // mints each child's fresh empty store from it (forSubAgent), and the gate consults it for
+        // the parent's remembered grants. ADR-0005: the boundary clock + child-session-id supplier
+        // are captured here at the boundary (the orchestrator never calls UUID.randomUUID itself).
+        GrantStore parentGrants = GrantStore.forSession(sessionLineage);
+        Supplier<String> clock = () -> Instant.now().toString();
+        Supplier<String> childSessionIds = () -> UUID.randomUUID().toString();
+        ToolRegistry tools = new ToolRegistryComposer(
+                modelClient, config, workspaceRoot, log, MemoryStore.forUserHome(), sessions,
+                parentGrants, approver, sessionLineage, sessionLineage, clock, childSessionIds)
+                .parentRegistry();
+        PermissionGate gate = new PermissionGate(config.permissionMode(), parentGrants, approver);
 
         // ADR-0005: the loop draws every event's timestamp from this boundary clock.
         // US-19/ADR-0006: the disposer reduces oversized tool/command output for context at
@@ -142,20 +160,8 @@ public final class AgentLoopFactory {
         // (AC-5.3). The playbook content + the verify-loop wiring live in the tested workflow
         // unit; the factory only carries the prompt to the loop's `system` arg.
         return new AgentLoop(modelClient, tools, gate, log,
-                () -> Instant.now().toString(), TokenBudgetGuard.forConfig(config, profile),
+                clock, TokenBudgetGuard.forConfig(config, profile),
                 OutputDisposer.forConfig(config), config.modelId(),
                 BrownfieldPlaybook.systemPrompt());
-    }
-
-    private static ToolRegistry toolRegistry(ResolvedConfig config, Path workspaceRoot) {
-        List<ToolHandler> handlers = List.of(
-                new ReadFileTool(workspaceRoot),
-                new GrepTool(workspaceRoot),
-                new GlobTool(workspaceRoot),
-                new ListTool(workspaceRoot),
-                new WriteFileTool(workspaceRoot),
-                new EditFileTool(workspaceRoot),
-                new RunCommandTool(new CommandExecutor(workspaceRoot), config));
-        return ToolRegistry.of(handlers);
     }
 }

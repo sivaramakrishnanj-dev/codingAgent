@@ -183,7 +183,8 @@ public final class Main {
         SessionStore sessions = SessionStore.forUserHome();
         try (EventLog log = sessions.openLog(ONE_SHOT_LINEAGE, ONE_SHOT_LINEAGE)) {
             AgentLoop loop = new AgentLoopFactory().create(
-                    config, workspaceRoot, ONE_SHOT_LINEAGE, log, new NonInteractiveApprover());
+                    config, workspaceRoot, ONE_SHOT_LINEAGE, log, new NonInteractiveApprover(),
+                    sessions);
             // T-1.6: route the one-shot through the brownfield workflow driver (ADR-0012,
             // v1 brownfield-only) so the model explores->changes (the loop carries the
             // brownfield playbook) then the driver verifies the change via the configured
@@ -229,7 +230,7 @@ public final class Main {
             Supplier<String> answerSource = lineSupplier(reader);
             Approver approver = new InteractiveApprover(answerSource, System.out);
             AgentLoop loop = new AgentLoopFactory().create(
-                    config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver);
+                    config, workspaceRoot, ONE_SHOT_LINEAGE, log, approver, sessions);
             // T-1.6: each REPL turn is a brownfield understand->change->verify cycle (ADR-0012,
             // v1 brownfield-only). The loop carries the brownfield playbook; the driver verifies
             // each completed change via the configured test command (AC-5.3). The runner maps the
