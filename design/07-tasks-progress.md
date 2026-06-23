@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-23
-last_updated_at_commit: 0f31b91
+last_updated_at_commit: pending
 total_resolved_count: 36
 
 last_resolved:
@@ -12,8 +12,38 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: [DCR-1]
 
-in_flight: null
+in_flight:
+  task: T-3.2-RD-D11
+  phase: AWAITING_AMENDMENT
+  loop_iter: 0
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-23T00:00:00+00:00
+  last_updated_at: 2026-06-23T00:00:00+00:00
 ---
+
+## In-flight
+
+- task: T-3.2-RD-D11
+  phase: AWAITING_AMENDMENT
+  loop_iter: 0
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  files_in_working_tree: []
+  dcrs_consumed:
+    - DCR-2
+  note: |
+    DCR-2 (greenfield multi-turn phase dialogue + approve-to-finalize) user-approved; OQ-design-2 logged.
+    Designer invoked in amendment mode. On status: amended, reset loop counters, flip phase to TASK_BUILDER,
+    and re-run the single-agent task-builder to implement the multi-turn greenfield phase loop against the
+    amended spec (folds in the D1 output-token-cap fix on the same Converse request path). Do NOT proceed
+    into M4 after resolution — stop and surface for the live G3 smoke test.
+  started_at: 2026-06-23T00:00:00+00:00
+  last_updated_at: 2026-06-23T00:00:00+00:00
 
 ## Milestone gates
 

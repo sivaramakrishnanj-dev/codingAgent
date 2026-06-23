@@ -373,4 +373,77 @@ auto-invokes the designer.
 - coordinator note: explicitly NOT part of DCR-1 (DCR-1 fixes the persistence mechanism, not the output
   cap). Recorded here per user direction as a separate non-blocking follow-on candidate. User's call
   whether/when to raise it as its own nfr-update amendment.
-- status: open (informational; no action required to proceed)
+- status: open (informational; no action required to proceed) — **folded into DCR-2's re-implementation (the
+  D1 output-token-cap fix is bundled with the multi-turn-phase work since both ride the same Converse
+  request path); see OQ-design-2 below.**
+
+## OQ-design-2 — T-3.2 design-change requested (greenfield multi-turn phase dialogue + approve-to-finalize) — 2026-06-23
+
+- kind: architecture-update
+- raised_by: user via main-agent steering (the user is steering greenfield interaction design)
+- spec_refs_touched: AC-1.1, AC-1.4, AC-1.5, AC-2.1, AC-2.3, AC-2.4, AC-2.5, ADR-0012 (C3 greenfield driver), C3 (02-architecture § 1.2), T-3.x (07-tasks), NFR-OUTPUT-MAX-INLINE (D1 follow-on folded in)
+- problem_statement: |
+  DCR-1 (driver-authored persistence) was necessary and landed correctly — requirements/design/tasks now
+  write real content (3432/1720/2365 bytes live). But the live G3 smoke test after DCR-1 proved a deeper
+  defect: each greenfield phase (requirements, design, tasks) runs as ONE LLM turn. Given a terse idea, the
+  requirements-phase model correctly does AC-1.1 (asks clarifying questions) instead of inventing
+  requirements — so the driver persists the model's *questions* as 00-requirements.md. Design reads
+  questions -> more questions; tasks reads questions -> honestly refuses to fabricate; AC-2.5 correctly
+  rejects 0 tasks. Every component is behaving correctly; the INTERACTION SHAPE is wrong — a phase that
+  needs a multi-turn conversation to converge is being run as a single turn. The model never finishes
+  shaping the deliverable before it's captured. Two contributing facts: (1) the fresh-conversation-per-phase
+  shape means the model cannot see its own prior turns WITHIN a phase (transcript discontinuity within a
+  phase, not just across phases); (2) the single-turn-per-phase contract is the wrong shape for a
+  deliverable that converges conversationally.
+- options_considered:
+  - id: A
+    summary: |
+      Multi-turn phase dialogue with approve-to-finalize. Each greenfield pre-approval phase becomes a
+      MULTI-TURN CONVERSATION: the developer converses with the agent across several REPL turns to shape the
+      phase deliverable; the model refines the deliverable each round (and may ask AC-1.1 clarifying
+      questions — it now has room to). The phase transcript carries across turns WITHIN the phase (fix the
+      fresh-conversation-per-phase discontinuity so the model sees its own prior turns within the phase).
+      FINALIZE = APPROVE (one gesture, reuse ArtifactApprovalGate / InteractiveGreenfieldApproval): each
+      round the developer is offered the approval prompt; when the developer APPROVES, that is the finalize
+      signal — the driver captures the model's latest substantive deliverable text in the phase
+      conversation, persists it via GreenfieldArtifactStore.write() (the DCR-1 driver-authored path, kept),
+      records the AC-1.5 approval timestamp, and advances. A non-approve answer keeps the phase conversation
+      going (another refining turn); it does NOT persist-and-stop. Later phases inject the approved
+      earlier-phase artifacts into their conversation context (DCR-1 cross-phase continuity kept). Preserve
+      AC-1.4 (source tools structurally withheld pre-approval), driver-authored persistence, AC-2.5
+      traceability on the written tasks artifact, AC-1.5 timestamp, AC-2.3 per-phase approval.
+    pros: Matches how a phase actually converges (conversationally); gives the model room to do AC-1.1
+      clarification and refine; fixes in-phase transcript discontinuity; reuses the existing approval gate as
+      the finalize signal; keeps every DCR-1/prior guarantee.
+    cons: Larger interaction surface to build + test (multi-turn loop state, in-phase transcript carry);
+      approve-to-finalize overloads the approval gesture (mitigated: it IS the natural finalize point).
+  - id: B
+    summary: |
+      Keep the single-turn-per-phase shape; iterate the per-phase prompt/playbook to coax the model into
+      producing a complete deliverable in one turn (lead harder, forbid questions, demand a full doc).
+    pros: Smallest change; no multi-turn loop machinery.
+    cons: Fights AC-1.1 (the model SHOULD ask clarifying questions on a terse idea); a single turn cannot
+      converge a deliverable that genuinely needs back-and-forth; empirically the wrong shape (live G3
+      proved the single turn captures questions, not a deliverable). Rejected.
+- recommended_option: A
+- chosen_option: A
+- user_decision: approved
+- user_approval:
+    approved_at: 2026-06-23T00:00:00+00:00
+    approver_note: |
+      Approve Option A — multi-turn phase dialogue with approve-to-finalize. Each greenfield phase is a
+      multi-turn conversation; the phase transcript carries within the phase; approve = finalize (driver
+      captures the converged deliverable, persists via GreenfieldArtifactStore.write(), stamps AC-1.5,
+      advances); non-approve = another refining turn (no persist-and-stop). Preserve AC-1.4 source-withholding,
+      DCR-1 driver-authored persistence, AC-2.5 traceability, AC-1.5 timestamp, AC-2.3 per-phase approval;
+      later phases inject approved earlier artifacts. ALSO fold in the D1 output-token-cap fix (set a
+      sensible inferenceConfig.maxTokens on the greenfield Converse request so a large requirements/design/
+      tasks deliverable is not truncated at the default 4096 cap).
+    revised_from_original: false
+- scope_of_design_edit:
+  - design/adr/0012-greenfield-workflow-formality.md (THE main change: each pre-approval phase is a multi-turn conversation; approve-to-finalize captures+persists the converged deliverable; phase transcript carries within a phase; later phases see approved earlier artifacts; driver-authored persistence retained from DCR-1; AC-1.4 source-withholding retained)
+  - design/00-requirements.md (AC-1.1 multi-turn dialogue within the requirements phase; AC-1.5 approval=finalize; AC-2.3; AC-2.4 revise-and-re-request maps to a non-approve refining turn; keep EARS form + traceability)
+  - design/02-architecture.md § 1.2 (C3 greenfield driver: multi-turn phase loop, approve-to-finalize, in-phase transcript continuity)
+  - design/07-tasks.md (T-3.x rows: note multi-turn phase dialogue + approve-to-finalize)
+- designer_status: (pending)
+
