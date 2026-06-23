@@ -128,6 +128,51 @@ class GreenfieldPlaybookTest {
     }
 
     @Test
+    @DisplayName("RD-7/AC-1.2/AC-2.1: each pre-approval phase prompt directs writing the deliverable to its artifact via write_artifact")
+    void preApprovalPhasesDirectArtifactWrite() {
+        // Oracle: RD-7 — "greenfield persists requirements, design, and task-breakdown as markdown in
+        // the target project"; AC-1.2 — "persist the agreed requirements as a markdown artifact";
+        // AC-2.1 — "produce a design artifact and a task-breakdown artifact as markdown". The
+        // deliverable of each pre-approval phase IS the persisted artifact (the D7 regression: the
+        // prompt previously never told the model to write it, so write_artifact was never called and
+        // the artifacts held only the approval stamp). Each pre-approval phase prompt must name the
+        // write_artifact tool AND that phase's artifact path, so the model is steered to persist the
+        // deliverable. The artifact paths trace to GreenfieldArtifact (the spec'd per-phase artifacts),
+        // not to the playbook's wording.
+        for (GreenfieldPhase phase : List.of(
+                GreenfieldPhase.REQUIREMENTS, GreenfieldPhase.DESIGN, GreenfieldPhase.TASKS)) {
+            String prompt = joined(phase);
+            assertTrue(prompt.contains(GreenfieldPlaybook.ARTIFACT_WRITE_TOOL),
+                    "RD-7: the " + phase + " phase prompt names the artifact-write tool ("
+                            + GreenfieldPlaybook.ARTIFACT_WRITE_TOOL + ") so the deliverable is persisted");
+            String artifactPath = GreenfieldArtifact.forPhase(phase).orElseThrow()
+                    .relativePath().toLowerCase(Locale.ROOT);
+            assertTrue(prompt.contains(artifactPath),
+                    "AC-1.2/AC-2.1: the " + phase + " phase prompt names its artifact path ("
+                            + artifactPath + ") so the deliverable is written to the right file");
+        }
+    }
+
+    @Test
+    @DisplayName("RD-7: the artifact-write tool constant is write_artifact and the pre-approval prompts name it without naming a source-change tool (AC-1.4)")
+    void artifactWriteToolConstantIsRegisteredAndSafe() {
+        // Oracle: dep API (WriteArtifactTool.NAME = "write_artifact") + AC-1.4 — the one Class-X write
+        // offered in the pre-approval phases is the path-confined write_artifact, while the
+        // source-change tools (write_file/edit_file/run_command) stay withheld. The artifact-write
+        // constant must equal the registered tool name, and naming it must NOT introduce a
+        // source-change tool name into a pre-approval prompt (the AC-1.4 property
+        // preApprovalPhasesDoNotNameSourceChangeTools also guards). Asserting the constant value here
+        // (not in the equality-pinned namedToolsMatchRegisteredToolset) keeps that test's existing
+        // EXPLORE_TOOLS/SOURCE_CHANGE_TOOLS equalities valid.
+        assertEquals("write_artifact", GreenfieldPlaybook.ARTIFACT_WRITE_TOOL,
+                "RD-7: the artifact-write constant matches the registered write_artifact tool name");
+        assertFalse(GreenfieldPlaybook.ARTIFACT_WRITE_TOOL.contains("write_file")
+                        || GreenfieldPlaybook.ARTIFACT_WRITE_TOOL.contains("edit_file")
+                        || GreenfieldPlaybook.ARTIFACT_WRITE_TOOL.contains("run_command"),
+                "AC-1.4: the artifact-write tool is not one of the withheld source-change tools");
+    }
+
+    @Test
     @DisplayName("the playbook names the greenfield mode so the model knows it is building from scratch")
     void namesGreenfieldMode() {
         // Oracle: 02-architecture § 1.2 (C3) "Mode is fixed for a session" + US-1/2/3 (a brand-new

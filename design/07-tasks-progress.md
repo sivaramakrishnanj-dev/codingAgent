@@ -2,58 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-23
 last_updated_at_commit: pending
-total_resolved_count: 32
+total_resolved_count: 33
 
 last_resolved:
-  task: T-3.1-RD-D6
-  title: "Greenfield REPL phase-approval: stdin-backed ApprovalDecision presents each phase's deliverable then reads y/N (D6 fix)"
+  task: T-3.2-RD-D7
+  title: "Greenfield prompt: each pre-approval phase persists its deliverable content via write_artifact before approval (D7 fix)"
   resolved_at: 2026-06-23
-  commit: 6f1d266
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-3.2-RD-D7
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-23T00:00:00-07:00
-  last_updated_at: 2026-06-23T00:00:00-07:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-3.2-RD-D7
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-23T00:00:00-07:00
-  last_updated_at: 2026-06-23T00:00:00-07:00
-  note: |
-    Regression-of T-3.2 (greenfield artifact authoring). Verified defect D7 from the G3
-    real-Bedrock greenfield smoke test: across the requirements AND design phases the model
-    NEVER called write_artifact (instrumented count = 0); only the ArtifactApprovalGate's
-    approval-stamp append fired (count = 10 over a desync'd run). The phase artifacts
-    therefore contained ONLY the approval stamp, not the phase's substantive deliverable
-    content — so design/00-requirements.md read "Approved: Requirements approved ... at <ts>."
-    with no requirements text. At the TASKS phase the agent (correctly) refused to fabricate a
-    breakdown from an empty requirements artifact, and AC-2.5 traceability then refused tasks
-    approval (no real design/02-tasks.md) — greenfield cannot reach tasks->implement live.
-    RD-7 / AC-1.2 ("persist the agreed requirements as a markdown artifact") is unmet on the
-    LIVE path even though the write_artifact tool + GreenfieldArtifactStore are built and the
-    tool is registered in the pre-approval registry. The gap is the per-phase greenfield prompt
-    (GreenfieldPlaybook) never directing the model that each phase's deliverable IS the written
-    artifact, authored via write_artifact at its path (design/00-requirements.md,
-    design/01-design.md, design/02-tasks.md), with substantive content, before the phase turn
-    completes — same class as D5/D7 (built but not exercised on the live path).
 
 ## Milestone gates
 
@@ -403,3 +363,13 @@ in_flight:
 - dcrs_consumed: []
 - label: regression-of-T-3.1 (T-3.1-RD-D6). Pre-G3 live-input wiring fix, user-directed. NOT a numbered 07-tasks.md row; same recurring class as T-2.7/T-2.8/D3/D4/D5 (capability built + unit-tested via scripted decisions, but a live input not wired). Coordinator STOPS before M4 after this — the main agent runs the G3 real-Bedrock smoke test next.
 - notes: >>> VERIFIED DEFECT D6 FIXED. The greenfield per-phase ApprovalDecision was hard-coded `completedPhase -> false` on BOTH live Main paths (Main.oneShotGreenfield ~L250 + NonInteractiveApprover; Main.interactiveGreenfield ~L350), with no input-driven ApprovalDecision anywhere in src/main — so a live greenfield REPL run shaped requirements (AC-1.1), wrote no source (AC-1.4), paused AWAITING_APPROVAL, and could NEVER advance to design->tasks->implement (the approval always returned false). The engine + AC-1.4/1.5 gating + artifact authoring + traceability + implement loop were all built/tested via scripted decisions; only "the developer says yes to a phase" live input was missing. FIX (user-chosen): wired the INTERACTIVE REPL greenfield path's ApprovalDecision to read the developer's y/N from the SAME answerSource/stdin the InteractiveApprover uses, presenting each completed phase's deliverable BEFORE collecting the decision (AC-1.5 / AC-10.1-style present-before-decide). Affirmative (y/yes, case-insensitive, whitespace-trimmed) -> approve (ArtifactApprovalGate then records the AC-1.5 approval timestamp into the phase artifact and the driver advances); anything else incl. blank/EOF/null -> decline (pause AWAITING_APPROVAL, no source, fail-closed). One-shot `-p` greenfield LEFT decline-by-default (a non-interactive run cannot prompt; mirrors NonInteractiveApprover) — NOT auto-approve. Built: (1) InteractiveGreenfieldApproval (cli/, NEW, coverage-counted seam, 100% line+branch 25/25) — the stdin-backed, deliverable-presenting ArtifactApprovalGate.ApprovalDecision; the deliverable presented is the phase's authored design-doc artifact read from GreenfieldArtifactStore (since ApprovalDecision.approve receives only the GreenfieldPhase, not the LoopOutcome text — chosen over widening the driver seam, which would break the GreenfieldDriverTest contract). (2) AffirmativeAnswer (cli/, NEW, 100% 4/4) — the shared y/yes fail-closed parser DRY-extracted from InteractiveApprover.isAffirmative so both prompts reuse one helper (no duplication; reuse_self_check=passed). (3) InteractiveApprover (modified) now delegates to AffirmativeAnswer.isAffirmative. (4) Main.interactiveGreenfield threads answerSource + System.out + a GreenfieldArtifactStore into the new decision instead of `completedPhase -> false`; Main stays JaCoCo-excluded (only threads the seam). LIVE-REACHABILITY TEST (the T-2.7/D5 lesson — wiring pinned in a NOT-coverage-excluded seam under the 0.80 gate): LiveGreenfieldApprovalReachabilityTest (cli/, NEW, 4 tests) asserts the real contract — affirmative stdin -> approve -> phase advances + AC-1.5 timestamp recorded in the artifact; "n"/EOF -> decline -> AWAITING_APPROVAL, no source; plus InteractiveGreenfieldApprovalTest (cli/, NEW, 9 tests). GreenfieldDriver UNCHANGED; GreenfieldDriverTest (phase-gating CT), ArtifactApprovalGateTest, LiveGreenfieldRegistryCompositionTest (AC-1.4 structural source-tool withholding), InteractiveApproverTest all stay green. mvn clean verify GREEN (894 surefire-reported tests / ~1000 incl parameterized, 0 failures/errors; JaCoCo BUNDLE >= 0.80 gate met; shaded codingagent.jar builds). Self-checks: oracle-traceability=passed (expected values trace to AC-1.5/AC-2.3/AC-1.4/AC-10.1 + the NonInteractiveApprover fail-closed precedent, never to impl), reuse=passed (extracted shared AffirmativeAnswer; reused GreenfieldArtifactStore/ArtifactApprovalGate; mirrored LiveCompactionReachabilityTest + LiveGreenfieldRegistryCompositionTest patterns). 0 Blocker / 0 Major / 0 Minor / 0 Nit / 0 Discussion. No AWS/Bedrock calls (reachability test uses scripted phase loops; no model call). >>> G3 READINESS: the greenfield phase pipeline is now USER-DRIVABLE end-to-end on the REPL — a `codingagent --mode greenfield` REPL session can drive requirements->design->tasks->implement by approving each phase gate (y). The main agent runs the G3 real-Bedrock smoke test next in a disposable sandbox.
+
+## T-3.2-RD-D7 — Greenfield prompt: each pre-approval phase persists its deliverable content via write_artifact before approval (D7 fix)
+- commit: pending
+- review: design/reviews/code/T-3.2-RD-D7-r1.md
+- resolved: 2026-06-23
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- label: regression-of-T-3.2 (T-3.2-RD-D7). Live-only fix surfaced by the G3 real-Bedrock greenfield smoke test; NOT a numbered 07-tasks.md row. Same recurring class as T-2.7/T-2.8/D3/D4/D5/D6 (capability built + unit-tested, but the LIVE behavior did not exercise it). Coordinator STOPS at gate G3 before M4 after this; the main agent re-runs the G3 smoke test next.
+- notes: >>> VERIFIED DEFECT D7 FIXED. On the live G3 greenfield run, across the requirements AND design phases the model called write_artifact ZERO times (instrumented count = 0); only the ArtifactApprovalGate's approval-stamp append fired — so design/00-requirements.md and design/01-design.md held ONLY the approval stamp ("Approved: ... at <ts>."), no substantive deliverable content. At the TASKS phase the agent (correctly) refused to fabricate a breakdown from an empty requirements artifact, and AC-2.5 traceability then refused the tasks approval (no real design/02-tasks.md) — so greenfield could not reach tasks->implement live. RD-7/AC-1.2/AC-2.1 were unmet on the LIVE path even though the write_artifact tool + GreenfieldArtifactStore are built and the tool is already registered in the pre-approval registry. ROOT CAUSE (one place): the per-phase greenfield system prompt (GreenfieldPlaybook) discussed each deliverable in prose but never directed the model that each pre-approval phase's deliverable IS the written artifact, authored via write_artifact at its path before the phase turn completes. FIX (Phase A, pure prompt fix, no tool/store/gate/registry change): added a distinct ARTIFACT_WRITE_TOOL = "write_artifact" constant (kept separate from EXPLORE_TOOLS/SOURCE_CHANGE_TOOLS so naming it in pre-approval prompts does not name a source-change tool — AC-1.4 preserved); added a common block mandating the model persist each pre-approval phase's substantive content via write_artifact before asking for approval (a phase turn is NOT complete until the real full content is written); enriched each pre-approval phaseBlock (REQUIREMENTS/DESIGN/TASKS) to name its artifact path (design/00-requirements.md, design/01-design.md, design/02-tasks.md) + write_artifact, with the path drawn from GreenfieldArtifact.forPhase().relativePath() (reuse — prompt and artifact enum stay in step, no re-derivation). IMPLEMENT block unchanged (still the only phase naming the source-change tools). Phase B (tests): extended GreenfieldPlaybookTest (+2: prompt-content oracles for the artifact-write directive + the ARTIFACT_WRITE_TOOL-vs-source-tool safety; class total 11); new GreenfieldArtifactPersistenceTest (cli/, +3) — the live-path contract test that drives a real greenfield phase AgentLoop over a scripted Bedrock double emitting a write_artifact tool-use and asserts the artifact ON DISK holds the model-authored content (the real D7 contract — deliverable content persisted — NOT "the phase returns text"), plus a captured-Converse-request assertion that the per-phase prompt the model receives names write_artifact + its path. Reuses the established ScriptedBedrockClient hand-rolled double (no Mockito, no live AWS); does NOT duplicate GreenfieldArtifactCompositionTest (that pins composition; this pins live end-to-end). MUST-STAY-GREEN confirmed: GreenfieldPlaybookTest (11), GreenfieldDriverTest phase-gating + AC-1.4 structural withholding (10), ArtifactApprovalGateTest (7), GreenfieldArtifactAuthoringTest (2), GreenfieldWiringTest (3), live composition tests all green; AC-1.4 holds (no pre-approval prompt names write_file/edit_file/run_command). mvn clean verify GREEN (1005 tests, 0 failures/errors/skipped; JaCoCo BUNDLE line 91.71% >= 0.80 gate; shaded codingagent.jar builds; coordinator-independent verify re-run also green). Self-checks: oracle-traceability=passed (expected values trace to RD-7/AC-1.2/AC-2.1/AC-1.4 + GreenfieldArtifact.relativePath()/heading(), never to the playbook's exact wording or to composer/tool code), reuse=passed (reused ScriptedBedrockClient double + GreenfieldArtifact path source; no parallel composer/duplicated logic). 0 Blocker / 0 Major / 1 Minor / 1 Nit / 1 Discussion. No AWS/Bedrock calls (scripted double). DISCUSSION ITEM (D1, suggested_amendment_kind=none): the prompt fix STEERS but cannot FORCE write_artifact; the structural backstop already exists one layer down (ArtifactApprovalGate refuses the TASKS gate when the breakdown is untraceable per AC-2.5, and an empty artifact is untraceable, so a skipped write cannot silently reach implementation). G3 SMOKE-TEST NOTE for the main agent: re-run the live greenfield arc and confirm write_artifact now fires with substantive content per phase, tasks trace to requirements, and the implement phase writes+verifies at least one source file — the prompt fix is the necessary change; the live run is the proof. No DCR warranted (this is exactly the fix the recorded D7 defect asked for). The task-builder agent's first turn was cut off by a connection drop mid-response (45 tool uses); the same agent was resumed with its in-context Phase A/B/C state intact, finished the new test, ran the full verify, wrote the review, and returned the handoff — no work lost, no double-build of conflicting changes.

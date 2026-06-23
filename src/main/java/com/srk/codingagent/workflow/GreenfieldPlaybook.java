@@ -35,6 +35,19 @@ import java.util.Objects;
  * structural withholding of {@code write_file}/{@code edit_file}/{@code run_command} in the
  * pre-approval phases (AC-1.4). Naming the tools per phase keeps the prompt and the phase-scoped
  * registry in step so the model is steered only toward tools that are actually offered.
+ *
+ * <p><b>The deliverable of each pre-approval phase IS the written artifact (RD-7, AC-1.2, AC-2.1;
+ * the D7 regression).</b> A real-Bedrock greenfield run revealed the prompt steered the model to
+ * <em>discuss</em> the requirements/design/tasks in prose but never told it to <em>persist</em>
+ * that deliverable as the phase artifact — so {@code write_artifact} was never called and the
+ * artifact files ended up holding only the approval gate's stamp, with no real content. The fix is
+ * to make each pre-approval phase block name its artifact path ({@code design/00-requirements.md},
+ * {@code design/01-design.md}, {@code design/02-tasks.md}) and mandate that the model write the
+ * substantive deliverable content there via the {@link com.srk.codingagent.tool.WriteArtifactTool}
+ * {@code write_artifact} tool <em>before</em> the phase turn completes — not merely talk through it.
+ * The {@code write_artifact} tool is the one Class-X write the pre-approval registry offers (it is
+ * path-confined to the target repo's {@code design/} directory, so it cannot reach source files —
+ * AC-1.4 stays enforced); naming it here keeps the prompt and that phase-scoped registry in step.
  */
 public final class GreenfieldPlaybook {
 
@@ -43,6 +56,15 @@ public final class GreenfieldPlaybook {
 
     /** The source-change tools introduced only in the implementation phase (Class X; AC-1.4). */
     static final String SOURCE_CHANGE_TOOLS = "write_file, edit_file, and run_command";
+
+    /**
+     * The design-doc artifact-write tool the pre-approval phases use to persist each phase's
+     * deliverable into the target repo's {@code design/} directory (Class X, but path-confined so it
+     * cannot reach source files; RD-7/AC-1.2/AC-2.1). Kept as its own constant — distinct from
+     * {@link #EXPLORE_TOOLS} and {@link #SOURCE_CHANGE_TOOLS} — so naming it in the pre-approval
+     * prompts does not name a source-change tool (AC-1.4).
+     */
+    static final String ARTIFACT_WRITE_TOOL = "write_artifact";
 
     private GreenfieldPlaybook() {
         // Holder for the immutable per-phase playbook prompt; not instantiable.
@@ -77,6 +99,15 @@ public final class GreenfieldPlaybook {
                         + "unconfirmed, do not jump to writing source: ask the developer to confirm "
                         + "the requirements first, then proceed. Shaping the requirements before "
                         + "code is the point of greenfield mode.",
+                "The deliverable of each pre-approval phase (requirements, design, tasks) IS a "
+                        + "written artifact, not just discussion. Each of those phases has one "
+                        + "design-doc artifact in the target project's design/ directory, and you "
+                        + "persist that phase's substantive content there with the "
+                        + ARTIFACT_WRITE_TOOL + " tool. Do not merely talk through the deliverable "
+                        + "in prose: a phase turn is NOT complete until you have written the real, "
+                        + "full content of that phase's deliverable to its artifact via "
+                        + ARTIFACT_WRITE_TOOL + ". Write the artifact before you ask the developer "
+                        + "to approve the phase, so the approval is recorded against real content.",
                 "Advance one phase at a time, and only with explicit approval. The phases are: "
                         + "requirements, then design, then tasks, then implement. When you present "
                         + "the design and the task breakdown, request the developer's approval "
@@ -86,29 +117,49 @@ public final class GreenfieldPlaybook {
     }
 
     /**
-     * The phase-specific block: it names the current phase's deliverable and the approval gate (if
-     * any) that leaves it. The implementation block is the only one that introduces the
-     * source-change tools, matching the driver's withholding of those Class-X tools in the
-     * pre-approval phases (AC-1.4).
+     * The phase-specific block: it names the current phase's deliverable, the artifact that
+     * deliverable is written to (for the pre-approval phases), and the approval gate (if any) that
+     * leaves it. Each pre-approval block directs the model to author its phase's substantive content
+     * to its {@link GreenfieldArtifact} via {@link #ARTIFACT_WRITE_TOOL} before completing the turn
+     * (RD-7/AC-1.2/AC-2.1; the D7 regression). The implementation block is the only one that
+     * introduces the source-change tools, matching the driver's withholding of those Class-X tools in
+     * the pre-approval phases (AC-1.4).
      */
     private static String phaseBlock(GreenfieldPhase phase) {
         return switch (phase) {
             case REQUIREMENTS -> "Current phase: requirements. Discuss the use-case and produce the "
                     + "agreed requirements (personas, user stories, acceptance criteria, and "
-                    + "non-functional requirements). When the requirements are complete, ask the "
-                    + "developer to approve them before moving on to design.";
+                    + "non-functional requirements). Persist that full requirements content to "
+                    + artifactPath(phase) + " with the " + ARTIFACT_WRITE_TOOL + " tool — this "
+                    + "written artifact is the phase's deliverable. When the requirements artifact is "
+                    + "written, ask the developer to approve it before moving on to design.";
             case DESIGN -> "Current phase: design. Turn the approved requirements into a design "
-                    + "(overview, architecture, data model, APIs, operations). You may write design "
-                    + "documents, but not source code. When the design is complete, ask the "
-                    + "developer to approve it before breaking it into tasks.";
+                    + "(overview, architecture, data model, APIs, operations). Persist that full "
+                    + "design content to " + artifactPath(phase) + " with the " + ARTIFACT_WRITE_TOOL
+                    + " tool — this written artifact is the phase's deliverable; you write design "
+                    + "documents this way, not source code. When the design artifact is written, ask "
+                    + "the developer to approve it before breaking it into tasks.";
             case TASKS -> "Current phase: tasks. Break the approved design into discrete, "
-                    + "reviewable tasks, each traceable to a requirement. When the task breakdown is "
-                    + "complete, request the developer's approval; implementation begins only after "
-                    + "the design and task breakdown are approved.";
+                    + "reviewable tasks, each with a stable identifier and each tracing to at least "
+                    + "one requirement. Persist that full task breakdown to " + artifactPath(phase)
+                    + " with the " + ARTIFACT_WRITE_TOOL + " tool — this written artifact is the "
+                    + "phase's deliverable, and the traceability is checked against it. When the task "
+                    + "breakdown artifact is written, request the developer's approval; implementation "
+                    + "begins only after the design and task breakdown are approved.";
             case IMPLEMENT -> "Current phase: implement. The design and task breakdown are approved, "
                     + "so you may now write source: implement the planned tasks one at a time using "
                     + "the change tools (" + SOURCE_CHANGE_TOOLS + "), verifying each task before "
                     + "moving to the next.";
         };
+    }
+
+    /**
+     * The target-repo-relative artifact path the given pre-approval phase writes its deliverable to
+     * (e.g. {@code design/00-requirements.md}), drawn from {@link GreenfieldArtifact} so the prompt
+     * and the artifact enum stay in step. Only the pre-approval phases author an artifact; this is
+     * never called for {@link GreenfieldPhase#IMPLEMENT}.
+     */
+    private static String artifactPath(GreenfieldPhase phase) {
+        return GreenfieldArtifact.forPhase(phase).orElseThrow().relativePath();
     }
 }
