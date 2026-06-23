@@ -45,21 +45,18 @@ import software.amazon.awssdk.services.bedrockruntime.model.Message;
 import software.amazon.awssdk.services.bedrockruntime.model.SystemContentBlock;
 
 /**
- * The greenfield <b>artifact-content persistence</b> contract test (T-3.2-RD-D7, regression of
- * T-3.2): running a pre-approval greenfield phase turn must persist that phase's substantive
- * deliverable CONTENT to its design-doc artifact via the {@code write_artifact} tool — so the
- * requirements/design/tasks artifacts carry real content (not just an approval stamp) on the live
- * path (RD-7, AC-1.2 for requirements; AC-2.1 for design + tasks).
- *
- * <p><b>The D7 defect this would have caught.</b> A real-Bedrock greenfield run drove
- * requirements&rarr;design&rarr;tasks, approving each phase, yet {@code write_artifact} was invoked
- * <em>zero</em> times: the model discussed each deliverable in prose but never persisted it, so the
- * artifact files held only the approval gate's stamp. The cause was the per-phase greenfield system
- * prompt not directing the model to author each phase's deliverable to its artifact via
- * {@code write_artifact} before the phase turn completed. A test that only asserted "the phase
- * returns text" would not catch that — so this test drives a real phase-loop turn over a scripted
- * Bedrock double that emits a {@code write_artifact} tool-use and asserts the artifact on disk holds
- * the model-authored content (the real contract: deliverable content persisted, the D5/D7 lesson).
+ * The greenfield <b>optional {@code write_artifact} tool</b> contract test (originally T-3.2-RD-D7;
+ * reframed under DCR-1 / ADR-0012 amended 2026-06-23). Since DCR-1, persistence of each pre-approval
+ * phase deliverable is <em>driver-authored</em> — the {@link com.srk.codingagent.workflow.GreenfieldDriver}
+ * writes each artifact in code from the phase's END_TURN prose (see
+ * {@code GreenfieldArtifactAuthoringTest} and the production-driver CLI tests), NOT via a model tool
+ * call. The {@code write_artifact} design-doc tool nonetheless <em>stays registered/available</em> in
+ * the pre-approval registry (it is now optional, no longer the persistence mechanism; ADR-0012 amended,
+ * C7 note). This test pins the still-true contracts around that optional tool: when the model
+ * <em>does</em> emit a {@code write_artifact} tool-use, the dispatch&rarr;tool&rarr;store plumbing
+ * still persists the content to the {@code design/}-confined artifact (RD-7, AC-1.2/AC-2.1; AC-1.4
+ * design/-confinement); and the per-phase prompt the model receives names the artifact path its
+ * deliverable is saved to and notes that {@code write_artifact} remains available.
  *
  * <p><b>SUT and collaborators.</b> The SUT is the real {@link ToolRegistryComposer} greenfield
  * registry + per-phase prompt assembly driving a real {@link AgentLoop} (real {@link ModelClient},
@@ -73,13 +70,14 @@ import software.amazon.awssdk.services.bedrockruntime.model.SystemContentBlock;
  *
  * <p><b>Oracles trace to the spec, not to the composer's code:</b>
  * <ul>
- *   <li><b>AC-1.2 / RD-7:</b> a requirements-phase turn that calls {@code write_artifact} persists
- *       the requirements content to {@code design/00-requirements.md}.</li>
- *   <li><b>AC-2.1:</b> the design and tasks phases each persist their deliverable to their
- *       artifact.</li>
- *   <li><b>The D7 contract (RD-7/AC-1.2):</b> the per-phase prompt the model receives directs it to
- *       write the deliverable to its artifact via {@code write_artifact} before completing the
- *       turn — asserted against the captured Converse request's system blocks.</li>
+ *   <li><b>AC-1.2 / RD-7 (tool stays registered):</b> when the model calls the optional
+ *       {@code write_artifact} tool, it persists the requirements content to
+ *       {@code design/00-requirements.md} (the plumbing still works — the DCR-1 probe contract).</li>
+ *   <li><b>AC-2.1 (tool stays registered):</b> the optional tool likewise persists design + tasks
+ *       content when called.</li>
+ *   <li><b>RD-7/AC-1.2/AC-2.1:</b> the per-phase prompt names its artifact path (so the model knows
+ *       what file its deliverable becomes) and the {@code write_artifact} tool remains named/available
+ *       — asserted against the captured Converse request's system blocks.</li>
  * </ul>
  */
 class GreenfieldArtifactPersistenceTest {
@@ -200,19 +198,20 @@ class GreenfieldArtifactPersistenceTest {
                 .toLowerCase(Locale.ROOT);
     }
 
-    // --- AC-1.2 : a requirements-phase turn persists the requirements content via write_artifact --
+    // --- AC-1.2 (tool stays registered) : the optional write_artifact tool still persists content ---
 
     @Test
-    @DisplayName("AC-1.2/RD-7: a requirements-phase turn that calls write_artifact persists the requirements content to design/00-requirements.md")
+    @DisplayName("DCR-1 AC-1.2/RD-7 (tool stays registered): when the model calls the optional write_artifact tool, it still persists the requirements content to design/00-requirements.md")
     void requirementsPhasePersistsArtifactContent(@TempDir Path workspace, @TempDir Path storeRoot) {
         // Oracle: AC-1.2 — "the agent shall persist the agreed requirements as a markdown artifact in
-        // the target project"; RD-7 — greenfield persists requirements/design/tasks as markdown. The
-        // contract D7 surfaced: a phase turn must result in write_artifact being invoked with the
-        // phase's substantive content, so the artifact holds real content (not just an approval
-        // stamp). Driving a real requirements-phase loop over a scripted model that emits a
-        // write_artifact tool-use, the requirements artifact on disk must contain the authored
-        // content. The expected content traces to the scripted deliverable + AC-1.2, not to composer
-        // code.
+        // the target project"; RD-7 — greenfield persists requirements/design/tasks as markdown. Under
+        // DCR-1 persistence is driver-authored (covered by GreenfieldArtifactAuthoringTest), but the
+        // write_artifact tool STAYS registered/available (ADR-0012 amended, C7 note) — so the still-true
+        // contract here is that when the model DOES emit a write_artifact tool-use, the
+        // dispatch->tool->store plumbing persists the content to the design/-confined artifact. Driving
+        // a real requirements-phase loop over a scripted model that emits a write_artifact tool-use, the
+        // requirements artifact on disk must contain the authored content. The expected content traces
+        // to the scripted deliverable + AC-1.2, not to composer code.
         String requirements = "# Requirements\n\n## US-1 Shorten URL\n- AC-1.1: the service shall "
                 + "accept a long URL and return a short code.\n## NFR\n- NFR-1: p99 < 50ms.\n";
         String artifactPath = GreenfieldArtifact.REQUIREMENTS.relativePath();
@@ -234,13 +233,14 @@ class GreenfieldArtifactPersistenceTest {
     }
 
     @Test
-    @DisplayName("AC-2.1: the design and tasks phase turns each persist their deliverable content to their artifact")
+    @DisplayName("DCR-1 AC-2.1 (tool stays registered): when the model calls the optional write_artifact tool, the design and tasks phases each still persist their deliverable content")
     void designAndTasksPhasesPersistArtifactContent(@TempDir Path workspace, @TempDir Path storeRoot) {
         // Oracle: AC-2.1 — "the agent shall produce a design artifact and a task-breakdown artifact as
-        // markdown in the target project". Each of those phase turns must persist its deliverable
-        // content via write_artifact (the D7 contract, generalized to design + tasks). For each phase,
-        // drive a real phase loop over a scripted write_artifact tool-use and assert the phase's
-        // artifact holds the authored content. The body traces to AC-2.1 + the scripted deliverable.
+        // markdown in the target project". Under DCR-1 persistence is driver-authored; the write_artifact
+        // tool stays registered/available (ADR-0012 amended), so the still-true contract is that when
+        // the model DOES call it, the plumbing persists the content. For each phase, drive a real phase
+        // loop over a scripted write_artifact tool-use and assert the phase's artifact holds the authored
+        // content. The body traces to AC-2.1 + the scripted deliverable.
         for (GreenfieldArtifact artifact : List.of(GreenfieldArtifact.DESIGN, GreenfieldArtifact.TASKS)) {
             GreenfieldPhase phase = artifact.phase();
             String body = "# " + artifact.heading() + "\n\n" + artifact.heading()
@@ -261,34 +261,35 @@ class GreenfieldArtifactPersistenceTest {
         }
     }
 
-    // --- the D7 prompt contract: the per-phase prompt directs writing the artifact -----------------
+    // --- the prompt contract: the per-phase prompt names the artifact path + the optional tool ------
 
     @Test
-    @DisplayName("RD-7/AC-1.2: each pre-approval phase prompt the model receives directs writing the deliverable to its artifact via write_artifact")
+    @DisplayName("DCR-1 RD-7/AC-1.2/AC-2.1: each pre-approval phase prompt names its artifact path (the file its deliverable becomes) and notes the optional write_artifact tool remains available")
     void preApprovalPhasePromptDirectsArtifactWrite(@TempDir Path workspace, @TempDir Path storeRoot) {
-        // Oracle: RD-7/AC-1.2/AC-2.1 — the deliverable of each pre-approval phase is the persisted
-        // artifact. The D7 cause was the per-phase prompt never directing the model to write it. The
-        // prompt the model actually receives (the captured Converse system blocks, the live path) must
-        // name the write_artifact tool AND the phase's artifact path, so the model is steered to
-        // persist the deliverable — not merely discuss it. Assert against the captured request (what
-        // the model receives), the same wiring discipline as GreenfieldWiringTest, for every
-        // pre-approval phase.
+        // Oracle: RD-7/AC-1.2/AC-2.1 — the deliverable of each pre-approval phase is persisted as its
+        // design-doc artifact. Under DCR-1 the driver persists the phase's END_TURN prose to that
+        // artifact in code, so the prompt no longer mandates a write_artifact tool call; but it must
+        // still name the artifact path (so the model knows what file its deliverable becomes) and the
+        // write_artifact tool stays registered/available (ADR-0012 amended, C7 note) so the prompt still
+        // names it as optional. Assert against the captured request (what the model receives), the same
+        // wiring discipline as GreenfieldWiringTest, for every pre-approval phase.
         for (GreenfieldPhase phase : List.of(
                 GreenfieldPhase.REQUIREMENTS, GreenfieldPhase.DESIGN, GreenfieldPhase.TASKS)) {
             String path = GreenfieldArtifact.forPhase(phase).orElseThrow().relativePath();
             ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
-                    .then(endTurn("discussed; nothing written"));
+                    .then(endTurn("the full deliverable content as my final answer"));
             ToolRegistryComposer composer = composer(bedrock, workspace, storeRoot);
 
             phaseLoop(composer, phase).run("proceed with the " + phase + " phase");
 
             String systemText = systemTextOf(bedrock.requests.get(0));
-            assertTrue(systemText.contains(WriteArtifactTool.NAME),
-                    "RD-7: the " + phase + " phase prompt names the " + WriteArtifactTool.NAME
-                            + " tool so the deliverable is persisted; was: " + systemText);
             assertTrue(systemText.contains(path.toLowerCase(Locale.ROOT)),
                     "AC-1.2/AC-2.1: the " + phase + " phase prompt names its artifact path (" + path
-                            + ") so the deliverable is written to the right file; was: " + systemText);
+                            + ") so the deliverable is saved to the right file; was: " + systemText);
+            assertTrue(systemText.contains(WriteArtifactTool.NAME),
+                    "ADR-0012 amended (C7 note): the " + phase + " phase prompt still names the optional "
+                            + WriteArtifactTool.NAME + " tool (it stays registered/available); was: "
+                            + systemText);
         }
     }
 }

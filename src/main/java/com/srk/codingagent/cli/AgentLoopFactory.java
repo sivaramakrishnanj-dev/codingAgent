@@ -194,15 +194,18 @@ public final class AgentLoopFactory {
     }
 
     /**
-     * Builds the production greenfield workflow driver (C3, ADR-0012, T-3.2): the
-     * {@link GreenfieldDriver} wired over both its seams from the gate-covered
+     * Builds the production greenfield workflow driver (C3, ADR-0012, T-3.2, DCR-1): the
+     * {@link GreenfieldDriver} wired over all three of its seams from the gate-covered
      * {@link ToolRegistryComposer} — the phase-loop factory (phase-scoped registry + per-phase
-     * prompt; the pre-approval phases withhold the Class-X source tools yet offer the
-     * {@code write_artifact} design-doc write path, AC-1.4/AC-1.2/AC-2.1) and the
-     * {@link ArtifactApprovalGate} that records the approval timestamp into each phase's artifact
-     * (AC-1.5) and enforces task-breakdown traceability (AC-2.5). The one un-coverable step
-     * (credentials &rarr; Bedrock client &rarr; {@link ModelClient}) happens once in the composer
-     * this assembles; both seams are then built from that gate-covered composer, so the
+     * prompt; the pre-approval phases withhold the Class-X source tools, AC-1.4), the
+     * {@link GreenfieldDriver.PhaseArtifactWriter} that authors each pre-approval phase's deliverable
+     * to its design-doc artifact in code on the phase {@code END_TURN} (DCR-1; driver-guaranteed
+     * persistence, AC-1.2/AC-2.1 — the {@code write_artifact} tool stays registered but is no longer
+     * the persistence path), and the {@link ArtifactApprovalGate} that records the approval timestamp
+     * into each phase's artifact (AC-1.5) and enforces task-breakdown traceability over the
+     * driver-written tasks artifact (AC-2.5). The one un-coverable step (credentials &rarr; Bedrock
+     * client &rarr; {@link ModelClient}) happens once in the composer this assembles; all three seams
+     * are then built from that gate-covered composer, so the driver-authored-persistence +
      * timestamp-recording + traceability + phase-gating contracts are pinned by unit tests on the
      * composer, not lost in this excluded factory.
      *
@@ -237,7 +240,8 @@ public final class AgentLoopFactory {
                 sessionLineage);
         GreenfieldDriver.PhaseLoopFactory phaseLoops =
                 phaseLoopFactory(composer, config, log, sessionLineage, approver, sessions);
-        return new GreenfieldDriver(phaseLoops, composer.greenfieldApprovalGate(decision));
+        return new GreenfieldDriver(phaseLoops, composer.greenfieldArtifactWriter(),
+                composer.greenfieldApprovalGate(decision));
     }
 
     /**

@@ -85,6 +85,26 @@ class GreenfieldDriverTest {
         }
     }
 
+    // --- A no-op artifact writer: this test pins the phase-gating ORCHESTRATION contract, not the
+    //     driver-authored persistence (which GreenfieldArtifactAuthoringTest pins). The driver calls
+    //     write() per pre-approval phase and read() on approval; an in-memory writer keeps those
+    //     side-effect-free so the orchestration assertions stay focused. Captures the written
+    //     deliverable per artifact so an advance-prompt test can confirm injection.
+    private static final class RecordingArtifactWriter implements GreenfieldDriver.PhaseArtifactWriter {
+        private final Map<GreenfieldArtifact, String> written =
+                new EnumMap<>(GreenfieldArtifact.class);
+
+        @Override
+        public void write(GreenfieldArtifact artifact, String content) {
+            written.put(artifact, content);
+        }
+
+        @Override
+        public String read(GreenfieldArtifact artifact) {
+            return written.getOrDefault(artifact, "");
+        }
+    }
+
     /** An approval gate that records which phases it was asked about and answers from a script. */
     private static final class ScriptedGate implements GreenfieldDriver.ApprovalGate {
         private final List<GreenfieldPhase> asked = new ArrayList<>();
@@ -129,7 +149,7 @@ class GreenfieldDriverTest {
         // developer's request (the use-case to shape requirements from, US-1).
         ScriptedPhaseLoops loops = new ScriptedPhaseLoops().complete(GreenfieldPhase.REQUIREMENTS, "reqs");
         ScriptedGate gate = ScriptedGate.declineEvery();
-        GreenfieldDriver driver = new GreenfieldDriver(loops, gate);
+        GreenfieldDriver driver = new GreenfieldDriver(loops, new RecordingArtifactWriter(), gate);
 
         driver.run(REQUEST);
 
@@ -152,7 +172,7 @@ class GreenfieldDriverTest {
         // running the implementation phase.
         ScriptedPhaseLoops loops = new ScriptedPhaseLoops().complete(GreenfieldPhase.REQUIREMENTS, "reqs");
         ScriptedGate gate = ScriptedGate.declineEvery();
-        GreenfieldDriver driver = new GreenfieldDriver(loops, gate);
+        GreenfieldDriver driver = new GreenfieldDriver(loops, new RecordingArtifactWriter(), gate);
 
         GreenfieldOutcome outcome = driver.run(REQUEST);
 
@@ -176,7 +196,7 @@ class GreenfieldDriverTest {
         // and NOT consult it for the terminal implementation phase (there is nothing to advance into).
         ScriptedPhaseLoops loops = new ScriptedPhaseLoops().completeEveryPhase();
         ScriptedGate gate = ScriptedGate.approveEvery();
-        GreenfieldDriver driver = new GreenfieldDriver(loops, gate);
+        GreenfieldDriver driver = new GreenfieldDriver(loops, new RecordingArtifactWriter(), gate);
 
         driver.run(REQUEST);
 
@@ -200,7 +220,7 @@ class GreenfieldDriverTest {
                 .complete(GreenfieldPhase.DESIGN, "design")
                 .complete(GreenfieldPhase.TASKS, "tasks");
         ScriptedGate gate = ScriptedGate.declineAt(GreenfieldPhase.TASKS);
-        GreenfieldDriver driver = new GreenfieldDriver(loops, gate);
+        GreenfieldDriver driver = new GreenfieldDriver(loops, new RecordingArtifactWriter(), gate);
 
         GreenfieldOutcome outcome = driver.run(REQUEST);
 
@@ -227,7 +247,7 @@ class GreenfieldDriverTest {
         // phase — the clean greenfield success.
         ScriptedPhaseLoops loops = new ScriptedPhaseLoops().completeEveryPhase();
         ScriptedGate gate = ScriptedGate.approveEvery();
-        GreenfieldDriver driver = new GreenfieldDriver(loops, gate);
+        GreenfieldDriver driver = new GreenfieldDriver(loops, new RecordingArtifactWriter(), gate);
 
         GreenfieldOutcome outcome = driver.run(REQUEST);
 
@@ -252,7 +272,8 @@ class GreenfieldDriverTest {
         // picks up the right job). Assert the DESIGN turn (entered after approving requirements)
         // received a prompt mentioning the design phase, not the original request.
         ScriptedPhaseLoops loops = new ScriptedPhaseLoops().completeEveryPhase();
-        GreenfieldDriver driver = new GreenfieldDriver(loops, ScriptedGate.approveEvery());
+        GreenfieldDriver driver = new GreenfieldDriver(
+                loops, new RecordingArtifactWriter(), ScriptedGate.approveEvery());
 
         driver.run(REQUEST);
 
@@ -276,7 +297,7 @@ class GreenfieldDriverTest {
         ScriptedPhaseLoops loops = new ScriptedPhaseLoops()
                 .surface(GreenfieldPhase.REQUIREMENTS, StopReason.MODEL_CONTEXT_WINDOW_EXCEEDED);
         ScriptedGate gate = ScriptedGate.approveEvery();
-        GreenfieldDriver driver = new GreenfieldDriver(loops, gate);
+        GreenfieldDriver driver = new GreenfieldDriver(loops, new RecordingArtifactWriter(), gate);
 
         GreenfieldOutcome outcome = driver.run(REQUEST);
 
@@ -295,19 +316,26 @@ class GreenfieldDriverTest {
     // --- construction + input validation ---------------------------------------------------------
 
     @Test
-    @DisplayName("the driver requires its phase-loop-factory and approval-gate seams")
+    @DisplayName("the driver requires its phase-loop-factory, artifact-writer, and approval-gate seams")
     void constructorRejectsNull() {
+        // DCR-1: the driver-authored persistence seam (PhaseArtifactWriter) is a required collaborator
+        // alongside the phase-loop factory and the approval gate.
         assertThrows(NullPointerException.class,
-                () -> new GreenfieldDriver(null, ScriptedGate.approveEvery()));
+                () -> new GreenfieldDriver(
+                        null, new RecordingArtifactWriter(), ScriptedGate.approveEvery()));
         assertThrows(NullPointerException.class,
-                () -> new GreenfieldDriver(new ScriptedPhaseLoops(), null));
+                () -> new GreenfieldDriver(
+                        new ScriptedPhaseLoops(), null, ScriptedGate.approveEvery()));
+        assertThrows(NullPointerException.class,
+                () -> new GreenfieldDriver(
+                        new ScriptedPhaseLoops(), new RecordingArtifactWriter(), null));
     }
 
     @Test
     @DisplayName("run rejects a null or blank request")
     void runRejectsBlankRequest() {
         GreenfieldDriver driver = new GreenfieldDriver(
-                new ScriptedPhaseLoops(), ScriptedGate.approveEvery());
+                new ScriptedPhaseLoops(), new RecordingArtifactWriter(), ScriptedGate.approveEvery());
 
         assertThrows(NullPointerException.class, () -> driver.run(null));
         assertThrows(IllegalArgumentException.class, () -> driver.run("   "));
@@ -322,7 +350,8 @@ class GreenfieldDriverTest {
         // deliverable text.
         ScriptedPhaseLoops loops = new ScriptedPhaseLoops()
                 .complete(GreenfieldPhase.REQUIREMENTS, "the agreed requirements");
-        GreenfieldDriver driver = new GreenfieldDriver(loops, ScriptedGate.declineEvery());
+        GreenfieldDriver driver = new GreenfieldDriver(
+                loops, new RecordingArtifactWriter(), ScriptedGate.declineEvery());
 
         GreenfieldOutcome outcome = driver.run(REQUEST);
 

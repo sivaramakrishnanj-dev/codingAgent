@@ -38,9 +38,7 @@ import java.util.function.Supplier;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import software.amazon.awssdk.core.document.Document;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
-import software.amazon.awssdk.services.bedrockruntime.model.ContentBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
@@ -135,27 +133,6 @@ class GreenfieldWriteArtifactSchemaPersistenceTest {
         public void close() {
             // no-op for the in-test double
         }
-    }
-
-    /** A model turn that emits a {@code write_artifact} tool-use with the given path + content. */
-    private static ConverseResponse writeArtifactTurn(String text, String toolUseId, String path,
-            String content) {
-        Document input = Document.mapBuilder()
-                .putString("path", path)
-                .putString("content", content)
-                .build();
-        ContentBlock textBlock = ContentBlock.fromText(text);
-        ContentBlock toolUseBlock = ContentBlock.fromToolUse(
-                b -> b.toolUseId(toolUseId).name(WriteArtifactTool.NAME).input(input));
-        Message message = Message.builder()
-                .role(ConversationRole.ASSISTANT)
-                .content(List.of(textBlock, toolUseBlock))
-                .build();
-        return ConverseResponse.builder()
-                .output(ConverseOutput.builder().message(message).build())
-                .stopReason("tool_use")
-                .usage(u -> u.inputTokens(100).outputTokens(20).totalTokens(120))
-                .build();
     }
 
     private static ConverseResponse endTurn(String text) {
@@ -302,37 +279,35 @@ class GreenfieldWriteArtifactSchemaPersistenceTest {
     // --- RD-7 / AC-1.2 / AC-2.1 / AC-1.5 / AC-2.5 : full production multi-phase persistence ----------
 
     @Test
-    @DisplayName("RD-7/AC-1.2/AC-2.1/AC-1.5/AC-2.5: the full production driver persists each phase's deliverable CONTENT (then stamp) across requirements->design->tasks->implement on the shared-stdin wiring")
+    @DisplayName("DCR-1 RD-7/AC-1.2/AC-2.1/AC-1.5/AC-2.5: the full production driver persists each phase's END_TURN deliverable CONTENT (then stamp) across requirements->design->tasks->implement — with NO model write_artifact tool call")
     void fullProductionDriverPersistsEachPhaseDeliverableContentAndReachesImplementation(
             @TempDir Path workspace, @TempDir Path storeRoot) {
         // Oracle: RD-7 — greenfield persists requirements/design/tasks markdown in the target project;
-        // AC-1.2 — the requirements are persisted as a markdown artifact; AC-2.1 — design + tasks are
-        // produced as markdown artifacts when requirements are confirmed; AC-1.5 — the requirements
-        // approval is recorded with a timestamp in the artifact (generalized per ADR-0012 to each
-        // phase); AC-2.5 — every task traces to a requirement so the tasks gate admits the session into
-        // implementation. The full production GreenfieldDriver — every phase a real AgentLoop over the
-        // composer's pre-approval registry + per-phase prompt, the real ASK_EVERY_TIME gate, the real
-        // ArtifactApprovalGate, ONE shared stdin between the permission approver and the phase gate
-        // (Main.interactiveGreenfield) — must, given a model that calls write_artifact per phase and one
-        // 'y' per phase, persist each phase's CONTENT (not just a stamp) and reach implementation. This
-        // is the same dispatch/registry/store path that runs live, driven across ALL phases (the gap the
-        // single-phase D7/D8 tests never drove). Expected content traces to the scripted deliverables +
-        // AC-1.2/AC-2.1; the stamp timestamp to AC-1.5 (the boundary clock's TS).
+        // AC-1.2 — the requirements are persisted as a markdown artifact, DRIVER-GUARANTEED (the driver
+        // writes the artifact in code from the phase's settled output, ADR-0012, not via a model tool
+        // call); AC-2.1 — same for design + tasks; AC-1.5 — the approval is recorded with a timestamp in
+        // the artifact (ADR-0012 generalizes to each phase); AC-2.5 — every task traces to a requirement
+        // so the tasks gate admits the session into implementation. The DCR-1 reproduction: the model
+        // here emits NO write_artifact tool_use — it answers each phase in prose and stops at END_TURN
+        // (exactly the live behaviour D6-D9 could not catch). The full production GreenfieldDriver — every
+        // phase a real AgentLoop over the composer's pre-approval registry + per-phase prompt, the real
+        // ASK_EVERY_TIME gate, the real ArtifactApprovalGate, the composer's driver-authored persistence
+        // seam, ONE shared stdin (Main.interactiveGreenfield) — must, given one 'y' per phase, persist
+        // each phase's END_TURN CONTENT (driver-written, not just a stamp) and reach implementation.
+        // Expected content traces to the scripted END_TURN deliverables + AC-1.2/AC-2.1; the stamp
+        // timestamp to AC-1.5 (the boundary clock's TS).
         String reqBody = "# Requirements\n\n## US-1 Shorten URL\n- AC-1.1: accept a long URL, return a "
                 + "short code.\n## NFR\n- NFR-1: p99 < 50ms.\n";
         String designBody = "# Design\n\n## Architecture\n- C1: the shortener service.\n";
         String tasksBody = "# Tasks\n\n- T-1: build the shortener service (Refs AC-1.1)\n";
 
+        // The model answers each pre-approval phase in PROSE and stops at end_turn — NO write_artifact
+        // tool_use anywhere (the live behaviour DCR-1 fixes). The driver captures each END_TURN prose and
+        // persists it.
         ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
-                .then(writeArtifactTurn("Writing requirements.", "tu_req",
-                        GreenfieldArtifact.REQUIREMENTS.relativePath(), reqBody))
-                .then(endTurn("Wrote the requirements; please approve."))
-                .then(writeArtifactTurn("Writing design.", "tu_design",
-                        GreenfieldArtifact.DESIGN.relativePath(), designBody))
-                .then(endTurn("Wrote the design; please approve."))
-                .then(writeArtifactTurn("Writing tasks.", "tu_tasks",
-                        GreenfieldArtifact.TASKS.relativePath(), tasksBody))
-                .then(endTurn("Wrote the tasks; please approve."))
+                .then(endTurn(reqBody))
+                .then(endTurn(designBody))
+                .then(endTurn(tasksBody))
                 .then(endTurn("Implementation would proceed here."));
 
         // One realistic 'y' per pre-approval phase gate (requirements, design, tasks) on the single
@@ -343,25 +318,25 @@ class GreenfieldWriteArtifactSchemaPersistenceTest {
         GreenfieldOutcome outcome = driver.run("build me a URL shortener");
 
         GreenfieldArtifactStore reader = new GreenfieldArtifactStore(workspace);
-        // AC-1.2 / RD-7: the requirements deliverable CONTENT is persisted, and (AC-1.5) the approval
-        // stamp is recorded with the timestamp.
+        // AC-1.2 / RD-7: the requirements deliverable CONTENT is driver-persisted, and (AC-1.5) the
+        // approval stamp is recorded with the timestamp.
         String reqPersisted = reader.read(GreenfieldArtifact.REQUIREMENTS.relativePath()).orElseThrow();
         assertTrue(reqPersisted.contains(reqBody),
-                "AC-1.2/RD-7: the requirements deliverable content is persisted via write_artifact on the "
-                        + "full production driver; was: " + reqPersisted);
+                "AC-1.2/RD-7 (DCR-1): the requirements END_TURN deliverable content is driver-persisted "
+                        + "(no tool call); was: " + reqPersisted);
         assertTrue(reqPersisted.contains(TS),
                 "AC-1.5: the requirements approval timestamp is recorded in the artifact; was: "
                         + reqPersisted);
-        // AC-2.1 / RD-7: the design and tasks deliverable CONTENT is persisted.
+        // AC-2.1 / RD-7: the design and tasks deliverable CONTENT is driver-persisted.
         assertTrue(reader.read(GreenfieldArtifact.DESIGN.relativePath()).orElseThrow().contains(designBody),
-                "AC-2.1/RD-7: the design deliverable content is persisted via write_artifact");
+                "AC-2.1/RD-7 (DCR-1): the design END_TURN deliverable content is driver-persisted");
         assertTrue(reader.read(GreenfieldArtifact.TASKS.relativePath()).orElseThrow().contains(tasksBody),
-                "AC-2.1/RD-7: the task-breakdown deliverable content is persisted via write_artifact");
-        // AC-2.5 / AC-2.3: the traceable breakdown admitted the session into implementation (the run
-        // completed rather than stranding awaiting approval), so greenfield reached implement.
+                "AC-2.1/RD-7 (DCR-1): the task-breakdown END_TURN deliverable content is driver-persisted");
+        // AC-2.5 / AC-2.3: the traceable driver-written breakdown admitted the session into
+        // implementation (the run completed rather than stranding awaiting approval).
         assertEquals(GreenfieldOutcome.Disposition.COMPLETED, outcome.disposition(),
-                "AC-2.5/AC-2.3: a traceable task breakdown (every task -> a requirement) admits the "
-                        + "session into implementation, so the fully-approved run completes");
+                "AC-2.5/AC-2.3: a traceable driver-written task breakdown (every task -> a requirement) "
+                        + "admits the session into implementation, so the fully-approved run completes");
     }
 
     /**
@@ -389,7 +364,11 @@ class GreenfieldWriteArtifactSchemaPersistenceTest {
                     new OutputDisposer(16384), MODEL, composer.greenfieldSystemPrompt(phase));
             return loop::run;
         };
-        return new GreenfieldDriver(phaseLoops, approvalGate);
+        // DCR-1: persistence is driver-authored — the driver writes each phase's END_TURN prose to its
+        // artifact through the composer's driver-authored persistence seam (the same one
+        // AgentLoopFactory.createGreenfieldDriver wires), not via a model write_artifact tool call.
+        return new GreenfieldDriver(
+                phaseLoops, composer.greenfieldArtifactWriter(), approvalGate);
     }
 
     private static ToolRegistryComposer composer(ModelClient modelClient, Path workspace,

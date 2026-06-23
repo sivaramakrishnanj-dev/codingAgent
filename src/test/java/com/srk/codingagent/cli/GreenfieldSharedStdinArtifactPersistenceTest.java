@@ -37,9 +37,7 @@ import java.util.function.Supplier;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import software.amazon.awssdk.core.document.Document;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
-import software.amazon.awssdk.services.bedrockruntime.model.ContentBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
@@ -131,27 +129,6 @@ class GreenfieldSharedStdinArtifactPersistenceTest {
         }
     }
 
-    /** A model turn that emits a {@code write_artifact} tool-use with the given path + content. */
-    private static ConverseResponse writeArtifactTurn(String text, String toolUseId, String path,
-            String content) {
-        Document input = Document.mapBuilder()
-                .putString("path", path)
-                .putString("content", content)
-                .build();
-        ContentBlock textBlock = ContentBlock.fromText(text);
-        ContentBlock toolUseBlock = ContentBlock.fromToolUse(
-                b -> b.toolUseId(toolUseId).name(WriteArtifactTool.NAME).input(input));
-        Message message = Message.builder()
-                .role(ConversationRole.ASSISTANT)
-                .content(List.of(textBlock, toolUseBlock))
-                .build();
-        return ConverseResponse.builder()
-                .output(ConverseOutput.builder().message(message).build())
-                .stopReason("tool_use")
-                .usage(u -> u.inputTokens(100).outputTokens(20).totalTokens(120))
-                .build();
-    }
-
     private static ConverseResponse endTurn(String text) {
         Message message = Message.builder()
                 .role(ConversationRole.ASSISTANT)
@@ -226,29 +203,51 @@ class GreenfieldSharedStdinArtifactPersistenceTest {
         // deterministically without a further model script.
         GreenfieldDriver.PhaseLoopFactory phaseLoops = requested ->
                 requested == phase ? loop::run : prompt -> com.srk.codingagent.loop.LoopOutcome.completed("done");
-        return new GreenfieldDriver(phaseLoops, approvalGate);
+        // DCR-1: persistence is driver-authored — the driver writes each phase's END_TURN prose to its
+        // artifact through this seam (over the same target-repo store), not via a model write_artifact
+        // tool call.
+        return new GreenfieldDriver(phaseLoops, writerOver(store), approvalGate);
+    }
+
+    /**
+     * The driver-authored persistence seam (DCR-1) over the target-repo store — the production shape:
+     * the driver writes each phase's END_TURN prose to its artifact through this before the gate stamps.
+     */
+    private static GreenfieldDriver.PhaseArtifactWriter writerOver(GreenfieldArtifactStore store) {
+        return new GreenfieldDriver.PhaseArtifactWriter() {
+            @Override
+            public void write(GreenfieldArtifact artifact, String content) {
+                store.write(artifact.relativePath(), content);
+            }
+
+            @Override
+            public String read(GreenfieldArtifact artifact) {
+                return store.read(artifact.relativePath()).orElse("");
+            }
+        };
     }
 
     // --- AC-1.2 / RD-7 : the requirements deliverable content is persisted on the shared-stdin wiring
 
     @Test
-    @DisplayName("AC-1.2/RD-7: on the production shared-stdin ASK_EVERY_TIME wiring, a requirements-phase write_artifact persists the deliverable content with only one developer 'y'")
+    @DisplayName("DCR-1 AC-1.2/RD-7: on the production shared-stdin ASK_EVERY_TIME wiring, the driver persists the requirements END_TURN prose with only one developer 'y' — no write_artifact tool call")
     void requirementsContentPersistedUnderProductionSharedStdinWiring(
             @TempDir Path workspace, @TempDir Path storeRoot) {
         // Oracle: AC-1.2 — "the agent shall persist the agreed requirements as a markdown artifact in
-        // the target project"; RD-7 — greenfield persists requirements as markdown. On the LIVE wiring
-        // (the gate's InteractiveApprover and the phase gate share one stdin, ASK_EVERY_TIME), a
-        // requirements turn whose model calls write_artifact must persist the requirements CONTENT,
-        // given the one realistic developer input: the idea (the loop's prompt) + one 'y'. This is the
-        // D8 reproduction: before the fix the single 'y' was consumed by the write_artifact gate prompt
-        // (or the phase gate got EOF), so the content was denied and only the stamp landed. The expected
-        // content traces to the scripted deliverable + AC-1.2, not to gate code.
+        // the target project ... driver-guaranteed: the driver writes the artifact in code from the
+        // phase's settled output (ADR-0012), not via a model-emitted tool call"; RD-7 — greenfield
+        // persists requirements as markdown. On the LIVE wiring (the gate's InteractiveApprover and the
+        // phase gate share one stdin, ASK_EVERY_TIME), a requirements turn whose model answers in PROSE
+        // and stops (NO write_artifact tool_use — the live D8/D10 behaviour) must still persist the
+        // requirements CONTENT, because the DRIVER writes the END_TURN prose. Given the one realistic
+        // developer input (the idea + one 'y'), the driver persists the content and the 'y' reaches the
+        // phase gate. The expected content traces to the scripted END_TURN deliverable + AC-1.2, not to
+        // driver/gate code.
         String requirements = "# Requirements\n\n## US-1 Shorten URL\n- AC-1.1: the service shall "
                 + "accept a long URL and return a short code.\n## NFR\n- NFR-1: p99 < 50ms.\n";
         String artifactPath = GreenfieldArtifact.REQUIREMENTS.relativePath();
         ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
-                .then(writeArtifactTurn("Writing the requirements.", "tu_req", artifactPath, requirements))
-                .then(endTurn("I have written the requirements; please approve them."));
+                .then(endTurn(requirements));
         // Only the realistic developer input on stdin: the single 'y' meant for the phase gate.
         Supplier<String> sharedStdin = answers("y");
         GreenfieldDriver driver = liveSharedStdinDriver(
@@ -256,29 +255,30 @@ class GreenfieldSharedStdinArtifactPersistenceTest {
 
         driver.run("build me a URL shortener");
 
-        // The artifact on disk (read through the SAME target-repo store the tool writes through) holds
-        // the model-authored requirements content — write_artifact actually persisted it on the live
-        // shared-stdin wiring (AC-1.2/RD-7), not merely an approval stamp.
+        // The artifact on disk (read through the SAME target-repo store) holds the model's END_TURN
+        // requirements prose — the DRIVER persisted it on the live shared-stdin wiring (AC-1.2/RD-7),
+        // not a model tool call, and not merely an approval stamp.
         String persisted = new GreenfieldArtifactStore(workspace).read(artifactPath).orElseThrow();
         assertTrue(persisted.contains(requirements),
-                "AC-1.2/RD-7: the requirements deliverable content is persisted via write_artifact on "
-                        + "the production shared-stdin ASK_EVERY_TIME wiring; was: " + persisted);
+                "AC-1.2/RD-7 (DCR-1): the requirements deliverable content is driver-persisted on "
+                        + "the production shared-stdin ASK_EVERY_TIME wiring (no tool call); was: "
+                        + persisted);
     }
 
     @Test
-    @DisplayName("AC-1.2/AC-1.5: after the developer's one 'y' the requirements artifact carries BOTH the deliverable content AND the approval stamp (the real on-disk contract)")
+    @DisplayName("DCR-1 AC-1.2/AC-1.5: after the developer's one 'y' the requirements artifact carries BOTH the driver-written deliverable content AND the approval stamp (the real on-disk contract)")
     void requirementsArtifactCarriesContentThenApprovalStamp(
             @TempDir Path workspace, @TempDir Path storeRoot) {
-        // Oracle: AC-1.2 (content persisted) + AC-1.5 (approval recorded with a timestamp in the
-        // requirements artifact). The real on-disk contract D8 names: after a normal run (write_artifact
-        // + the developer's single 'y'), the artifact holds the deliverable content AND, after approval,
-        // the approval timestamp stamp. With one 'y' on the shared stdin, the content write is
-        // auto-approved (sanctioned) and the 'y' reaches the phase gate, which stamps the approval.
+        // Oracle: AC-1.2 (driver-guaranteed content persistence) + AC-1.5 (approval recorded with a
+        // timestamp in the requirements artifact). The real on-disk contract: after a normal run (the
+        // model's END_TURN prose + the developer's single 'y'), the artifact holds the driver-written
+        // deliverable content AND, after approval, the approval timestamp stamp. With one 'y' on the
+        // shared stdin, the driver writes the content (no gate prompt — no tool call) and the 'y'
+        // reaches the phase gate, which stamps the approval.
         String requirements = "# Requirements\n\n- AC-1.1: accept a long URL and return a short code.\n";
         String artifactPath = GreenfieldArtifact.REQUIREMENTS.relativePath();
         ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
-                .then(writeArtifactTurn("Writing the requirements.", "tu_req", artifactPath, requirements))
-                .then(endTurn("Wrote the requirements; please approve."));
+                .then(endTurn(requirements));
         Supplier<String> sharedStdin = answers("y");
         GreenfieldDriver driver = liveSharedStdinDriver(
                 bedrock, workspace, storeRoot, sharedStdin, GreenfieldPhase.REQUIREMENTS);
@@ -287,7 +287,7 @@ class GreenfieldSharedStdinArtifactPersistenceTest {
 
         String persisted = new GreenfieldArtifactStore(workspace).read(artifactPath).orElseThrow();
         assertTrue(persisted.contains(requirements),
-                "AC-1.2: the deliverable content is present in the artifact");
+                "AC-1.2 (DCR-1): the driver-written deliverable content is present in the artifact");
         assertTrue(persisted.contains(TS),
                 "AC-1.5: the developer's 'y' reached the phase gate, which stamped the approval timestamp "
                         + "(" + TS + ") into the artifact; was: " + persisted);
@@ -299,59 +299,49 @@ class GreenfieldSharedStdinArtifactPersistenceTest {
     // --- AC-2.1 / RD-7 : the design and tasks deliverable content is persisted on the shared wiring --
 
     @Test
-    @DisplayName("AC-2.1/RD-7: the design and tasks phase turns each persist their deliverable content through the real ASK_EVERY_TIME gate over the stdin-backed InteractiveApprover")
+    @DisplayName("DCR-1 AC-2.1/RD-7: the design and tasks phase END_TURN prose is driver-persisted through the production shared-stdin ASK_EVERY_TIME wiring — no write_artifact tool call")
     void designAndTasksContentPersistedThroughProductionGate(
             @TempDir Path workspace, @TempDir Path storeRoot) {
         // Oracle: AC-2.1 — "the agent shall produce a design artifact and a task-breakdown artifact as
-        // markdown in the target project"; RD-7. Each of those phase turns must persist its deliverable
-        // CONTENT via write_artifact when the write is routed through the REAL production permission gate
-        // (ASK_EVERY_TIME over the stdin-backed InteractiveApprover) — the exact path that broke at D8,
-        // where a Class-X write_artifact would have consumed a stdin line. The phase loop is driven
-        // directly (the GreenfieldDriver always begins at the initial REQUIREMENTS phase, so the design
-        // and tasks turns are exercised at the loop seam) with the production gate and a stdin that
-        // holds no extra input — proving the deliverable content reaches the artifact without the gate
-        // consuming a developer line for the sanctioned design-markdown write. Body traces to AC-2.1 +
-        // the scripted deliverable, not to gate code.
+        // markdown in the target project ... driver-guaranteed (ADR-0012), not via a model-emitted tool
+        // call"; RD-7. Each of those phase turns answers in PROSE and stops at end_turn (NO
+        // write_artifact tool_use — the live D8/D10 behaviour), and the DRIVER must persist that
+        // END_TURN content to the phase artifact through the production shared-stdin ASK_EVERY_TIME
+        // wiring. Driving the full driver with the design (resp. tasks) phase as the phase under test:
+        // the earlier phases complete with a placeholder END_TURN the driver persists+stamps (one 'y'
+        // each), then the phase-under-test's END_TURN prose is driver-persisted and stamped. Body traces
+        // to AC-2.1 + the scripted END_TURN deliverable, not to gate/driver code.
         for (GreenfieldArtifact artifact : List.of(GreenfieldArtifact.DESIGN, GreenfieldArtifact.TASKS)) {
             GreenfieldPhase phase = artifact.phase();
-            String body = "# " + artifact.heading() + "\n\n- item-1 (AC-1.2): " + artifact.heading()
-                    + " deliverable content authored during the phase turn.\n";
+            // A traceable tasks body so the tasks gate (AC-2.5) does not refuse; a plain design body
+            // otherwise.
+            String body = phase == GreenfieldPhase.TASKS
+                    ? "# Tasks\n\n- T-1 (AC-1.2): build the shortener service.\n"
+                    : "# Design\n\n## Architecture\n- C1 (AC-1.2): the shortener service.\n";
             String path = artifact.relativePath();
             ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
-                    .then(writeArtifactTurn("Writing the " + artifact.heading() + ".", "tu_" + phase,
-                            path, body))
-                    .then(endTurn("Wrote the " + artifact.heading() + "; please approve."));
-            // The production wiring: ASK_EVERY_TIME over the stdin-backed InteractiveApprover. Stdin
-            // holds no input: if the sanctioned write_artifact were (wrongly) prompted, the approver
-            // would read EOF and DENY, and the content would not persist — the D8 failure mode.
-            Supplier<String> sharedStdin = answers();
-            AgentLoop loop = productionGatePhaseLoop(bedrock, workspace, storeRoot, sharedStdin, phase);
+                    .then(endTurn(body));
+            // The number of gates that precede (and include) the phase under test = its ordinal among
+            // the pre-approval phases (requirements=1, design=2, tasks=3); feed that many 'y' lines on
+            // the single shared stdin.
+            Supplier<String> sharedStdin = answers(repeatY(phase.ordinal() + 1));
+            GreenfieldDriver driver = liveSharedStdinDriver(
+                    bedrock, workspace, storeRoot, sharedStdin, phase);
 
-            loop.run("proceed with the " + phase + " phase");
+            driver.run("build me a URL shortener");
 
             String persisted = new GreenfieldArtifactStore(workspace).read(path).orElseThrow();
             assertTrue(persisted.contains(body),
-                    "AC-2.1/RD-7: the " + artifact.heading() + " deliverable content is persisted via "
-                            + "write_artifact through the real ASK_EVERY_TIME gate; was: " + persisted);
+                    "AC-2.1/RD-7 (DCR-1): the " + artifact.heading() + " END_TURN deliverable content "
+                            + "is driver-persisted through the real ASK_EVERY_TIME shared-stdin wiring "
+                            + "(no tool call); was: " + persisted);
         }
     }
 
-    /**
-     * Assembles a real greenfield phase {@link AgentLoop} the way {@link AgentLoopFactory} does — the
-     * composer's pre-approval registry + per-phase prompt over a real {@link PermissionGate} in the
-     * production-default {@code ASK_EVERY_TIME} mode whose approver is the stdin-backed
-     * {@link InteractiveApprover} (NOT an always-approve stub). This is the production gate path the D7
-     * always-approve test bypassed.
-     */
-    private AgentLoop productionGatePhaseLoop(BedrockRuntimeClient bedrock, Path workspace,
-            Path storeRoot, Supplier<String> sharedAnswerSource, GreenfieldPhase phase) {
-        Approver approver = new InteractiveApprover(sharedAnswerSource, out);
-        ToolRegistryComposer composer = composer(bedrock, workspace, storeRoot, approver);
-        ToolRegistry tools = composer.greenfieldRegistry(phase);
-        PermissionGate gate = new PermissionGate(
-                PermissionMode.ASK_EVERY_TIME, GrantStore.forSession(LINEAGE), approver);
-        return new AgentLoop(composer.modelClient(), tools, gate,
-                EventLog.over(new StringWriter(), "gf"), () -> TS, BudgetGuard.NONE,
-                new OutputDisposer(16384), MODEL, composer.greenfieldSystemPrompt(phase));
+    /** A {@code 'y'} per pre-approval gate up to and including the phase under test. */
+    private static String[] repeatY(int count) {
+        String[] lines = new String[count];
+        java.util.Arrays.fill(lines, "y");
+        return lines;
     }
 }

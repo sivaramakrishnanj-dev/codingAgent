@@ -40,11 +40,30 @@ class GreenfieldRunnerTest {
 
     private static final String REQUEST = "build me a CLI todo app";
 
+    /**
+     * A no-op driver-authored persistence seam (DCR-1): this test pins the GreenfieldOutcome &rarr;
+     * LoopOutcome mapping, not artifact persistence, so the driver's per-phase write/read need no real
+     * store here.
+     */
+    private static GreenfieldDriver.PhaseArtifactWriter noopWriter() {
+        return new GreenfieldDriver.PhaseArtifactWriter() {
+            @Override
+            public void write(GreenfieldArtifact artifact, String content) {
+                // no-op: persistence is exercised in GreenfieldArtifactAuthoringTest
+            }
+
+            @Override
+            public String read(GreenfieldArtifact artifact) {
+                return "";
+            }
+        };
+    }
+
     /** A driver whose every phase completes, and whose gate answers from the supplied decision. */
     private static GreenfieldDriver driverWith(GreenfieldDriver.ApprovalGate gate) {
         GreenfieldDriver.PhaseLoopFactory loops = phase ->
                 prompt -> LoopOutcome.completed(phase.name() + " deliverable");
-        return new GreenfieldDriver(loops, gate);
+        return new GreenfieldDriver(loops, noopWriter(), gate);
     }
 
     @Test
@@ -93,7 +112,7 @@ class GreenfieldRunnerTest {
         LoopOutcome surfaced = LoopOutcome.surfaced(StopReason.MODEL_CONTEXT_WINDOW_EXCEEDED);
         GreenfieldDriver.PhaseLoopFactory loops = phase -> prompt -> surfaced;
         GreenfieldRunner runner = new GreenfieldRunner(
-                new GreenfieldDriver(loops, completedPhase -> true));
+                new GreenfieldDriver(loops, noopWriter(), completedPhase -> true));
 
         LoopOutcome mapped = runner.run(REQUEST);
 
@@ -114,7 +133,7 @@ class GreenfieldRunnerTest {
         GreenfieldDriver.PhaseLoopFactory loops = phase ->
                 prompt -> LoopOutcome.completed("Here are the agreed requirements.");
         GreenfieldRunner runner = new GreenfieldRunner(
-                new GreenfieldDriver(loops, completedPhase -> false));
+                new GreenfieldDriver(loops, noopWriter(), completedPhase -> false));
 
         LoopOutcome mapped = runner.run(REQUEST);
 
@@ -136,7 +155,7 @@ class GreenfieldRunnerTest {
         // empty-text completion); the note's presence traces to AC-2.3.
         GreenfieldDriver.PhaseLoopFactory loops = phase -> prompt -> LoopOutcome.completed("");
         GreenfieldRunner runner = new GreenfieldRunner(
-                new GreenfieldDriver(loops, completedPhase -> false));
+                new GreenfieldDriver(loops, noopWriter(), completedPhase -> false));
 
         LoopOutcome mapped = runner.run(REQUEST);
 

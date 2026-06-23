@@ -206,4 +206,36 @@ class GreenfieldArtifactCompositionTest {
         assertThrows(NullPointerException.class,
                 () -> composer.greenfieldApprovalGate((ArtifactApprovalGate.ApprovalDecision) null));
     }
+
+    // --- DCR-1 / AC-1.2 / AC-2.1 : the composition root assembles the driver-authored persistence seam
+
+    @Test
+    @DisplayName("DCR-1 AC-1.2/AC-2.1: the composition root assembles the driver-authored persistence seam — write() persists into the target repo's design/ dir, read() returns it")
+    void compositionRootAssemblesTheDriverAuthoredArtifactWriter(@TempDir Path workspace,
+            @TempDir Path storeRoot) {
+        // Oracle: AC-1.2/AC-2.1 — persistence is "driver-guaranteed: the workflow driver writes each
+        // artifact in code from the phase's settled output (ADR-0012), not via a model-emitted tool
+        // call". The composer must assemble the GreenfieldDriver.PhaseArtifactWriter the driver writes
+        // through (the gate-covered seam AgentLoopFactory.createGreenfieldDriver threads into the
+        // driver). Write a requirements deliverable through that seam and assert it lands in the target
+        // repo's design/ dir (AC-6.2) AND that read() returns it — proving the driver-authored
+        // persistence path is reachable from the composition root. The expected path traces to
+        // GreenfieldArtifact.relativePath(); the content to AC-1.2.
+        ToolRegistryComposer composer = composer(workspace, storeRoot);
+        GreenfieldDriver.PhaseArtifactWriter writer = composer.greenfieldArtifactWriter();
+        String deliverable = "# Requirements\n\n- AC-1.1: accept a long URL, return a short code.\n";
+
+        writer.write(GreenfieldArtifact.REQUIREMENTS, deliverable);
+
+        Path expected = workspace.resolve("design").resolve("00-requirements.md");
+        assertTrue(java.nio.file.Files.exists(expected),
+                "AC-1.2 (DCR-1): the driver-authored write lands under the target repo's design/ dir at "
+                        + expected);
+        assertTrue(new GreenfieldArtifactStore(workspace).read(GreenfieldArtifact.REQUIREMENTS.relativePath())
+                        .orElseThrow().contains(deliverable),
+                "AC-1.2 (DCR-1): the driver-authored persistence seam persisted the deliverable content");
+        assertTrue(writer.read(GreenfieldArtifact.REQUIREMENTS).contains(deliverable),
+                "DCR-1 transcript continuity: read() returns the written content for later-phase prompt "
+                        + "injection");
+    }
 }

@@ -282,3 +282,95 @@ auto-invokes the designer.
   greenfield session is contradictory by design intent, so this is defensible and documented, but the
   user may wish to fold a READ_ONLY note into the same clarification. No action required to proceed.
 - status: open (informational; no action required to proceed)
+
+## OQ-design-1 — T-3.2-RD-D10 design-change requested — 2026-06-23
+
+- kind: architecture-update
+- raised_by: spec-driven-task-builder
+- spec_refs_touched: AC-1.2, AC-1.4, AC-1.5, AC-2.1, AC-2.5, ADR-0012 (C3 greenfield driver), C7 (write_artifact tool note)
+- problem_statement: |
+  Greenfield artifact persistence (AC-1.2 requirements / AC-2.1 design+tasks markdown) was
+  architected to depend on the live model emitting a `write_artifact` Class-X tool_use during each
+  pre-approval phase. Four successive fixes landed (T-3.2-RD-D6 approval, D7 prompt, D8 approval-
+  contention, D9 inputSchema) and all PASSED their mocked task-builder tests — but live ground truth
+  (latest clean G3 run, D9 in place) shows the model reaches stopReason=END_TURN in each pre-approval
+  phase WITHOUT ever emitting a write_artifact tool_use: it answers in prose and stops. write_artifact
+  executes ZERO times across the whole greenfield run; the only GreenfieldArtifactStore activity is the
+  gate's "Appended approval line" stamp. So design/00-requirements.md + design/01-design.md hold only
+  approval stamps, design/02-tasks.md is never created, AC-2.5 traceability correctly refuses to find
+  tasks, and greenfield never reaches implement. The D9 probe proved the plumbing is correct when a
+  write_artifact tool_use IS scripted (dispatch->tool->store->disk works). The remaining gap is empirical
+  and model-behavioral: persistence depends on a model tool call the live model does not reliably make
+  from the greenfield phase prompt — a defect class the mocked tests cannot catch by construction
+  (they script the tool_use the model never actually emits). Two contributing observations: (1) the
+  fresh-conversation-per-phase shape means later phases (design, tasks) cannot see the approved earlier
+  artifact content — transcript discontinuity; (2) the persistence mechanism (model-tool-dependent) is
+  the wrong contract for a deliverable the workflow must guarantee.
+- options_considered:
+  - id: A
+    summary: |
+      Driver-authored deliverables. The GreenfieldDriver deterministically authors each pre-approval
+      phase deliverable from the phase's settled output: on each pre-approval phase's END_TURN, the
+      driver captures the model's final deliverable prose and writes it to the phase artifact
+      (design/00-requirements.md / 01-design.md / 02-tasks.md) via GreenfieldArtifactStore.write() in
+      code (truncating write of the composed content); the ArtifactApprovalGate then appends the AC-1.5
+      stamp. Later phases inject the approved earlier-phase artifact content into their phase prompt to
+      fix the transcript discontinuity. write_artifact stays registered/available but is no longer the
+      persistence path. AC-1.4 (design/-confined; source-write tools withheld) preserved.
+    pros: Persistence is driver-guaranteed in code — does not depend on a model tool call the live model won't reliably make; gives a real, mock-stable contract a test can assert deterministically; fixes transcript discontinuity by injecting approved artifacts into later phases.
+    cons: Driver, not model, owns artifact composition (the model still produces the prose; the driver captures + writes it); write_artifact becomes vestigial/optional rather than the documented mechanism.
+  - id: B
+    summary: |
+      Keep model-tool-dependent persistence; iterate the prompt/Converse wiring (lead with the tool-call
+      instruction, mark the turn incomplete until write_artifact is called, possibly set Converse
+      toolChoice to require/encourage the tool call) until the live model reliably calls write_artifact.
+    pros: Keeps the original architecture (model authors + persists via its own tool call); no driver-authored-deliverable shift.
+    cons: Empirically unproven after 4 fixes; depends on live model behavior the mocked tests cannot verify; toolChoice is set nowhere in the codebase today; remains a live-only-observable defect class with ongoing spend/iteration risk and no mock-stable contract.
+- recommended_option: A
+- chosen_option: A
+- user_decision: approved
+- user_approval:
+    approved_at: 2026-06-23T12:12:58+00:00
+    approver_note: |
+      Approve Option A — driver deterministically authors each greenfield phase deliverable from the
+      phase's settled output via GreenfieldArtifactStore.write(); gate then stamps (AC-1.5). Driver
+      injects approved earlier-phase artifacts into later-phase prompts to fix transcript discontinuity.
+      AC-1.4 preserved (design/-confined; source-write tools stay withheld). write_artifact becomes
+      optional, not the persistence mechanism.
+    revised_from_original: false
+- scope_of_design_edit:
+  - design/02-architecture.md § 1.2 (C3 greenfield driver authors deliverables deterministically; C7 note write_artifact optional for persistence)
+  - design/adr/0012-greenfield-workflow-formality.md (record driver-authored phase-deliverable persistence; AC-1.4 design/-confinement preserved; later phases get approved earlier artifacts injected into their prompt)
+  - design/00-requirements.md (AC-1.2 / AC-2.1 persistence is driver-guaranteed, not model-tool-dependent; AC-2.5 still verifies the written tasks artifact's traceability; EARS form + all traceability preserved)
+  - design/07-tasks.md (T-3.2 row note: deterministic driver-authored artifact persistence)
+- designer_status: amended
+- amendment_commit: 67b12b6
+- resumed_task_commit: (pending)
+- ripple_unresolved: |
+    Designer flagged two ripple_unresolved items, BOTH pre-existing and BOTH already recorded as
+    explicitly NOT part of DCR-1: (1) the D8 discussion item (AC-9.4 / ADR-0004 gate-decision-table
+    write_artifact auto-approve carve-out — with persistence now driver-authored, write_artifact is
+    optional and the carve-out is even more clearly a vestigial-tool concern; left as a separate
+    ac-update candidate); (2) the D1 output-token-cap follow-on (default 4096 maxTokens can truncate
+    the driver-captured END_TURN prose for a large design/tasks deliverable; left as a separate
+    nfr-update follow-on). Both surfaced to the user before task resume; neither blocks DCR-1 resume.
+
+## D1 — greenfield design/tasks artifacts can exceed the model's default 4096 output-token cap (non-blocking nfr-update follow-on) — 2026-06-23
+
+- orthogonal to: OQ-design-1 / DCR-1 (recorded separately; NOT part of DCR-1)
+- kind: nfr-update (follow-on candidate)
+- raised_by: main agent (observed live during T-3.2-RD-D10 investigation)
+- spec_refs: NFR-OUTPUT-MAX-INLINE (output budgeting), the Converse request build (C4 ConverseWireMapper.toRequest), greenfield artifact authoring (C3)
+- finding: |
+  Greenfield design/tasks artifacts can exceed the model's default 4096 output-token cap — a live run
+  observed stopReason=MAX_TOKENS while the model was producing artifact prose. The Converse request
+  currently sets NO maxTokens / inferenceConfig (ConverseWireMapper.toRequest sets toolConfig but leaves
+  inferenceConfig unset, so the backend applies its default 4096 output cap). A substantial greenfield
+  design or task-breakdown deliverable can be truncated at that cap, producing a partial artifact even
+  once driver-authored persistence (DCR-1 Option A) captures the END_TURN text.
+- proposed follow-on: pin an explicit output-token budget on the Converse request (inferenceConfig.maxTokens),
+  and/or chunk artifact authoring across turns so a large deliverable is not cut off at the default cap.
+- coordinator note: explicitly NOT part of DCR-1 (DCR-1 fixes the persistence mechanism, not the output
+  cap). Recorded here per user direction as a separate non-blocking follow-on candidate. User's call
+  whether/when to raise it as its own nfr-update amendment.
+- status: open (informational; no action required to proceed)

@@ -73,20 +73,15 @@ class LiveGreenfieldApprovalReachabilityTest {
     }
 
     /**
-     * Scripted phase loops (the external agent-loop/model boundary), modelling the model authoring
-     * each phase's deliverable: each phase's turn writes the phase's design-doc artifact into the
-     * SAME target-repo store the decision/gate read (so an approved phase has an authored artifact to
-     * present and stamp), then completes with {@code end_turn}. The terminal IMPLEMENT phase writes no
-     * artifact (it has none).
+     * Scripted phase loops (the external agent-loop/model boundary), modelling the model producing
+     * each phase's deliverable prose as its {@code END_TURN} final answer. Since DCR-1 the DRIVER (not
+     * the loop) persists that prose to the phase artifact via the {@link GreenfieldDriver.PhaseArtifactWriter};
+     * so this loop only RETURNS the deliverable as the completed outcome's final text and writes
+     * nothing itself. The terminal IMPLEMENT phase authors no artifact.
      */
     private static final class AuthoringPhaseLoops implements GreenfieldDriver.PhaseLoopFactory {
-        private final GreenfieldArtifactStore store;
         private final List<GreenfieldPhase> phasesRun = new ArrayList<>();
         private final Map<GreenfieldPhase, String> bodyByPhase = new EnumMap<>(GreenfieldPhase.class);
-
-        AuthoringPhaseLoops(GreenfieldArtifactStore store) {
-            this.store = store;
-        }
 
         AuthoringPhaseLoops authors(GreenfieldPhase phase, String body) {
             bodyByPhase.put(phase, body);
@@ -97,16 +92,35 @@ class LiveGreenfieldApprovalReachabilityTest {
         public GreenfieldDriver.LoopTurn loopFor(GreenfieldPhase phase) {
             return prompt -> {
                 phasesRun.add(phase);
-                GreenfieldArtifact.forPhase(phase).ifPresent(artifact ->
-                        store.write(artifact.relativePath(),
-                                bodyByPhase.getOrDefault(phase, "# " + artifact.heading() + "\n")));
-                return LoopOutcome.completed(phase.name() + " deliverable");
+                String body = GreenfieldArtifact.forPhase(phase)
+                        .map(artifact -> bodyByPhase.getOrDefault(
+                                phase, "# " + artifact.heading() + "\n"))
+                        .orElse(phase.name() + " deliverable");
+                return LoopOutcome.completed(body);
             };
         }
     }
 
     private final ByteArrayOutputStream outBytes = new ByteArrayOutputStream();
     private final PrintStream out = new PrintStream(outBytes, true, StandardCharsets.UTF_8);
+
+    /**
+     * The driver-authored persistence seam (DCR-1) over the target-repo store — the production shape:
+     * the driver writes each phase's END_TURN prose to its artifact through this before the gate stamps.
+     */
+    private static GreenfieldDriver.PhaseArtifactWriter writerOver(GreenfieldArtifactStore store) {
+        return new GreenfieldDriver.PhaseArtifactWriter() {
+            @Override
+            public void write(GreenfieldArtifact artifact, String content) {
+                store.write(artifact.relativePath(), content);
+            }
+
+            @Override
+            public String read(GreenfieldArtifact artifact) {
+                return store.read(artifact.relativePath()).orElse("");
+            }
+        };
+    }
 
     /**
      * Wires the production approval path: the real stdin-backed {@link InteractiveGreenfieldApproval}
@@ -132,9 +146,10 @@ class LiveGreenfieldApprovalReachabilityTest {
         // AC-1.5 approval timestamp. This is the regression the defect describes: a 'yes' on stdin must
         // actually advance the live phase machine.
         GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
-        AuthoringPhaseLoops loops = new AuthoringPhaseLoops(store)
+        AuthoringPhaseLoops loops = new AuthoringPhaseLoops()
                 .authors(GreenfieldPhase.TASKS, "# Tasks\n- T-1 build (AC-1.2)\n");
-        GreenfieldDriver driver = new GreenfieldDriver(loops, liveApprovalGate(answers("y", "y", "y"), store));
+        GreenfieldDriver driver = new GreenfieldDriver(
+                loops, writerOver(store), liveApprovalGate(answers("y", "y", "y"), store));
 
         GreenfieldOutcome outcome = driver.run(REQUEST);
 
@@ -158,8 +173,9 @@ class LiveGreenfieldApprovalReachabilityTest {
         // driver stops at the requirements gate AWAITING_APPROVAL, never enters implementation, and the
         // gate records NO approval timestamp (no source is written).
         GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
-        AuthoringPhaseLoops loops = new AuthoringPhaseLoops(store);
-        GreenfieldDriver driver = new GreenfieldDriver(loops, liveApprovalGate(answers("n"), store));
+        AuthoringPhaseLoops loops = new AuthoringPhaseLoops();
+        GreenfieldDriver driver = new GreenfieldDriver(
+                loops, writerOver(store), liveApprovalGate(answers("n"), store));
 
         GreenfieldOutcome outcome = driver.run(REQUEST);
 
@@ -181,8 +197,9 @@ class LiveGreenfieldApprovalReachabilityTest {
         // stdin-backed decision declines, so the driver stops AWAITING_APPROVAL at the requirements
         // gate, mirroring NonInteractiveApprover's fail-closed stance.
         GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
-        AuthoringPhaseLoops loops = new AuthoringPhaseLoops(store);
-        GreenfieldDriver driver = new GreenfieldDriver(loops, liveApprovalGate(() -> null, store));
+        AuthoringPhaseLoops loops = new AuthoringPhaseLoops();
+        GreenfieldDriver driver = new GreenfieldDriver(
+                loops, writerOver(store), liveApprovalGate(() -> null, store));
 
         GreenfieldOutcome outcome = driver.run(REQUEST);
 
@@ -203,10 +220,10 @@ class LiveGreenfieldApprovalReachabilityTest {
         // tasks, the live machine runs requirements/design/tasks but pauses at the tasks gate WITHOUT
         // entering implementation (no source, AC-1.4) — and only the approved phases carry a timestamp.
         GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
-        AuthoringPhaseLoops loops = new AuthoringPhaseLoops(store)
+        AuthoringPhaseLoops loops = new AuthoringPhaseLoops()
                 .authors(GreenfieldPhase.TASKS, "# Tasks\n- T-1 build (AC-1.2)\n");
-        GreenfieldDriver driver =
-                new GreenfieldDriver(loops, liveApprovalGate(answers("y", "y", "n"), store));
+        GreenfieldDriver driver = new GreenfieldDriver(
+                loops, writerOver(store), liveApprovalGate(answers("y", "y", "n"), store));
 
         GreenfieldOutcome outcome = driver.run(REQUEST);
 

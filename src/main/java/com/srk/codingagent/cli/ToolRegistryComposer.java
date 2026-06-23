@@ -322,6 +322,49 @@ final class ToolRegistryComposer {
     }
 
     /**
+     * Builds the greenfield driver's artifact-persistence seam (T-3.2 / DCR-1, ADR-0012 amended): the
+     * {@link GreenfieldDriver.PhaseArtifactWriter} the driver writes each pre-approval phase's
+     * deliverable through, in code, on that phase's {@code END_TURN} &mdash; <em>before</em> the
+     * {@link ArtifactApprovalGate} stamps. Persistence is therefore driver-guaranteed
+     * (AC-1.2/AC-2.1), not dependent on the live model emitting a {@code write_artifact}
+     * {@code toolUse}.
+     *
+     * <p>It is assembled here (not the JaCoCo-excluded {@link AgentLoopFactory}/{@link Main}) for the
+     * same gate-covered-seam reason the phase-scoped registry, per-phase prompt, and approval gate
+     * are: the one collaborator it needs &mdash; the target-repo {@link GreenfieldArtifactStore},
+     * which confines every write to the target project's {@code design/} directory (AC-6.2; AC-1.4
+     * preserved &mdash; a source write cannot reach this path, and the source-write Class-X tools stay
+     * withheld from the pre-approval loops) &mdash; already lives on this composer, so a unit test pins
+     * the driver-authored-persistence contract under the coverage gate. The factory only threads this
+     * writer into the {@link GreenfieldDriver}.
+     *
+     * <p>The writer's {@link GreenfieldDriver.PhaseArtifactWriter#write} truncating-writes the
+     * deliverable to the phase artifact via {@link GreenfieldArtifactStore#write}, and its
+     * {@link GreenfieldDriver.PhaseArtifactWriter#read} reads the approved artifact back via
+     * {@link GreenfieldArtifactStore#read} (the empty string if unexpectedly absent) for the
+     * transcript-continuity prompt injection. The {@code write_artifact} design-doc tool stays
+     * registered in {@link #preApprovalRegistry()} but is optional &mdash; this driver-authored path
+     * is the guaranteed persistence mechanism (ADR-0012 amended; C7 note).
+     *
+     * @return the driver-authored artifact-persistence seam over the target-repo store; never
+     *         {@code null}.
+     */
+    GreenfieldDriver.PhaseArtifactWriter greenfieldArtifactWriter() {
+        GreenfieldArtifactStore store = new GreenfieldArtifactStore(workspaceRoot);
+        return new GreenfieldDriver.PhaseArtifactWriter() {
+            @Override
+            public void write(com.srk.codingagent.workflow.GreenfieldArtifact artifact, String content) {
+                store.write(artifact.relativePath(), content);
+            }
+
+            @Override
+            public String read(com.srk.codingagent.workflow.GreenfieldArtifact artifact) {
+                return store.read(artifact.relativePath()).orElse("");
+            }
+        };
+    }
+
+    /**
      * Builds the greenfield IMPLEMENT-phase loop turn (C3 over C2, ADR-0012 implement clause; T-3.3):
      * the {@link GreenfieldImplementLoop} that, once the terminal IMPLEMENT phase is entered, reads the
      * approved task breakdown and implements the planned tasks one at a time &mdash; driving an

@@ -122,6 +122,24 @@ class GreenfieldWiringTest {
                 .toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * A no-op driver-authored persistence seam (DCR-1): this test pins the prompt-on-the-wire contract,
+     * not artifact persistence, so the driver's per-phase write/read need no real store here.
+     */
+    private static GreenfieldDriver.PhaseArtifactWriter noopWriter() {
+        return new GreenfieldDriver.PhaseArtifactWriter() {
+            @Override
+            public void write(GreenfieldArtifact artifact, String content) {
+                // no-op: persistence is exercised in GreenfieldArtifactAuthoringTest
+            }
+
+            @Override
+            public String read(GreenfieldArtifact artifact) {
+                return "";
+            }
+        };
+    }
+
     @Test
     @DisplayName("the greenfield requirements-phase playbook reaches the model: requirements-before-source instructions are in the Converse system blocks")
     void requirementsPhasePlaybookReachesTheModel() {
@@ -134,7 +152,7 @@ class GreenfieldWiringTest {
         ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
                 .then(endTurn("Here are the requirements I gathered."));
         GreenfieldDriver.PhaseLoopFactory loops = phase -> loopFor(phase, bedrock)::run;
-        GreenfieldDriver driver = new GreenfieldDriver(loops, completedPhase -> false);
+        GreenfieldDriver driver = new GreenfieldDriver(loops, noopWriter(), completedPhase -> false);
 
         driver.run("build me a URL shortener");
 
@@ -165,7 +183,7 @@ class GreenfieldWiringTest {
                 .then(endTurn("tasks done"))
                 .then(endTurn("implemented the first task"));
         GreenfieldDriver.PhaseLoopFactory loops = phase -> loopFor(phase, bedrock)::run;
-        GreenfieldDriver driver = new GreenfieldDriver(loops, completedPhase -> true);
+        GreenfieldDriver driver = new GreenfieldDriver(loops, noopWriter(), completedPhase -> true);
 
         driver.run("build me a URL shortener");
 
@@ -191,7 +209,7 @@ class GreenfieldWiringTest {
         // captured system blocks name no source-change tool.
         ScriptedBedrockClient bedrock = new ScriptedBedrockClient().then(endTurn("requirements done"));
         GreenfieldDriver.PhaseLoopFactory loops = phase -> loopFor(phase, bedrock)::run;
-        GreenfieldDriver driver = new GreenfieldDriver(loops, completedPhase -> false);
+        GreenfieldDriver driver = new GreenfieldDriver(loops, noopWriter(), completedPhase -> false);
 
         driver.run("build me a URL shortener");
 
