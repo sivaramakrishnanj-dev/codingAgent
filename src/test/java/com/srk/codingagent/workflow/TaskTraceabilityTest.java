@@ -117,4 +117,58 @@ class TaskTraceabilityTest {
     void rejectsNull() {
         assertThrows(NullPointerException.class, () -> TaskTraceability.check(null));
     }
+
+    // --- AC-3.1 : the implement loop reads the tasks in breakdown order --------------------------
+
+    @Test
+    @DisplayName("AC-3.1: tasksInOrder enumerates the stable task ids in breakdown (file) order")
+    void tasksInOrderReturnsTaskIdsInBreakdownOrder() {
+        // Oracle: AC-3.1 — "work one task at a time IN BREAKDOWN ORDER". The greenfield implement loop
+        // reads the breakdown's tasks to drive them in order; tasksInOrder must return the stable ids
+        // (AC-2.2) in the file order they appear. Expected order traces to the breakdown's line order.
+        String breakdown = """
+                # Tasks
+
+                - T-1 Build the parser (refs AC-1.2)
+                - T-2 Wire the CLI (refs US-3)
+                - T-3 Persist results (refs AC-2.1)
+                """;
+
+        assertEquals(java.util.List.of("T-1", "T-2", "T-3"),
+                TaskTraceability.tasksInOrder(breakdown),
+                "AC-3.1: the task ids are returned in breakdown order");
+    }
+
+    @Test
+    @DisplayName("AC-2.2: tasksInOrder recognizes tasks across markdown shapes, preserving order")
+    void tasksInOrderRecognizesTasksAcrossShapes() {
+        // Oracle: AC-2.2 — a task is recognized by its stable id whether in a heading, checkbox, or
+        // table row. The order is the file order across those shapes (AC-3.1). Reuses the SAME
+        // task-line recognition the traceability check uses (one source of truth).
+        String breakdown = """
+                ## T-1.1 Parser (AC-1.2)
+                - [ ] T-2 CLI (US-3)
+                | T-3.4 | Persist | AC-2.1 |
+                """;
+
+        assertEquals(java.util.List.of("T-1.1", "T-2", "T-3.4"),
+                TaskTraceability.tasksInOrder(breakdown),
+                "AC-2.2/AC-3.1: tasks across shapes are enumerated in file order");
+    }
+
+    @Test
+    @DisplayName("tasksInOrder of a breakdown with no recognizable task is empty")
+    void tasksInOrderEmptyWhenNoTask() {
+        // Oracle: AC-3.1 operates over the breakdown's tasks; prose with no stable-id task yields no
+        // tasks to implement.
+        assertTrue(TaskTraceability.tasksInOrder("# Tasks\n\nWe will build things.\n").isEmpty(),
+                "no stable-id task means an empty task order");
+        assertTrue(TaskTraceability.tasksInOrder("").isEmpty(), "an empty breakdown has no tasks");
+    }
+
+    @Test
+    @DisplayName("tasksInOrder rejects null input")
+    void tasksInOrderRejectsNull() {
+        assertThrows(NullPointerException.class, () -> TaskTraceability.tasksInOrder(null));
+    }
 }

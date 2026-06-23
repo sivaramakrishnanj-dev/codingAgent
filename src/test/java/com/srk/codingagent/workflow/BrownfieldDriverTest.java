@@ -236,7 +236,7 @@ class BrownfieldDriverTest {
         // remedy prompt must carry the command, its exit code, and its captured output, so the
         // model reasons over the real failure rather than a canned "it failed" string.
         CommandResult fail = failure(2, "BUILD output here", "FAILED: missing import");
-        String prompt = BrownfieldDriver.RemedyPrompt.forFailure(fail);
+        String prompt = com.srk.codingagent.loop.RemedyPrompt.forFailure(fail);
 
         assertTrue(prompt.contains("mvn test"), "the failing command is named");
         assertTrue(prompt.contains("2"), "the failing exit code is named");

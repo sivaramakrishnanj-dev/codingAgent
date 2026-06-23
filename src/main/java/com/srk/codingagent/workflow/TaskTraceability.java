@@ -101,4 +101,31 @@ public final class TaskTraceability {
         boolean traceable = taskCount > 0 && untraced.isEmpty();
         return new Result(traceable, taskCount, untraced);
     }
+
+    /**
+     * Enumerates the stable task identifiers in the breakdown markdown, in <em>breakdown order</em>
+     * &mdash; the file order in which the tasks appear (AC-2.2's stable identifier, AC-3.1's
+     * breakdown order). The greenfield implement loop reads this to drive the planned tasks one at a
+     * time, in order (AC-3.1), reusing the same task-line recognition the traceability check uses so
+     * there is one source of truth for "what is a task line" (rather than a second, drifting parser).
+     *
+     * <p>A task id is emitted once per recognized task line, in the order the lines appear; the same
+     * id appearing on two distinct task lines is emitted twice (the order, not deduplication, is what
+     * AC-3.1 needs). A breakdown with no recognizable task yields an empty list.
+     *
+     * @param breakdownMarkdown the task-breakdown artifact content; must not be {@code null}.
+     * @return the stable task ids in breakdown (file) order; never {@code null}, possibly empty.
+     * @throws NullPointerException if {@code breakdownMarkdown} is {@code null}.
+     */
+    public static List<String> tasksInOrder(String breakdownMarkdown) {
+        Objects.requireNonNull(breakdownMarkdown, "breakdownMarkdown");
+        List<String> tasks = new ArrayList<>();
+        for (String line : breakdownMarkdown.split("\n", -1)) {
+            Matcher taskMatcher = TASK_LINE.matcher(line);
+            if (taskMatcher.find()) {
+                tasks.add(taskMatcher.group(1));
+            }
+        }
+        return List.copyOf(tasks);
+    }
 }

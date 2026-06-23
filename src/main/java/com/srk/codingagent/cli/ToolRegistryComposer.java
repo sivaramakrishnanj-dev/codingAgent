@@ -31,6 +31,7 @@ import com.srk.codingagent.tool.memory.WriteMemoryTool;
 import com.srk.codingagent.workflow.ArtifactApprovalGate;
 import com.srk.codingagent.workflow.BrownfieldPlaybook;
 import com.srk.codingagent.workflow.GreenfieldDriver;
+import com.srk.codingagent.workflow.GreenfieldImplementLoop;
 import com.srk.codingagent.workflow.GreenfieldPhase;
 import com.srk.codingagent.workflow.GreenfieldPlaybook;
 import java.nio.file.Path;
@@ -318,6 +319,45 @@ final class ToolRegistryComposer {
         Objects.requireNonNull(decision, "decision");
         return new ArtifactApprovalGate(
                 decision, new GreenfieldArtifactStore(workspaceRoot), clock);
+    }
+
+    /**
+     * Builds the greenfield IMPLEMENT-phase loop turn (C3 over C2, ADR-0012 implement clause; T-3.3):
+     * the {@link GreenfieldImplementLoop} that, once the terminal IMPLEMENT phase is entered, reads the
+     * approved task breakdown and implements the planned tasks one at a time &mdash; driving an
+     * agent-loop turn per task, verifying each via the configured build/test command before the next
+     * (reusing the T-1.4 {@link com.srk.codingagent.loop.VerifyLoop}), marking each verified task
+     * complete in the task-breakdown artifact (AC-3.3, reusing the T-3.2 {@link GreenfieldArtifactStore})
+     * &mdash; and stops if a task fails verification within the bound (AC-3.4). Returned as the
+     * {@link GreenfieldDriver.LoopTurn} the IMPLEMENT phase runs through, so it slots into the existing
+     * phase-loop seam the {@link AgentLoopFactory} wires without changing the driver.
+     *
+     * <p><b>Why this is assembled here (the gate-covered-seam discipline).</b> Like the phase-scoped
+     * registry, the per-phase prompt, and the timestamped approval gate, the implement loop's
+     * orchestration &mdash; one task at a time, verify each via the reused verify loop, mark complete
+     * before the next &mdash; is the load-bearing T-3.3 enforcement. It is assembled in this NOT-
+     * coverage-excluded composer (not the JaCoCo-excluded {@link AgentLoopFactory}/{@link Main}) so a
+     * unit test pins, under the coverage gate, that the implement loop is constructed and reachable from
+     * the composition root with the verify step wired to the configured test command. The collaborators
+     * it needs &mdash; the target-repo {@link CommandExecutor} for the per-task verify loop, the
+     * resolved {@link ResolvedConfig} (test command + timeout + verify bound), and the
+     * {@link GreenfieldArtifactStore} for read-and-mark-complete &mdash; already live on (or are
+     * constructible from) this composer; the factory only threads the resulting turn into the phase-loop
+     * factory for the terminal phase.
+     *
+     * @param implementTurn the IMPLEMENT-phase agent-loop turn each task's implementation (and each
+     *                      remedy) runs through &mdash; the phase loop that carries the full
+     *                      source-write toolset (AC-2.3); must not be {@code null}.
+     * @return the IMPLEMENT-phase loop turn that drives the implement-one-task-at-a-time-and-verify
+     *         loop; never {@code null}.
+     * @throws NullPointerException if {@code implementTurn} is {@code null}.
+     */
+    GreenfieldDriver.LoopTurn greenfieldImplementLoopTurn(GreenfieldImplementLoop.LoopTurn implementTurn) {
+        Objects.requireNonNull(implementTurn, "implementTurn");
+        GreenfieldImplementLoop implementLoop = GreenfieldImplementLoop.overConfig(
+                implementTurn, new CommandExecutor(workspaceRoot), config,
+                new GreenfieldArtifactStore(workspaceRoot));
+        return implementLoop.asLoopTurn();
     }
 
     /**

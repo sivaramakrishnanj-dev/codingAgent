@@ -2,41 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-23
 last_updated_at_commit: pending
-total_resolved_count: 30
+total_resolved_count: 31
 
 last_resolved:
-  task: T-3.2
-  title: "Artifact authoring: requirements/design/tasks markdown into the target repo, approval timestamps"
+  task: T-3.3
+  title: "Greenfield implement loop: one task at a time, verify each before next"
   resolved_at: 2026-06-23
-  commit: 6661698
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-3.3
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-23T14:00:00+00:00
-  last_updated_at: 2026-06-23T14:00:00+00:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-3.3
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-23T14:00:00+00:00
-  last_updated_at: 2026-06-23T14:00:00+00:00
 
 ## Milestone gates
 
@@ -366,3 +343,13 @@ in_flight:
 - dcrs_consumed: []
 - milestone: M3 (second M3 task; deps T-3.1, resolved). The artifact-authoring + approval-timestamp + AC->task traceability layer over the T-3.1 greenfield phase machine + ApprovalGate seam.
 - notes: Greenfield now AUTHORS the requirements/design/tasks markdown artifacts INTO THE TARGET REPO with timestamped per-phase approvals and enforced AC->task traceability (RD-7, AC-1.2/1.5/2.1/2.5). DESIGN DECISION (pattern a + driver-stamp): artifacts are MODEL-AUTHORED via a NEW design-doc-scoped write_artifact tool, and approval timestamps + traceability are DRIVER-AUTHORED via ArtifactApprovalGate (the explicit GreenfieldDriver.ApprovalGate extension point the T-3.1 Javadoc named). Built: (1) GreenfieldArtifactStore (tool/) — writes/appends/reads target-repo artifacts confined to the target repo's design/ dir (ARTIFACT_DIR="design"), the SAME WorkspacePaths-style resolve+startsWith confinement so an artifact can never escape the target repo (the G1 working-dir finickiness handled: artifacts land under the target repo cwd, NOT codingAgent's repo; tests assert the resolved path shape under @TempDir); (2) WriteArtifactTool (tool/, NAME="write_artifact") — the design-doc write path offered in the PRE-APPROVAL registry, DISTINCT from the withheld write_file source-write tool, so AC-1.4 holds: a design-markdown artifact write SUCCEEDS pre-approval while a general source write does NOT (pinned by test); (3) GreenfieldArtifact (workflow/ enum REQUIREMENTS/DESIGN/TASKS) — forPhase/relativePath/heading mapping each pre-approval phase to its target-repo artifact (design/00-requirements.md, design/01-design.md, design/02-tasks.md, mirroring codingAgent's own numeric-prefixed design/ shape); (4) TaskTraceability (workflow/) — check(breakdownMarkdown) -> Result(traceable, taskCount, untracedTasks): every task line must reference >=1 stated requirement (US/AC/NFR/RD/INV vocabulary, the ADR-0012 US->AC->NFR/ADR->task chain) — AC-2.5; (5) ArtifactApprovalGate (workflow/, implements GreenfieldDriver.ApprovalGate) over an ApprovalDecision seam + GreenfieldArtifactStore + boundary clock (ADR-0005) — on an approved advance it STAMPS the approval timestamp into the artifact (AC-1.5) and at the TASKS gate REFUSES to advance into implementation if the breakdown is untraceable (AC-2.5 enforced as a gate guarantee, not advisory); (6) ApprovalStamp (workflow/) — the timestamped approval line format. LIVE WIRING (continues the built-but-not-wired discipline): write_artifact is in the gate-covered preApprovalRegistry; ToolRegistryComposer.greenfieldApprovalGate(decision) builds the ArtifactApprovalGate (both coverage-counted, NOT in the JaCoCo-excluded factory); AgentLoopFactory.createGreenfieldDriver(...) assembles the driver from the composer + the phase-loop factory; Main consumes it on BOTH the one-shot and REPL greenfield paths (replacing the T-3.1 placeholder `new GreenfieldDriver(phaseLoops, p -> false)`); GreenfieldArtifactCompositionTest (cli/, gate-covered) asserts the authoring path is constructed + reachable from the composition root. mvn clean verify green (946 tests, +41 from 905; JaCoCo BUNDLE line 91.36% >= 0.80 gate; T-3.2 new classes 94.9% line). Self-checks: oracle-traceability=passed (expected values trace to AC-1.2/1.5/2.1/2.5/2.2 + ADR-0012 traceability clause, never to impl), reuse=passed (reused WorkspacePaths-style confinement, the GreenfieldDriver.ApprovalGate seam, ToolRegistry composition; no parallel composer). 0 Blocker/0 Major/1 Minor/1 Nit/0 Discussion. STATED ASSUMPTIONS (sound, within scope): (a) target-repo artifact file names are incidental (RD-7/AC-1.2 say "markdown in the target project"; chose the numeric-prefixed design/ shape; tests assert path SHAPE not exact names); (b) "stated requirement" for AC-2.5 maps to the US/AC/NFR/RD/INV vocabulary of ADR-0012's traceability chain; (c) AC-2.5's "shall ensure" read as ENFORCED (the tasks gate refuses an untraceable breakdown), not advisory — a "U" guarantee the gate can silently skip is not ensured; (d) AC-1.5 INTERACTIVE deliverable-presenting prompt (print artifact, read yes/no to supply an affirmative ApprovalDecision) read as a thin REPL-UI follow-on over the delivered ArtifactApprovalGate/ApprovalDecision seam — T-3.2's load-bearing work (record the timestamp + enforce traceability WHEN a phase is confirmed) is fully delivered + tested via a scripted decision; the live wiring uses a deny-by-default decision (the safe non-interactive stance, consistent with T-3.1's one-shot assumption). Flagged, did not warrant a DCR. G3 SMOKE-TEST NOTE for the main agent: a live `codingagent --mode greenfield` run now writes the requirements/design/tasks markdown into the SANDBOX target repo's design/ dir, stamps an approval timestamp when a phase is confirmed, and the TASKS gate enforces AC->task traceability; the one-task-at-a-time implement-and-verify loop (T-3.3, the LAST M3 task, deps T-3.1+T-1.4) completes the idea->requirements->design->tasks->implement G3 criterion. The live greenfield approval decision is deny-by-default on the non-interactive path (an interactive affirmative-decision REPL prompt is the AC-1.5 follow-on flagged in T-3.2's assumption d) — for the G3 sandbox smoke test the main agent may need to supply an affirmative ApprovalDecision (or exercise the gate through the REPL) to drive past the requirements gate into design/tasks/implement.
+
+## T-3.3 — Greenfield implement loop: one task at a time, verify each before next
+- commit: pending
+- review: design/reviews/code/T-3.3-r1.md
+- resolved: 2026-06-23
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- milestone: M3 (THIRD and LAST M3 task; deps T-3.1 + T-1.4, both resolved). Closes M3 -> milestone gate G3.
+- notes: The greenfield IMPLEMENT phase now implements the approved tasks ONE AT A TIME in breakdown order, verifying each before the next, REUSING the T-1.4 VerifyLoop (US-3, AC-3.1/3.2/3.3/3.4). Built: (1) GreenfieldImplementLoop (workflow/) — reads the approved tasks artifact (T-3.2's design/02-tasks.md) in breakdown order (AC-3.1, via the new TaskTraceability.tasksInOrder which reuses TaskTraceability's TASK_LINE regex — one source of truth for "what is a task line", not a second parser); implements each task via an agent-loop turn (the IMPLEMENT-phase loop, which has the source-write Class X tools per T-3.1); verifies each via the REUSED VerifyLoop (VerifyLoop.forConfig(executor, config, remedy) — the SAME seam BrownfieldDriver reuses, NOT a parallel verify cycle, confirmed by reuse_self_check) with a RemedyAttempt that drives a remedy turn from the failing output; on VERIFIED marks the task complete in the tasks artifact before the next (AC-3.3, via the REUSED T-3.2 GreenfieldArtifactStore); on EXHAUSTED (verify failed after NFR-VERIFY-MAX-ITERATIONS=5) STOPS and surfaces rather than advancing (AC-3.4). (2) ImplementOutcome (workflow/ record) — Disposition{ALL_VERIFIED, VERIFY_EXHAUSTED, NO_TEST_COMMAND, NO_TASKS} + allVerified/verifyExhausted/noTestCommand/noTasks + accessors (mirrors BrownfieldOutcome rather than overloading LoopOutcome's StopReason schema vocabulary, which has no verify-exhausted member — CT-SCH-3). (3) loop.RemedyPrompt (new shared class) — DRY-extracted during Phase C self-review from BrownfieldDriver's private RemedyPrompt so both drivers share one failure-feedback prompt builder (BrownfieldDriver.RemedyPrompt removed; the only external ref, BrownfieldDriverTest, updated — a reuse IMPROVEMENT, not scope creep). LIVE WIRING (continues the built-but-not-wired discipline): GreenfieldImplementLoop.asLoopTurn() adapts the loop to the IMPLEMENT-phase GreenfieldDriver.LoopTurn seam (option a — keeps the GreenfieldDriver structure intact); ToolRegistryComposer.greenfieldImplementLoopTurn(loopTurn) is the gate-covered seam that wires the terminal IMPLEMENT phase to the implement loop; AgentLoopFactory.createGreenfieldDriver threads the CommandExecutor + config so the per-task VerifyLoop is built from the configured test command; GreenfieldImplementCompositionTest (cli/, gate-covered) asserts the implement loop is constructed + reachable from the composition root at the terminal phase. mvn clean verify green (987 tests, +41 from 946; JaCoCo BUNDLE line 91.62% >= 0.80 gate; GreenfieldImplementLoop/ImplementOutcome/TaskTraceability/loop.RemedyPrompt/BrownfieldDriver all 100% line). Self-checks: oracle-traceability=passed (expected values trace to US-3/AC-3.1/3.2/3.3/3.4 + ADR-0012 implement clause + the exit-code-contract G4 verification-vs-process-exit separation, never to impl), reuse=passed (reused VerifyLoop+VerifyOutcome+RemedyAttempt T-1.4 seam, GreenfieldArtifactStore T-3.2, TaskTraceability's TASK_LINE regex; DRY-extracted the shared RemedyPrompt). 0 Blocker/0 Major/0 Minor/1 Nit/1 Discussion. STATED ASSUMPTIONS (sound, within scope): (a) AC-3.4 "stop and surface" = the loop stops (does not advance) and carries the failing task id + last failure output in its outcome, surfaced via completed phase text (exit 0), NOT a non-zero process exit — grounded in exit-code contract G4 (verification signal distinct from agent-process exit) and the established BrownfieldRunner verify-exhausted mapping; alternative (map to a surfaced LoopOutcome/StopReason) rejected because StopReason is the fixed Converse-stop-reason schema (CT-SCH-3) with no verify-exhausted member. (b) AC-20.6 no-test-command halts the loop (reports NO_TEST_COMMAND) rather than marking tasks complete without verification — the configured command is preferred; absence is a config state to report. DISCUSSION ITEM logged to open-questions (D1, suggested ac-update): AC-3.5 (single-specific-task request, type Op/optional) is not implemented as a distinct request shape — the minimal loop implements the full approved breakdown; per the task guidance a Discussion note is the prescribed disposition; promote to mandatory + pin a request shape only if the team later wants it. >>> G3 GATE: T-3.3 CLOSES M3. The full idea->requirements->design->tasks->implement greenfield pipeline is now built + wired live: --mode greenfield -> phase machine (T-3.1) -> per-phase approval gates + artifact authoring + timestamps + AC->task traceability (T-3.2) -> implement-one-task-at-a-time-and-verify-each (T-3.3, reusing the T-1.4 verify loop). The greenfield-phase-gating CT (the §6 gap) is green. Coordinator stops at gate G3 for the main agent's real-Bedrock G3 smoke test in a disposable sandbox.

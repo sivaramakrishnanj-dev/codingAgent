@@ -2,13 +2,12 @@ package com.srk.codingagent.workflow;
 
 import com.srk.codingagent.config.ResolvedConfig;
 import com.srk.codingagent.loop.AgentLoop;
-import com.srk.codingagent.loop.CommandRunner;
 import com.srk.codingagent.loop.LoopOutcome;
 import com.srk.codingagent.loop.RemedyAttempt;
+import com.srk.codingagent.loop.RemedyPrompt;
 import com.srk.codingagent.loop.VerifyLoop;
 import com.srk.codingagent.loop.VerifyOutcome;
 import com.srk.codingagent.tool.CommandExecutor;
-import com.srk.codingagent.tool.CommandResult;
 import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -174,6 +173,10 @@ public final class BrownfieldDriver {
         };
     }
 
+    // The remedy prompt is the shared com.srk.codingagent.loop.RemedyPrompt — the one failure-feedback
+    // prompt builder both this driver and the greenfield implement loop (T-3.3) use (AC-20.3/AC-20.5),
+    // so the failure-feedback wording is not duplicated per driver.
+
     private static BrownfieldOutcome disposition(LoopOutcome change, VerifyOutcome verify) {
         return switch (verify.kind()) {
             case VERIFIED -> {
@@ -246,39 +249,5 @@ public final class BrownfieldDriver {
          * @return the verify step; never {@code null}.
          */
         Verifier create(RemedyAttempt remedy);
-    }
-
-    /**
-     * Builds the remedy prompt fed back to the model when a verification attempt fails (AC-20.3):
-     * the failing command and its captured output, with an instruction to fix the cause. Kept as
-     * a small tested artifact so the suite can assert the failure output is actually carried into
-     * the remedy turn (rather than a fixed canned string that ignores the failure).
-     *
-     * <p>Uses {@link CommandRunner}-produced {@link CommandResult}s; the failing run's
-     * {@code stdout}/{@code stderr} are the relevant output to reason over (AC-20.5).
-     */
-    static final class RemedyPrompt {
-
-        private RemedyPrompt() {
-            // Holder for the prompt builder; not instantiable.
-        }
-
-        static String forFailure(CommandResult failure) {
-            Objects.requireNonNull(failure, "failure");
-            StringBuilder prompt = new StringBuilder()
-                    .append("The verification command failed. Read the output below, fix the "
-                            + "cause in the code, and the command will be run again.\n\n")
-                    .append("Command: ").append(failure.command()).append('\n')
-                    .append("Exit code: ").append(failure.exitCode()).append('\n');
-            appendIfPresent(prompt, "stdout", failure.stdout());
-            appendIfPresent(prompt, "stderr", failure.stderr());
-            return prompt.toString();
-        }
-
-        private static void appendIfPresent(StringBuilder prompt, String label, String output) {
-            if (output != null && !output.isBlank()) {
-                prompt.append('\n').append(label).append(":\n").append(output).append('\n');
-            }
-        }
     }
 }

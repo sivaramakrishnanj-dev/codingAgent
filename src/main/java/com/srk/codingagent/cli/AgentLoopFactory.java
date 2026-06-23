@@ -26,6 +26,7 @@ import com.srk.codingagent.tool.memory.LearningProposer;
 import com.srk.codingagent.tool.memory.MemoryLearningHarvester;
 import com.srk.codingagent.workflow.ArtifactApprovalGate;
 import com.srk.codingagent.workflow.GreenfieldDriver;
+import com.srk.codingagent.workflow.GreenfieldPhase;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -245,6 +246,15 @@ public final class AgentLoopFactory {
      * per-phase prompt), sharing the live {@link ModelClient}, gate, log, and compaction seam. Shared
      * by {@link #createGreenfieldPhaseLoopFactory} (T-3.1) and {@link #createGreenfieldDriver} (T-3.2)
      * so the per-phase loop wiring is assembled once.
+     *
+     * <p><b>The terminal IMPLEMENT phase drives the implement loop (T-3.3).</b> For every pre-approval
+     * phase the phase turn is the bare phase-scoped {@link AgentLoop} ({@code loop::run}). For the
+     * terminal {@link GreenfieldPhase#IMPLEMENT} phase, the turn is instead the gate-covered
+     * implement-one-task-at-a-time loop ({@link ToolRegistryComposer#greenfieldImplementLoopTurn}),
+     * which runs each task's implementation through that same full-toolset implementation loop and
+     * verifies each task before the next (reusing the T-1.4 verify loop, AC-3.1/3.2/3.3/3.4). The
+     * implement orchestration is assembled in the gate-covered composer (not this JaCoCo-excluded
+     * factory); the factory only selects the implement-loop turn for the terminal phase.
      */
     private GreenfieldDriver.PhaseLoopFactory phaseLoopFactory(ToolRegistryComposer composer,
             ResolvedConfig config, EventLog log, String sessionLineage, Approver approver,
@@ -253,6 +263,13 @@ public final class AgentLoopFactory {
             ToolRegistry tools = composer.greenfieldRegistry(phase);
             AgentLoop loop = assembleLoop(composer, config, log, sessionLineage, approver, sessions,
                     tools, composer.greenfieldSystemPrompt(phase));
+            if (phase.isTerminal()) {
+                // AC-3.1/3.2/3.3/3.4: the IMPLEMENT phase's turn is the implement-one-task-at-a-time
+                // loop, which drives each task's implementation through the full-toolset loop and
+                // verifies each before the next (reusing the T-1.4 verify loop). The per-task
+                // implementation turn is this same implementation-phase AgentLoop.
+                return composer.greenfieldImplementLoopTurn(loop::run);
+            }
             return loop::run;
         };
     }
