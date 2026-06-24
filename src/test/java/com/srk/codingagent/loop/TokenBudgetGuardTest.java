@@ -284,6 +284,8 @@ class TokenBudgetGuardTest {
                 threshold,
                 16384,
                 5,
+                300,
+                10,
                 300);
     }
 }

@@ -323,6 +323,8 @@ class OutputDisposerTest {
                 0.85,
                 cap,
                 5,
+                300,
+                10,
                 300);
     }
 }

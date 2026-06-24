@@ -333,7 +333,11 @@ public final class AgentLoopFactory {
     private ToolRegistryComposer composer(ResolvedConfig config, Path workspaceRoot, EventLog log,
             Approver approver, SessionStore sessions, String sessionLineage) {
         BedrockCredentials credentials = credentialResolver.resolve(config.awsProfile());
-        BedrockRuntimeClient bedrock = clientFactory.create(credentials, config.region());
+        // NFR-BEDROCK-CALL-TIMEOUT (DCR-4, ADR-0001): the client is bounded by the
+        // configured connect/response budget (apiCallTimeout + Apache socket/connection
+        // timeouts). Both budgets come from the resolved config (defaults 10 / 300).
+        BedrockRuntimeClient bedrock = clientFactory.create(credentials, config.region(),
+                config.bedrockCallConnectTimeoutSeconds(), config.bedrockCallResponseTimeoutSeconds());
         ModelClient modelClient = new ModelClient(bedrock);
         // DCR-2 (D1, ADR-0012 § 2.1): the greenfield phase loops use a ModelClient over the SAME
         // Bedrock wire path whose requests carry inferenceConfig.maxTokens = 16384, so a full

@@ -13,10 +13,12 @@ import org.junit.jupiter.api.Test;
  * {@code additionalProperties: false}. The schema enumerates exactly these
  * top-level properties — {@code modelId, permissionMode, region, awsProfile,
  * subAgentMax, summarizerModelId, commands, contextCompactThreshold,
- * outputMaxInlineBytes, verifyMaxIterations, commandTimeoutSeconds} — and the
- * {@code commands} object's properties {@code build, test, lint}. The recognized
- * vocabulary must match this set exactly so the loader rejects exactly the keys the
- * schema would reject (CT-SCH-14). The schema is the oracle, not the constant set.
+ * outputMaxInlineBytes, verifyMaxIterations, commandTimeoutSeconds,
+ * bedrockCallConnectTimeoutSeconds, bedrockCallResponseTimeoutSeconds} (the last two
+ * added by DCR-4 — NFR-BEDROCK-CALL-TIMEOUT) — and the {@code commands} object's
+ * properties {@code build, test, lint}. The recognized vocabulary must match this set
+ * exactly so the loader rejects exactly the keys the schema would reject (CT-SCH-14).
+ * The schema is the oracle, not the constant set.
  */
 class ConfigKeysTest {
 
@@ -35,7 +37,9 @@ class ConfigKeysTest {
                 "contextCompactThreshold",
                 "outputMaxInlineBytes",
                 "verifyMaxIterations",
-                "commandTimeoutSeconds");
+                "commandTimeoutSeconds",
+                "bedrockCallConnectTimeoutSeconds",
+                "bedrockCallResponseTimeoutSeconds");
 
         assertEquals(schemaTopLevel, ConfigKeys.TOP_LEVEL,
                 "Top-level recognized keys must equal the schema's property names");

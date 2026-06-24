@@ -154,6 +154,18 @@
         </dependency>
 
         <!--
+          AWS SDK v2 Apache HTTP client (ADR-0001, DCR-4, component C4). Supplies the
+          ApacheHttpClient.Builder the BedrockClientFactory wires the BedrockRuntimeClient's
+          httpClientBuilder to, so the NFR-BEDROCK-CALL-TIMEOUT connect/response budget
+          (connectionTimeout = connect, socketTimeout = response) is applied at the HTTP
+          layer. Version is managed by the AWS SDK BOM above (declared without a version).
+        -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apache-client</artifactId>
+        </dependency>
+
+        <!--
           Jackson Databind (ADR-0005, C14 Event Log). Serializes each Event to one
           JSONL line and reads lines back in seq order. Compile scope: the event log
           is runtime business logic. Version managed by the Jackson BOM above.

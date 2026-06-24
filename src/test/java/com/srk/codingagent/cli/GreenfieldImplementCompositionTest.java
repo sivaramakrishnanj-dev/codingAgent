@@ -101,7 +101,8 @@ class GreenfieldImplementCompositionTest {
     /** A config whose test command is wired by overConfig into the per-task verify loop. */
     private static ResolvedConfig config(String testCommand) {
         return new ResolvedConfig(MODEL, PermissionMode.ASK_EVERY_TIME, "us-east-1", null,
-                1, null, new ResolvedConfig.Commands(null, testCommand, null), 0.85, 16384, 3, 300);
+                1, null, new ResolvedConfig.Commands(null, testCommand, null), 0.85, 16384, 3, 300,
+                10, 300);
     }
 
     /**

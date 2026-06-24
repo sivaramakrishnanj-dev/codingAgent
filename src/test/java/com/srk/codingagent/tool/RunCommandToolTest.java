@@ -32,7 +32,8 @@ class RunCommandToolTest {
     private static ResolvedConfig configWithTimeout(int timeoutSeconds) {
         return new ResolvedConfig(
                 "anthropic.claude-opus-4-8", PermissionMode.ASK_EVERY_TIME, "us-east-1",
-                null, 1, null, ResolvedConfig.Commands.empty(), 0.85, 16384, 5, timeoutSeconds);
+                null, 1, null, ResolvedConfig.Commands.empty(), 0.85, 16384, 5, timeoutSeconds,
+                10, 300);
     }
 
     @Test

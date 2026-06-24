@@ -128,10 +128,17 @@ public final class ConfigResolver {
                 ConfigDefaults.VERIFY_MAX_ITERATIONS, 1, Integer.MAX_VALUE);
         int commandTimeoutSeconds = intInRange(merged, ConfigKeys.COMMAND_TIMEOUT_SECONDS,
                 ConfigDefaults.COMMAND_TIMEOUT_SECONDS, 1, Integer.MAX_VALUE);
+        int bedrockCallConnectTimeoutSeconds = intInRange(merged,
+                ConfigKeys.BEDROCK_CALL_CONNECT_TIMEOUT_SECONDS,
+                ConfigDefaults.BEDROCK_CALL_CONNECT_TIMEOUT_SECONDS, 1, Integer.MAX_VALUE);
+        int bedrockCallResponseTimeoutSeconds = intInRange(merged,
+                ConfigKeys.BEDROCK_CALL_RESPONSE_TIMEOUT_SECONDS,
+                ConfigDefaults.BEDROCK_CALL_RESPONSE_TIMEOUT_SECONDS, 1, Integer.MAX_VALUE);
 
         return new ResolvedConfig(modelId, permissionMode, region, awsProfile, subAgentMax,
                 summarizerModelId, commands, contextCompactThreshold, outputMaxInlineBytes,
-                verifyMaxIterations, commandTimeoutSeconds);
+                verifyMaxIterations, commandTimeoutSeconds, bedrockCallConnectTimeoutSeconds,
+                bedrockCallResponseTimeoutSeconds);
     }
 
     private static PermissionMode permissionMode(Map<String, Object> merged) {

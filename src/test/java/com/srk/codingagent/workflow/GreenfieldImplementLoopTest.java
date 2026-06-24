@@ -623,6 +623,8 @@ class GreenfieldImplementLoopTest {
                 0.85,
                 16384,
                 verifyMaxIterations,
+                300,
+                10,
                 300);
     }
 }

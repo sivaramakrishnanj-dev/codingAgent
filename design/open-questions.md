@@ -598,3 +598,82 @@ auto-invokes the designer.
     Review: design/reviews/2026-06-23-amendment-greenfield-resume-r1.md.
 - budget: amendment #1 of 3 for T-3.2-RD-D12-D13; DCR-3, amendment #3 of 10 for milestone M3
 - status: closed (DCR-3 amended at 7a10d31; resumed task resolved + pushed at fbd33c4 — D12 greenfield mid-flow resume + AC-7.3 repo-keying-forward on the D13 clobber fix; mvn clean verify green, 1072 tests, JaCoCo 0.80)
+
+## OQ-design-4 — T-4.6 design-change requested (close orphaned NFR-BEDROCK-CALL-TIMEOUT) — 2026-06-24
+
+- kind: schema-update
+- raised_by: user via main-agent directive (closing an orphaned NFR found in audit)
+- request_id: DCR-4
+- spec_refs_touched: NFR-BEDROCK-CALL-TIMEOUT, AC-8.x (config-key set), ADR-0001 (Converse client timeouts), 02-architecture.md § 1.2 (C4 Model Client), 06-formal/resolved-config.schema.json, 06-formal/contract-tests.md (CT-SCH-13/14), 07-tasks.md (new M4 task)
+- problem_statement: |
+    NFR-BEDROCK-CALL-TIMEOUT (00-requirements.md line 447, "connect 10 s; overall response 300 s;
+    configurable; covers streaming responses incl. extended thinking; timeout counts toward retry
+    budget") is ORPHANED: it is referenced by zero ACs, has no config key in
+    resolved-config.schema.json, no ADR wiring describing how the Converse client applies it, no
+    contract test, and no task implementing it. The mirror NFR-CMD-TIMEOUT already has a config key
+    (commandTimeoutSeconds, minimum 1, default 300) and is wired; the Bedrock call timeout never was.
+    The Converse client (C4, ADR-0001) is built today with no apiCallTimeout / httpClient timeouts, so
+    the SDK applies its own defaults rather than the NFR-pinned 10 s connect / 300 s response budget.
+- options_considered:
+  - id: a
+    summary: |
+      Full schema-update. Add two config keys (bedrockCallConnectTimeoutSeconds default 10 minimum 1;
+      bedrockCallResponseTimeoutSeconds default 300 minimum 1) to resolved-config.schema.json keeping
+      additionalProperties:false; fold NFR-BEDROCK-CALL-TIMEOUT into the config-key set / AC-8.x (EARS
+      form + traceability preserved); record in ADR-0001 (+ 02-architecture C4 row) that the Converse
+      client sets apiCallTimeout = response timeout and an Apache httpClientBuilder with
+      socketTimeout = response timeout + connectionTimeout = connect timeout; append a new M4 task
+      (T-4.6) deps T-0.3 wiring the timeouts with a CT-INV-13-style wiring test; extend CT-SCH-13/14
+      coverage to the two new keys (timeout config key validates + default applied when absent).
+    pros: Closes the orphan fully — the NFR becomes config-backed, AC-traceable, ADR-wired, CT-covered,
+      and implemented; mirrors the established commandTimeoutSeconds pattern; the wiring becomes
+      unit-assertable via the existing inspectable wiring(...) seam (no live Bedrock call in tests).
+    cons: Touches five design artifacts in one amendment (larger blast radius than a doc-only fix).
+  - id: b
+    summary: |
+      Doc-only: reference NFR-BEDROCK-CALL-TIMEOUT from an existing AC (e.g. AC-8.x) without adding a
+      config key, schema property, ADR wiring, or task — leaving the value un-implemented but no longer
+      table-orphaned.
+    pros: Smallest change; single-file edit.
+    cons: The NFR stays un-implemented (the live Converse client still has no timeout wiring), so the
+      orphan is only cosmetically closed; no config key means it is not actually configurable as the NFR
+      requires; no CT pins it. Rejected by the user.
+- recommended_option: a
+- chosen_option: a
+- user_decision: approved
+- user_approval:
+    approved_at: 2026-06-24T00:00:00+00:00
+    approver_note: |
+      Approve Option (a) — full schema-update. Add bedrockCallConnectTimeoutSeconds (default 10, min 1)
+      and bedrockCallResponseTimeoutSeconds (default 300, min 1) keeping additionalProperties:false;
+      fold NFR-BEDROCK-CALL-TIMEOUT into the AC-8.x config-key set (EARS + traceability); record the
+      Converse-client timeout wiring (apiCallTimeout = response timeout; Apache httpClientBuilder
+      socketTimeout = response timeout + connectionTimeout = connect timeout) in ADR-0001 / 02-arch C4;
+      append M4 task T-4.6 (deps T-0.3, CT-INV-13-style wiring test); extend CT-SCH-13/14 to the two new
+      keys. This unblocks the G3 live smoke test; do NOT mark G3 passed.
+    revised_from_original: false
+- scope_of_design_edit:
+  - design/06-formal/resolved-config.schema.json (add bedrockCallConnectTimeoutSeconds + bedrockCallResponseTimeoutSeconds; keep additionalProperties:false)
+  - design/00-requirements.md (fold NFR-BEDROCK-CALL-TIMEOUT into the config-key set / AC-8.x; EARS form + traceability preserved; connect 10s / response 300s / configurable)
+  - design/adr/0001-engine-sdk-converse-owned-loop.md (and/or design/02-architecture.md § 1.2 C4 row) (record Converse client apiCallTimeout = response timeout + Apache httpClientBuilder socketTimeout = response timeout / connectionTimeout = connect timeout)
+  - design/07-tasks.md (append M4 task T-4.6: wire NFR-BEDROCK-CALL-TIMEOUT into the Bedrock client — apiCall/socket 300s + connect 10s, configurable, CT-INV-13-style wiring test; deps T-0.3; cite NFR-BEDROCK-CALL-TIMEOUT + CT-SCH-13/14)
+  - design/06-formal/contract-tests.md (extend CT-SCH-13/14 coverage to the two new keys: timeout config key validates + default applied when absent)
+- designer_status: amended
+- amendment_commit: 589e751
+- amendment_summary: |
+    Closed orphaned NFR-BEDROCK-CALL-TIMEOUT end-to-end. resolved-config.schema.json: added
+    bedrockCallConnectTimeoutSeconds (int, min 1, default 10) + bedrockCallResponseTimeoutSeconds
+    (int, min 1, default 300); additionalProperties:false preserved. 00-requirements.md: new
+    AC-8.10 (U, configurable budget) + AC-8.11 (Ev, defaults when absent) under US-8; NFR row +
+    NFR→AC coverage row cite the keys/ACs/ADR-0001; orphan-closure note. ADR-0001: "Call timeouts"
+    Decision bullet (apiCallTimeout = response; Apache httpClientBuilder socketTimeout = response /
+    connectionTimeout = connect); spec_refs += NFR-BEDROCK-CALL-TIMEOUT. 02-architecture.md: C4 row
+    timeout wiring + new § 2 call-timeout note. 07-tasks.md: new M4 task T-4.6 (deps T-0.3,
+    CT-INV-13-style wiring test); task→US mapping US-8 += T-4.6. contract-tests.md: CT-SCH-16
+    (timeout keys validate) + CT-SCH-17 (resolver applies defaults when absent). NFR now referenced
+    by ≥ 1 AC and ≥ 1 CT. ripple_unresolved: []. Review:
+    design/reviews/2026-06-24-amendment-bedrock-call-timeout-r1.md. SHA-backfill commit 0b190e2
+    (design-progress.md, mirroring the DCR-3 backfill precedent).
+- resumed_task_commit: (pending — T-4.6 implementation)
+- budget: amendment #1 of 3 for T-4.6; DCR-4, amendment #4 of 10 for the milestone
+- status: open (DCR-4 amended at 589e751; T-4.6 implementation in flight)

@@ -63,6 +63,10 @@ class ConfigResolverTest {
             assertEquals(16384, cfg.outputMaxInlineBytes(), "NFR-OUTPUT-MAX-INLINE default 16384");
             assertEquals(5, cfg.verifyMaxIterations(), "NFR-VERIFY-MAX-ITERATIONS default 5");
             assertEquals(300, cfg.commandTimeoutSeconds(), "schema default 300");
+            assertEquals(10, cfg.bedrockCallConnectTimeoutSeconds(),
+                    "NFR-BEDROCK-CALL-TIMEOUT connect default 10 (AC-8.11)");
+            assertEquals(300, cfg.bedrockCallResponseTimeoutSeconds(),
+                    "NFR-BEDROCK-CALL-TIMEOUT response default 300 (AC-8.11)");
         }
 
         @Test
@@ -74,6 +78,83 @@ class ConfigResolverTest {
             assertNull(cfg.commands().build(), "unconfigured build command is null");
             assertNull(cfg.commands().test(), "unconfigured test command is null");
             assertNull(cfg.commands().lint(), "unconfigured lint command is null");
+        }
+    }
+
+    @Nested
+    @DisplayName("DCR-4: Bedrock call-timeout keys (NFR-BEDROCK-CALL-TIMEOUT, AC-8.10/8.11)")
+    class BedrockCallTimeouts {
+
+        @Test
+        @DisplayName("CT-SCH-17: both timeout keys absent -> resolver applies connect 10 / "
+                + "response 300 (AC-8.11)")
+        void ct_sch_17_bothAbsent_resolverAppliesDefaults() {
+            // Oracle: CT-SCH-17 (+) — JSON-Schema `default` keywords are documentary
+            // (validators don't inject them); the resolver (C17, ADR-0009) is what applies
+            // the NFR-BEDROCK-CALL-TIMEOUT defaults when the keys are absent. AC-8.11 pins
+            // connect 10 / response 300.
+            ResolvedConfig cfg = resolver.resolve(Map.of(), Map.of(), Map.of());
+
+            assertEquals(10, cfg.bedrockCallConnectTimeoutSeconds(),
+                    "absent connect key -> NFR default 10 (AC-8.11, CT-SCH-17)");
+            assertEquals(300, cfg.bedrockCallResponseTimeoutSeconds(),
+                    "absent response key -> NFR default 300 (AC-8.11, CT-SCH-17)");
+        }
+
+        @Test
+        @DisplayName("a configured connect timeout binds, overriding the default (AC-8.10)")
+        void configuredConnectTimeout_binds() {
+            // Oracle: AC-8.10 — the connect timeout is configurable via
+            // bedrockCallConnectTimeoutSeconds. A configured value must override the default.
+            ResolvedConfig cfg = resolver.resolve(
+                    Map.of(), Map.of("bedrockCallConnectTimeoutSeconds", 25), Map.of());
+
+            assertEquals(25, cfg.bedrockCallConnectTimeoutSeconds(),
+                    "a configured connect timeout must bind (AC-8.10)");
+            assertEquals(300, cfg.bedrockCallResponseTimeoutSeconds(),
+                    "the unset response timeout still falls through to the NFR default (AC-8.11)");
+        }
+
+        @Test
+        @DisplayName("a configured response timeout binds, overriding the default (AC-8.10)")
+        void configuredResponseTimeout_binds() {
+            // Oracle: AC-8.10 — the overall-response timeout is configurable via
+            // bedrockCallResponseTimeoutSeconds. A configured value must override the default.
+            ResolvedConfig cfg = resolver.resolve(
+                    Map.of(), Map.of("bedrockCallResponseTimeoutSeconds", 600), Map.of());
+
+            assertEquals(600, cfg.bedrockCallResponseTimeoutSeconds(),
+                    "a configured response timeout must bind (AC-8.10)");
+            assertEquals(10, cfg.bedrockCallConnectTimeoutSeconds(),
+                    "the unset connect timeout still falls through to the NFR default (AC-8.11)");
+        }
+
+        @Test
+        @DisplayName("a connect timeout below the schema minimum is rejected naming the key (AC-8.5)")
+        void outOfRangeConnectTimeout_rejectedNamingKey() {
+            // Oracle: schema bedrockCallConnectTimeoutSeconds minimum 1; below-min is
+            // malformed and rejected naming the offending key (AC-8.5).
+            ConfigException ex = assertThrows(ConfigException.class,
+                    () -> resolver.resolve(
+                            Map.of(), Map.of("bedrockCallConnectTimeoutSeconds", 0), Map.of()),
+                    "a connect timeout below the schema minimum must be rejected (AC-8.5)");
+
+            assertEquals("bedrockCallConnectTimeoutSeconds", ex.key(),
+                    "the exception must name the offending key (AC-8.5)");
+        }
+
+        @Test
+        @DisplayName("a response timeout below the schema minimum is rejected naming the key (AC-8.5)")
+        void outOfRangeResponseTimeout_rejectedNamingKey() {
+            // Oracle: schema bedrockCallResponseTimeoutSeconds minimum 1; below-min is
+            // malformed and rejected naming the offending key (AC-8.5).
+            ConfigException ex = assertThrows(ConfigException.class,
+                    () -> resolver.resolve(
+                            Map.of(), Map.of("bedrockCallResponseTimeoutSeconds", 0), Map.of()),
+                    "a response timeout below the schema minimum must be rejected (AC-8.5)");
+
+            assertEquals("bedrockCallResponseTimeoutSeconds", ex.key(),
+                    "the exception must name the offending key (AC-8.5)");
         }
     }
 

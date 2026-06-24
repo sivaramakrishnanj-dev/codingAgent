@@ -48,6 +48,20 @@ public final class ConfigKeys {
     /** {@code commandTimeoutSeconds} — the per-command timeout in seconds. */
     public static final String COMMAND_TIMEOUT_SECONDS = "commandTimeoutSeconds";
 
+    /**
+     * {@code bedrockCallConnectTimeoutSeconds} — the Bedrock-call connect timeout in
+     * seconds (NFR-BEDROCK-CALL-TIMEOUT; wired to the Apache httpClient
+     * connectionTimeout, ADR-0001).
+     */
+    public static final String BEDROCK_CALL_CONNECT_TIMEOUT_SECONDS = "bedrockCallConnectTimeoutSeconds";
+
+    /**
+     * {@code bedrockCallResponseTimeoutSeconds} — the Bedrock-call overall-response
+     * timeout in seconds (NFR-BEDROCK-CALL-TIMEOUT; wired to {@code apiCallTimeout} and
+     * the Apache httpClient socketTimeout, ADR-0001; counts toward the retry budget).
+     */
+    public static final String BEDROCK_CALL_RESPONSE_TIMEOUT_SECONDS = "bedrockCallResponseTimeoutSeconds";
+
     /** {@code commands.build} — the build command. */
     public static final String COMMANDS_BUILD = "build";
 
@@ -69,7 +83,9 @@ public final class ConfigKeys {
             CONTEXT_COMPACT_THRESHOLD,
             OUTPUT_MAX_INLINE_BYTES,
             VERIFY_MAX_ITERATIONS,
-            COMMAND_TIMEOUT_SECONDS);
+            COMMAND_TIMEOUT_SECONDS,
+            BEDROCK_CALL_CONNECT_TIMEOUT_SECONDS,
+            BEDROCK_CALL_RESPONSE_TIMEOUT_SECONDS);
 
     /** All recognized keys inside the {@code commands} object. */
     public static final Set<String> COMMANDS_KEYS = Set.of(

@@ -50,6 +50,19 @@ public final class ConfigDefaults {
     /** Default per-command timeout, in seconds. */
     public static final int COMMAND_TIMEOUT_SECONDS = 300;
 
+    /**
+     * Default Bedrock-call connect timeout, in seconds (TCP/TLS establishment).
+     * NFR-BEDROCK-CALL-TIMEOUT (connect 10 s) / AC-8.11 / ADR-0001.
+     */
+    public static final int BEDROCK_CALL_CONNECT_TIMEOUT_SECONDS = 10;
+
+    /**
+     * Default Bedrock-call overall-response timeout, in seconds (the end-to-end
+     * Converse budget, sized to cover streaming responses incl. extended thinking).
+     * NFR-BEDROCK-CALL-TIMEOUT (response 300 s) / AC-8.11 / ADR-0001.
+     */
+    public static final int BEDROCK_CALL_RESPONSE_TIMEOUT_SECONDS = 300;
+
     private ConfigDefaults() {
         // Constants holder; not instantiable.
     }

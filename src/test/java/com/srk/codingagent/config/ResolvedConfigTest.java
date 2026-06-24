@@ -19,8 +19,10 @@ import org.junit.jupiter.api.Test;
  * schema pins: {@code modelId} {@code minLength 1}; {@code permissionMode} required
  * (non-null); {@code region} required; {@code subAgentMax} {@code minimum 1};
  * {@code contextCompactThreshold} in {@code [0,1]}; {@code outputMaxInlineBytes},
- * {@code verifyMaxIterations}, {@code commandTimeoutSeconds} {@code minimum 1}. Each
- * negative test derives its expectation from a schema constraint, not from the
+ * {@code verifyMaxIterations}, {@code commandTimeoutSeconds},
+ * {@code bedrockCallConnectTimeoutSeconds}, {@code bedrockCallResponseTimeoutSeconds}
+ * {@code minimum 1} (the last two added by DCR-4 — NFR-BEDROCK-CALL-TIMEOUT, CT-SCH-16).
+ * Each negative test derives its expectation from a schema constraint, not from the
  * constructor's observed throw.
  */
 class ResolvedConfigTest {
@@ -36,7 +38,8 @@ class ResolvedConfigTest {
             int verifyIters,
             int timeout) {
         return new ResolvedConfig(modelId, mode, region, null, subAgentMax, null,
-                ResolvedConfig.Commands.empty(), threshold, outBytes, verifyIters, timeout);
+                ResolvedConfig.Commands.empty(), threshold, outBytes, verifyIters, timeout,
+                10, 300);
     }
 
     @Test
@@ -47,7 +50,7 @@ class ResolvedConfigTest {
                 "anthropic.claude-opus-4-8", PermissionMode.ASK_EVERY_TIME, "us-east-1",
                 "my-profile", 1, "anthropic.claude-haiku",
                 new ResolvedConfig.Commands("mvn verify", "mvn test", "checkstyle"),
-                0.85, 16384, 5, 300);
+                0.85, 16384, 5, 300, 10, 300);
 
         assertEquals("anthropic.claude-opus-4-8", cfg.modelId());
         assertEquals(PermissionMode.ASK_EVERY_TIME, cfg.permissionMode());
@@ -60,6 +63,8 @@ class ResolvedConfigTest {
         assertEquals(16384, cfg.outputMaxInlineBytes());
         assertEquals(5, cfg.verifyMaxIterations());
         assertEquals(300, cfg.commandTimeoutSeconds());
+        assertEquals(10, cfg.bedrockCallConnectTimeoutSeconds());
+        assertEquals(300, cfg.bedrockCallResponseTimeoutSeconds());
     }
 
     @Test
@@ -123,7 +128,7 @@ class ResolvedConfigTest {
         // resolved object); resolver supplies Commands.empty() when unconfigured.
         assertThrows(NullPointerException.class,
                 () -> new ResolvedConfig("m", PermissionMode.ASK_EVERY_TIME, "us-east-1", null,
-                        1, null, null, 0.85, 1, 1, 1),
+                        1, null, null, 0.85, 1, 1, 1, 10, 300),
                 "Null commands is not a valid resolved object");
     }
 
@@ -179,6 +184,43 @@ class ResolvedConfigTest {
         assertThrows(IllegalArgumentException.class,
                 () -> valid("m", PermissionMode.ASK_EVERY_TIME, "us-east-1", 1, 0.85, 1, 1, 0),
                 "commandTimeoutSeconds 0 violates schema minimum 1");
+    }
+
+    @Test
+    @DisplayName("CT-SCH-16: a config with both Bedrock-timeout keys (integers >= 1) validates "
+            + "(NFR-BEDROCK-CALL-TIMEOUT, AC-8.10)")
+    void ct_sch_16_bedrockTimeoutKeys_validate() {
+        // Oracle: CT-SCH-16 (+) — a config carrying bedrockCallConnectTimeoutSeconds and
+        // bedrockCallResponseTimeoutSeconds as integers >= 1 validates. Schema integers
+        // >= 1 are also exercised at the record level (the compact constructor pins the
+        // same minimum-1 invariant the schema declares). 1 is the inclusive lower bound.
+        ResolvedConfig cfg = new ResolvedConfig("m", PermissionMode.ASK_EVERY_TIME, "us-east-1",
+                null, 1, null, ResolvedConfig.Commands.empty(), 0.85, 1, 1, 1, 1, 1);
+
+        assertEquals(1, cfg.bedrockCallConnectTimeoutSeconds(),
+                "an integer >= 1 connect timeout must validate (CT-SCH-16)");
+        assertEquals(1, cfg.bedrockCallResponseTimeoutSeconds(),
+                "an integer >= 1 response timeout must validate (CT-SCH-16)");
+    }
+
+    @Test
+    @DisplayName("bedrockCallConnectTimeoutSeconds below 1 is rejected (schema: minimum 1, DCR-4)")
+    void bedrockCallConnectTimeoutSecondsBelowOne_rejected() {
+        // Oracle: schema bedrockCallConnectTimeoutSeconds minimum 1 (NFR-BEDROCK-CALL-TIMEOUT).
+        assertThrows(IllegalArgumentException.class,
+                () -> new ResolvedConfig("m", PermissionMode.ASK_EVERY_TIME, "us-east-1", null,
+                        1, null, ResolvedConfig.Commands.empty(), 0.85, 1, 1, 1, 0, 300),
+                "bedrockCallConnectTimeoutSeconds 0 violates schema minimum 1");
+    }
+
+    @Test
+    @DisplayName("bedrockCallResponseTimeoutSeconds below 1 is rejected (schema: minimum 1, DCR-4)")
+    void bedrockCallResponseTimeoutSecondsBelowOne_rejected() {
+        // Oracle: schema bedrockCallResponseTimeoutSeconds minimum 1 (NFR-BEDROCK-CALL-TIMEOUT).
+        assertThrows(IllegalArgumentException.class,
+                () -> new ResolvedConfig("m", PermissionMode.ASK_EVERY_TIME, "us-east-1", null,
+                        1, null, ResolvedConfig.Commands.empty(), 0.85, 1, 1, 1, 10, 0),
+                "bedrockCallResponseTimeoutSeconds 0 violates schema minimum 1");
     }
 
     @Test

@@ -115,7 +115,7 @@ class LiveGreenfieldRegistryCompositionTest {
 
     private static ResolvedConfig config() {
         return new ResolvedConfig(MODEL, PermissionMode.ASK_EVERY_TIME, "us-east-1", null,
-                1, null, ResolvedConfig.Commands.empty(), 0.85, 16384, 5, 300);
+                1, null, ResolvedConfig.Commands.empty(), 0.85, 16384, 5, 300, 10, 300);
     }
 
     /**

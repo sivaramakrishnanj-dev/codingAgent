@@ -41,6 +41,18 @@ package com.srk.codingagent.config;
  *                                default {@code 5}.
  * @param commandTimeoutSeconds   the per-command timeout in seconds; {@code >= 1},
  *                                default {@code 300}.
+ * @param bedrockCallConnectTimeoutSeconds  the Bedrock-call connect timeout in
+ *                                seconds (TCP/TLS establishment); {@code >= 1},
+ *                                default {@code 10}. Wired to the Apache httpClient
+ *                                {@code connectionTimeout} (NFR-BEDROCK-CALL-TIMEOUT,
+ *                                ADR-0001).
+ * @param bedrockCallResponseTimeoutSeconds the Bedrock-call overall-response timeout
+ *                                in seconds (the end-to-end Converse budget, covers
+ *                                streaming incl. extended thinking); {@code >= 1},
+ *                                default {@code 300}. Wired to {@code apiCallTimeout}
+ *                                and the Apache httpClient {@code socketTimeout}, and
+ *                                counts toward the retry budget (NFR-BEDROCK-CALL-TIMEOUT,
+ *                                ADR-0001).
  */
 public record ResolvedConfig(
         String modelId,
@@ -53,7 +65,9 @@ public record ResolvedConfig(
         double contextCompactThreshold,
         int outputMaxInlineBytes,
         int verifyMaxIterations,
-        int commandTimeoutSeconds) {
+        int commandTimeoutSeconds,
+        int bedrockCallConnectTimeoutSeconds,
+        int bedrockCallResponseTimeoutSeconds) {
 
     /**
      * Validates the schema-pinned invariants. A {@code ResolvedConfig} that
@@ -77,6 +91,8 @@ public record ResolvedConfig(
         requireAtLeast(outputMaxInlineBytes, 1, "outputMaxInlineBytes");
         requireAtLeast(verifyMaxIterations, 1, "verifyMaxIterations");
         requireAtLeast(commandTimeoutSeconds, 1, "commandTimeoutSeconds");
+        requireAtLeast(bedrockCallConnectTimeoutSeconds, 1, "bedrockCallConnectTimeoutSeconds");
+        requireAtLeast(bedrockCallResponseTimeoutSeconds, 1, "bedrockCallResponseTimeoutSeconds");
     }
 
     private static void requireNonBlank(String value, String field) {

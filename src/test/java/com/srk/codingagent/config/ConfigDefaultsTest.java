@@ -23,6 +23,10 @@ import org.junit.jupiter.api.Test;
  *   <li>{@code OUTPUT_MAX_INLINE_BYTES} &rarr; NFR-OUTPUT-MAX-INLINE (16384).</li>
  *   <li>{@code VERIFY_MAX_ITERATIONS} &rarr; NFR-VERIFY-MAX-ITERATIONS (5).</li>
  *   <li>{@code COMMAND_TIMEOUT_SECONDS} &rarr; schema default (300).</li>
+ *   <li>{@code BEDROCK_CALL_CONNECT_TIMEOUT_SECONDS} &rarr; NFR-BEDROCK-CALL-TIMEOUT /
+ *       AC-8.11 / ADR-0001 (connect 10).</li>
+ *   <li>{@code BEDROCK_CALL_RESPONSE_TIMEOUT_SECONDS} &rarr; NFR-BEDROCK-CALL-TIMEOUT /
+ *       AC-8.11 / ADR-0001 (overall response 300).</li>
  * </ul>
  */
 class ConfigDefaultsTest {
@@ -118,5 +122,27 @@ class ConfigDefaultsTest {
         // Oracle: schema "commandTimeoutSeconds ... default 300".
         assertEquals(300, ConfigDefaults.COMMAND_TIMEOUT_SECONDS,
                 "Default commandTimeoutSeconds must be 300 (schema default)");
+    }
+
+    @Test
+    @DisplayName("default bedrockCallConnectTimeoutSeconds is 10 "
+            + "(NFR-BEDROCK-CALL-TIMEOUT / AC-8.11 / ADR-0001)")
+    void bedrockCallConnectTimeoutSeconds_is10() {
+        // Oracle: NFR-BEDROCK-CALL-TIMEOUT pins connect 10 s, folded into the config-key
+        // set as the AC-8.11 default-when-absent; schema default 10.
+        assertEquals(10, ConfigDefaults.BEDROCK_CALL_CONNECT_TIMEOUT_SECONDS,
+                "Default bedrockCallConnectTimeoutSeconds must be 10 (NFR-BEDROCK-CALL-TIMEOUT / "
+                        + "AC-8.11)");
+    }
+
+    @Test
+    @DisplayName("default bedrockCallResponseTimeoutSeconds is 300 "
+            + "(NFR-BEDROCK-CALL-TIMEOUT / AC-8.11 / ADR-0001)")
+    void bedrockCallResponseTimeoutSeconds_is300() {
+        // Oracle: NFR-BEDROCK-CALL-TIMEOUT pins overall response 300 s, folded into the
+        // config-key set as the AC-8.11 default-when-absent; schema default 300.
+        assertEquals(300, ConfigDefaults.BEDROCK_CALL_RESPONSE_TIMEOUT_SECONDS,
+                "Default bedrockCallResponseTimeoutSeconds must be 300 (NFR-BEDROCK-CALL-TIMEOUT / "
+                        + "AC-8.11)");
     }
 }
