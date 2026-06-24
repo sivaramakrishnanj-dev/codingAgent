@@ -768,5 +768,6 @@ auto-invokes the designer.
     ADR-0012, which IS updated; T-3.5 cites ADR-0012 + AC-2.2/AC-2.5 directly, so the missing C3 note
     does not block T-3.5. Surfaced to the user as a candidate for a future tiny doc-clarification /
     adr-clarification fold-in — user's call. Not a new ambiguity, not scope creep.
+- resumed_task_commit: 4748c0a
 - budget: amendment #1 of 3 for T-3.5; DCR-5, amendment #5 of 10 for milestone M3 (warn threshold 8, not hit)
-- status: open (DCR-5 amended at bfb2ce8 + pushed; T-3.5 implementation in flight under single-agent topology — to be closed with the resumed-task SHA on commit)
+- status: closed (DCR-5 amended at bfb2ce8 [OQ-lifecycle commit 36390dd]; T-3.5 resolved + pushed at 4748c0a under single-agent topology, task-builder round 1 — greenfield playbook prompt now EMITS the strict gate's vocabulary [REQUIREMENTS authors AC-<n>.<m>/US-<n>/NFR-<NAME>; TASKS emits T-<n>/T-<n>.<m> ids citing them]; TaskTraceability regexes UNCHANGED; mvn clean verify green, 1093 tests, JaCoCo 91.12%; shaded jar rebuilt. ONE non-blocking ripple_unresolved (02-architecture C3 row, out of approved scope — future doc-fold-in candidate). Unblocks the future G3 live greenfield smoke test; G3 gate left OPEN.)
