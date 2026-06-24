@@ -220,4 +220,65 @@ class GreenfieldPlaybookTest {
     void rejectsNullPhase() {
         assertThrows(NullPointerException.class, () -> GreenfieldPlaybook.systemPrompt(null));
     }
+
+    // --- DCR-5 : the prompt emits the strict traceability gate's vocabulary ----------------------
+    // AC-2.2/AC-2.5/ADR-0012 (DCR-5): the burden of conformance to the strict TaskTraceability gate
+    // sits on this prompt, not on a relaxed gate. The requirements phase must direct authoring the
+    // gate-recognizable requirement-symbol shapes (AC-<n>.<m> / US-<n> / NFR-<NAME>); the tasks phase
+    // must direct the T-<n>/T-<n>.<m> stable-id form (hyphen mandatory) AND citing a requirement
+    // symbol on each task line. (Note: joined(phase) lowercases the prompt, so the asserted symbol
+    // shapes are lowercased.)
+
+    @Test
+    @DisplayName("AC-2.5 (DCR-5): the requirements phase prompt directs authoring AC-<n>.<m>/US-<n>/NFR-<NAME> requirement symbols")
+    void requirementsPhaseEmitsGateRequirementVocabulary() {
+        // Oracle: AC-2.5 (DCR-5) — "the requirements phase authors gate-recognizable
+        // AC-<n>.<m>/US-<n>/NFR-<NAME> symbols". The requirements-phase prompt must name each of the
+        // three gate-recognizable requirement-symbol shapes so the model authors them as the
+        // traceability catalog its tasks will cite. The shapes (US-<n>, AC-<n>.<m>, NFR-<NAME>) trace
+        // to AC-2.5/ADR-0012's fixed requirement-symbol vocabulary, not to the prompt's wording.
+        String prompt = joined(GreenfieldPhase.REQUIREMENTS);
+
+        assertTrue(prompt.contains("us-<n>"),
+                "AC-2.5 (DCR-5): the requirements prompt directs authoring user stories as US-<n>");
+        assertTrue(prompt.contains("ac-<n>.<m>"),
+                "AC-2.5 (DCR-5): the requirements prompt directs authoring acceptance criteria as AC-<n>.<m>");
+        assertTrue(prompt.contains("nfr-<name>"),
+                "AC-2.5 (DCR-5): the requirements prompt directs authoring NFRs as NFR-<NAME>");
+    }
+
+    @Test
+    @DisplayName("AC-2.2 (DCR-5): the tasks phase prompt directs the T-<n>/T-<n>.<m> stable-id form (hyphen mandatory)")
+    void tasksPhaseEmitsGateTaskIdForm() {
+        // Oracle: AC-2.2 (DCR-5) — "a stable identifier of the form T-<n> or T-<n>.<m> (the hyphen is
+        // mandatory). ... the greenfield playbook prompt ... emits this id form". The tasks-phase prompt
+        // must name the T-<n>/T-<n>.<m> id form so the model authors hyphen-bearing ids the strict gate
+        // recognizes. The id form traces to AC-2.2, not to the prompt's wording.
+        String prompt = joined(GreenfieldPhase.TASKS);
+
+        assertTrue(prompt.contains("t-<n>"),
+                "AC-2.2 (DCR-5): the tasks prompt directs giving each task a T-<n> stable id");
+        assertTrue(prompt.contains("t-<n>.<m>"),
+                "AC-2.2 (DCR-5): the tasks prompt names the T-<n>.<m> sub-task id form");
+        assertTrue(prompt.contains("hyphen"),
+                "AC-2.2 (DCR-5): the tasks prompt states the hyphen is mandatory (T-<n>, not T<n>)");
+    }
+
+    @Test
+    @DisplayName("AC-2.5 (DCR-5): the tasks phase prompt directs each task to cite a requirement symbol from the requirements phase")
+    void tasksPhaseDirectsCitingRequirementSymbol() {
+        // Oracle: AC-2.5 (DCR-5) — "the tasks phase emits T-<n>/T-<n>.<m> task ids each citing >= 1
+        // such [requirement] symbol". The tasks-phase prompt must direct citing a requirement symbol
+        // on each task line (an AC-<n>.<m> / US-<n> / NFR-<NAME>) so the model-authored breakdown
+        // traces to a stated requirement and self-conforms to the strict gate. The instruction traces
+        // to AC-2.5/ADR-0012's traceability requirement, not to the prompt's exact wording.
+        String prompt = joined(GreenfieldPhase.TASKS);
+
+        assertTrue(prompt.contains("cite") || prompt.contains("trace"),
+                "AC-2.5 (DCR-5): the tasks prompt directs citing/tracing a requirement on each task line");
+        assertTrue(prompt.contains("requirement"),
+                "AC-2.5 (DCR-5): the cited target is a requirement (the requirements-phase symbol catalog)");
+        assertTrue(prompt.contains("ac-<n>.<m>") || prompt.contains("us-<n>") || prompt.contains("nfr-<name>"),
+                "AC-2.5 (DCR-5): the tasks prompt names the requirement-symbol vocabulary tasks must cite");
+    }
 }

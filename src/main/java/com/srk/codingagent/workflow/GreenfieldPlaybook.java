@@ -53,6 +53,24 @@ import java.util.Objects;
  * repo's {@code design/} directory, so it cannot reach source files — AC-1.4 stays enforced), but it
  * is <em>optional</em>, no longer the persistence mechanism; the prompt notes it as available rather
  * than mandating it.
+ *
+ * <p><b>The prompt emits the strict traceability gate's vocabulary; the gate stays strict (AC-2.2,
+ * AC-2.5, ADR-0012; DCR-5 amended 2026-06-24).</b> The tasks-phase approval consults a strict
+ * traceability gate ({@link TaskTraceability}) that recognizes a task only when its line carries a
+ * stable id of the form {@code T-<n>} / {@code T-<n>.<m>} (the hyphen is mandatory) and counts the
+ * task as traced only when the line cites a requirement symbol from a fixed vocabulary
+ * ({@code US-<n>} / {@code AC-<n>(.<m>)} / {@code NFR-<NAME>} / {@code RD-<n>} / {@code INV-<n>}).
+ * That strictness is the formal US&rarr;AC&rarr;NFR/ADR&rarr;task guarantee ADR-0012 chose, so the
+ * burden of conformance sits on this prompt rather than on a relaxed gate (DCR-5 rejected relaxing
+ * the gate's regexes). The prompt therefore <em>emits</em> the gate's vocabulary on both
+ * pre-approval authoring phases: the <b>requirements</b> phase directs the model to author each
+ * user story as {@code US-<n>}, each acceptance criterion as {@code AC-<n>.<m>}, and each
+ * non-functional requirement as {@code NFR-<NAME>} — the gate-recognizable requirement-symbol
+ * shapes that become the project's own traceability catalog; the <b>tasks</b> phase directs the
+ * model to give each task a {@code T-<n>} / {@code T-<n>.<m>} id (hyphen mandatory) and to cite
+ * &ge;&nbsp;1 of those requirement symbols on each task line. {@link TaskTraceability}'s regexes
+ * are unchanged — a greenfield project's own model-authored breakdown self-conforms to the strict
+ * gate.
  */
 public final class GreenfieldPlaybook {
 
@@ -132,16 +150,28 @@ public final class GreenfieldPlaybook {
      * path), naming {@link #ARTIFACT_WRITE_TOOL} only as optional (RD-7/AC-1.2/AC-2.1). The
      * implementation block is the only one that introduces the source-change tools, matching the
      * driver's withholding of those Class-X tools in the pre-approval phases (AC-1.4).
+     *
+     * <p>The requirements and tasks blocks also <em>emit the strict {@link TaskTraceability} gate's
+     * vocabulary</em> (AC-2.2, AC-2.5, ADR-0012; DCR-5): requirements directs authoring
+     * {@code US-<n>} / {@code AC-<n>.<m>} / {@code NFR-<NAME>} requirement symbols, and tasks
+     * directs {@code T-<n>} / {@code T-<n>.<m>} task ids (hyphen mandatory) each citing &ge;&nbsp;1
+     * such symbol — so the model-authored breakdown self-conforms to the unchanged strict gate.
      */
     private static String phaseBlock(GreenfieldPhase phase) {
         return switch (phase) {
             case REQUIREMENTS -> "Current phase: requirements. Discuss the use-case and produce the "
                     + "agreed requirements (personas, user stories, acceptance criteria, and "
-                    + "non-functional requirements). Your final answer must be the full requirements "
-                    + "content — it is saved as this phase's deliverable artifact at "
-                    + artifactPath(phase) + " (you may also persist it yourself with the optional "
-                    + ARTIFACT_WRITE_TOOL + " tool). When the requirements are complete, ask the "
-                    + "developer to approve them before moving on to design.";
+                    + "non-functional requirements). Author each requirement as a numbered, "
+                    + "referenceable symbol so the later task breakdown can cite it: write each user "
+                    + "story as US-<n> (for example US-1, US-2), each acceptance criterion as "
+                    + "AC-<n>.<m> (for example AC-1.1, AC-2.3), and each non-functional requirement "
+                    + "as NFR-<NAME> (for example NFR-LATENCY, NFR-THROUGHPUT). These symbols become "
+                    + "the catalog every task must trace back to, so give each requirement its own "
+                    + "stable symbol. Your final answer must be the full requirements content — it is "
+                    + "saved as this phase's deliverable artifact at " + artifactPath(phase) + " (you "
+                    + "may also persist it yourself with the optional " + ARTIFACT_WRITE_TOOL
+                    + " tool). When the requirements are complete, ask the developer to approve them "
+                    + "before moving on to design.";
             case DESIGN -> "Current phase: design. Turn the approved requirements into a design "
                     + "(overview, architecture, data model, APIs, operations). Your final answer must "
                     + "be the full design content — it is saved as this phase's deliverable artifact "
@@ -150,13 +180,18 @@ public final class GreenfieldPlaybook {
                     + "source code. When the design is complete, ask the developer to approve it "
                     + "before breaking it into tasks.";
             case TASKS -> "Current phase: tasks. Break the approved design into discrete, "
-                    + "reviewable tasks, each with a stable identifier and each tracing to at least "
-                    + "one requirement. Your final answer must be the full task breakdown — it is "
-                    + "saved as this phase's deliverable artifact at " + artifactPath(phase) + " (you "
-                    + "may also persist it yourself with the optional " + ARTIFACT_WRITE_TOOL
-                    + " tool), and traceability is checked against it. When the task breakdown is "
-                    + "complete, request the developer's approval; implementation begins only after "
-                    + "the design and task breakdown are approved.";
+                    + "reviewable tasks. Give each task a stable id of the form T-<n> or T-<n>.<m> — "
+                    + "the hyphen is mandatory (for example T-1, T-2.3); write T-1, never T1. On each "
+                    + "task's line cite at least one requirement symbol you authored in the "
+                    + "requirements phase (an AC-<n>.<m>, US-<n>, or NFR-<NAME>), so the task traces "
+                    + "back to a stated requirement. Your final answer must be the full task "
+                    + "breakdown — it is saved as this phase's deliverable artifact at "
+                    + artifactPath(phase) + " (you may also persist it yourself with the optional "
+                    + ARTIFACT_WRITE_TOOL + " tool), and traceability is checked against it: a task "
+                    + "with a hyphen-less id, or one that cites no requirement symbol, will be "
+                    + "refused. When the task breakdown is complete, request the developer's "
+                    + "approval; implementation begins only after the design and task breakdown are "
+                    + "approved.";
             case IMPLEMENT -> "Current phase: implement. The design and task breakdown are approved, "
                     + "so you may now write source: implement the planned tasks one at a time using "
                     + "the change tools (" + SOURCE_CHANGE_TOOLS + "), verifying each task before "

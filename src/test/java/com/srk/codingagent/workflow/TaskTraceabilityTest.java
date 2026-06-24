@@ -118,6 +118,111 @@ class TaskTraceabilityTest {
         assertThrows(NullPointerException.class, () -> TaskTraceability.check(null));
     }
 
+    // --- DCR-5 regression : the strict gate refuses the prior live-failing forms ------------------
+    // These pin the EXACT class of defect the pre-DCR-5 suite could not catch by construction (the
+    // ten tests above all use gate-conformant forms only). DCR-5 Option a keeps the gate strict and
+    // fixes the greenfield playbook prompt to EMIT the gate's vocabulary; these tests document why
+    // the prior live output (hyphen-less T-ids, bare R-refs) is correctly refused, so it can never
+    // regress silently.
+
+    @Test
+    @DisplayName("AC-2.2 (DCR-5): a hyphen-less id (T1) is NOT recognized as a task; the hyphen form (T-1) is")
+    void hyphenLessTaskIdIsNotRecognized() {
+        // Oracle: AC-2.2 — "each [task] with a stable identifier of the form T-<n> or T-<n>.<m> (the
+        // hyphen is mandatory)". A line whose only id is hyphen-less (T1) is therefore NOT a task; the
+        // breakdown has zero recognized tasks and is not a traceable breakdown. The hyphen form (T-1)
+        // IS a task. This is the live-failing shape the strict gate (correctly) refuses and the DCR-5
+        // prompt change steers the model away from authoring.
+        TaskTraceability.Result hyphenLess = TaskTraceability.check("- T1 Build the parser (AC-1.2)\n");
+        assertEquals(0, hyphenLess.taskCount(),
+                "AC-2.2: a hyphen-less id (T1) carries no stable T-<n> identifier, so it is not a task");
+        assertFalse(hyphenLess.traceable(),
+                "AC-2.2: with no recognized task the breakdown is not traceable");
+
+        TaskTraceability.Result hyphenForm = TaskTraceability.check("- T-1 Build the parser (AC-1.2)\n");
+        assertEquals(1, hyphenForm.taskCount(),
+                "AC-2.2: the mandatory-hyphen form (T-1) is recognized as a task");
+        assertTrue(hyphenForm.traceable(),
+                "AC-2.2/AC-2.5: the T-1 task cites AC-1.2, so the breakdown is traceable");
+    }
+
+    @Test
+    @DisplayName("AC-2.5 (DCR-5): a bare R-ref (R5) does NOT satisfy traceability; a gate-vocabulary ref (AC/US/NFR) does")
+    void bareRequirementRefDoesNotTrace() {
+        // Oracle: AC-2.5 — for greenfield the traceability vocabulary is the model-authored requirement
+        // symbols "AC-<n>.<m>, US-<n>, NFR-<NAME>" (plus RD-<n>/INV-<n> per ADR-0012's fixed set). A
+        // bare R5 is NOT in that vocabulary, so a task citing only R5 traces to no stated requirement
+        // and the breakdown is untraceable. A task citing a gate-vocabulary symbol (AC-1.2 / US-3 /
+        // NFR-FOO) does trace. This is the second half of the prior live-failing shape (R1-R6 refs).
+        TaskTraceability.Result bareRef = TaskTraceability.check("- T-1 Build it (R5)\n");
+        assertFalse(bareRef.traceable(),
+                "AC-2.5: a bare R5 is not a requirement symbol in the traceability vocabulary");
+        assertEquals(java.util.List.of("T-1"), bareRef.untracedTasks(),
+                "AC-2.5: the task citing only a bare R-ref is reported untraced");
+
+        assertTrue(TaskTraceability.check("- T-1 Build it (AC-1.2)\n").traceable(),
+                "AC-2.5: an acceptance-criterion symbol (AC-1.2) traces the task");
+        assertTrue(TaskTraceability.check("- T-1 Build it (US-3)\n").traceable(),
+                "AC-2.5: a user-story symbol (US-3) traces the task");
+        assertTrue(TaskTraceability.check("- T-1 Build it (NFR-FOO)\n").traceable(),
+                "AC-2.5: a non-functional-requirement symbol (NFR-FOO) traces the task");
+    }
+
+    @Test
+    @DisplayName("AC-2.2/AC-2.5 (DCR-5): the exact prior live-failing breakdown (T1/T2/T10 citing R1-R6) is refused — 0 tasks recognized")
+    void priorLiveFailingBreakdownIsRefused() {
+        // Oracle: ADR-0012 (DCR-5) — the strict gate "recognizes a task only when a line carries a
+        // stable id of the form T-<n> / T-<n>.<m> (the hyphen is mandatory)". The prior greenfield live
+        // run authored hyphen-less ids (T1/T2/T10) citing bare R-refs (R1-R6); none of those ids carry
+        // a T-<n> stable identifier (AC-2.2), so the strict gate recognizes ZERO tasks and refuses the
+        // breakdown as untraceable. This is the live failure DCR-5 fixes at the prompt; pinning it here
+        // makes the defect impossible to reintroduce silently.
+        String priorLiveFailing = """
+                # Tasks
+
+                - T1 Build the parser (R1)
+                - T2 Wire the CLI (R2, R3)
+                - T10 Persist results (R5, R6)
+                """;
+
+        TaskTraceability.Result result = TaskTraceability.check(priorLiveFailing);
+
+        assertEquals(0, result.taskCount(),
+                "AC-2.2 (DCR-5): hyphen-less T1/T2/T10 carry no stable T-<n> id, so zero tasks recognized");
+        assertFalse(result.traceable(),
+                "ADR-0012 (DCR-5): the strict gate refuses the prior live-failing hyphen-less breakdown");
+        assertTrue(result.untracedTasks().isEmpty(),
+                "AC-2.2 (DCR-5): no task is recognized, so there are no untraced task ids to report");
+    }
+
+    @Test
+    @DisplayName("AC-2.2/AC-2.5 (DCR-5): a full greenfield breakdown in the NEW prompt vocabulary (T-<n> ids citing AC/US/NFR) passes")
+    void gateVocabularyBreakdownPasses() {
+        // Oracle: AC-2.5 (DCR-5) — "the requirements phase authors gate-recognizable
+        // AC-<n>.<m>/US-<n>/NFR-<NAME> symbols; the tasks phase emits T-<n>/T-<n>.<m> task ids each
+        // citing >= 1 such symbol, so the project self-conforms to the strict gate". A breakdown shaped
+        // the way the DCR-5 prompt steers the model — T-<n>/T-<n>.<m> ids each citing an AC/US/NFR
+        // symbol — must pass the unchanged strict gate as traceable, with every task counted. This is
+        // the positive counterpart of the refused prior live-failing breakdown above.
+        String gateVocabulary = """
+                # Tasks
+
+                - T-1 Build the parser (AC-1.2)
+                - T-2 Wire the CLI (US-3, AC-2.1)
+                - T-2.1 Add the budget guard (NFR-LATENCY)
+                - T-10 Persist results (AC-3.4)
+                """;
+
+        TaskTraceability.Result result = TaskTraceability.check(gateVocabulary);
+
+        assertTrue(result.traceable(),
+                "AC-2.5 (DCR-5): every T-<n> task cites a gate-vocabulary requirement symbol, so traceable");
+        assertEquals(4, result.taskCount(),
+                "AC-2.2 (DCR-5): all four T-<n>/T-<n>.<m> tasks (incl. T-10, T-2.1) are recognized");
+        assertTrue(result.untracedTasks().isEmpty(),
+                "AC-2.5 (DCR-5): no task is left untraced under the gate vocabulary");
+    }
+
     // --- AC-3.1 : the implement loop reads the tasks in breakdown order --------------------------
 
     @Test
