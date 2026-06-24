@@ -71,6 +71,20 @@ import java.util.Objects;
  * &ge;&nbsp;1 of those requirement symbols on each task line. {@link TaskTraceability}'s regexes
  * are unchanged — a greenfield project's own model-authored breakdown self-conforms to the strict
  * gate.
+ *
+ * <p><b>The tasks prompt forces a single canonical single-line task row (DCR-6 amended 2026-06-24).</b>
+ * Because {@link TaskTraceability} enforces the strict same-line-ref rule (no block scan), a real
+ * breakdown self-conforms only when each task is one single-line row carrying its requirement symbol
+ * inline. The tasks-phase prompt therefore additionally directs the model to emit exactly one task
+ * per line — the canonical {@code T-<n>: <description> (AC-x, US-y)} row — and explicitly
+ * <em>forbids</em> the three shapes a strict line-by-line gate cannot count as the author intends:
+ * (i) a range heading standing in for several tasks ({@code T-3 through T-8}); (ii) putting the
+ * requirement symbols on a separate following {@code **Refs:**} line / multi-line block instead of
+ * inline on the task's own line; (iii) using an arrow/sequencing diagram ({@code T-1 -> T-2}) as the
+ * task list. The companion gate hardening (DCR-6, {@link TaskTraceability}) stops the parser
+ * <em>miscounting</em> those shapes if they slip through, but the prompt's job is to keep the model
+ * from authoring them in the first place — recognition COVERAGE on the gate, conformance on the
+ * prompt, with the gate's STRICTNESS unchanged.
  */
 public final class GreenfieldPlaybook {
 
@@ -155,7 +169,11 @@ public final class GreenfieldPlaybook {
      * vocabulary</em> (AC-2.2, AC-2.5, ADR-0012; DCR-5): requirements directs authoring
      * {@code US-<n>} / {@code AC-<n>.<m>} / {@code NFR-<NAME>} requirement symbols, and tasks
      * directs {@code T-<n>} / {@code T-<n>.<m>} task ids (hyphen mandatory) each citing &ge;&nbsp;1
-     * such symbol — so the model-authored breakdown self-conforms to the unchanged strict gate.
+     * such symbol — so the model-authored breakdown self-conforms to the unchanged strict gate. The
+     * tasks block additionally (DCR-6) forces a single canonical single-line task row per task and
+     * forbids range headings ({@code T-3 through T-8}), multi-line {@code **Refs:**} blocks, and
+     * arrow/sequencing-diagram task lists ({@code T-1 -> T-2}), so the breakdown stays line-by-line
+     * gate-conformant.
      */
     private static String phaseBlock(GreenfieldPhase phase) {
         return switch (phase) {
@@ -184,14 +202,23 @@ public final class GreenfieldPlaybook {
                     + "the hyphen is mandatory (for example T-1, T-2.3); write T-1, never T1. On each "
                     + "task's line cite at least one requirement symbol you authored in the "
                     + "requirements phase (an AC-<n>.<m>, US-<n>, or NFR-<NAME>), so the task traces "
-                    + "back to a stated requirement. Your final answer must be the full task "
-                    + "breakdown — it is saved as this phase's deliverable artifact at "
-                    + artifactPath(phase) + " (you may also persist it yourself with the optional "
-                    + ARTIFACT_WRITE_TOOL + " tool), and traceability is checked against it: a task "
-                    + "with a hyphen-less id, or one that cites no requirement symbol, will be "
-                    + "refused. When the task breakdown is complete, request the developer's "
-                    + "approval; implementation begins only after the design and task breakdown are "
-                    + "approved.";
+                    + "back to a stated requirement. Emit exactly one task per line — a single "
+                    + "canonical single-line task row of the form \"T-<n>: <description> (AC-x, "
+                    + "US-y)\", each task on its own line, each carrying at least one requirement "
+                    + "symbol inline on that same line. Do not use a range heading to stand in for "
+                    + "several tasks: never write \"T-3 through T-8\"; emit T-3, T-4, T-5, … each on "
+                    + "its own line with its own requirement symbol. Do not put the requirement "
+                    + "symbols on a separate following \"Refs:\" line or a multi-line **Refs:** block: "
+                    + "the symbols must be inline on the task's own line, because traceability is "
+                    + "checked line by line. Do not use an arrow or sequencing diagram (such as "
+                    + "\"T-1 -> T-2\") as the task list: a diagram line is not a task row. Your final "
+                    + "answer must be the full task breakdown — it is saved as this phase's "
+                    + "deliverable artifact at " + artifactPath(phase) + " (you may also persist it "
+                    + "yourself with the optional " + ARTIFACT_WRITE_TOOL + " tool), and traceability "
+                    + "is checked against it: a task with a hyphen-less id, or one that cites no "
+                    + "requirement symbol on its own line, will be refused. When the task breakdown "
+                    + "is complete, request the developer's approval; implementation begins only "
+                    + "after the design and task breakdown are approved.";
             case IMPLEMENT -> "Current phase: implement. The design and task breakdown are approved, "
                     + "so you may now write source: implement the planned tasks one at a time using "
                     + "the change tools (" + SOURCE_CHANGE_TOOLS + "), verifying each task before "

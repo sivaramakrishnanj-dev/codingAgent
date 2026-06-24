@@ -281,4 +281,73 @@ class GreenfieldPlaybookTest {
         assertTrue(prompt.contains("ac-<n>.<m>") || prompt.contains("us-<n>") || prompt.contains("nfr-<name>"),
                 "AC-2.5 (DCR-5): the tasks prompt names the requirement-symbol vocabulary tasks must cite");
     }
+
+    // --- DCR-6 : the tasks prompt forces a single-line task row and forbids the three miscounting
+    // shapes -------------------------------------------------------------------------------------
+    // AC-2.2/AC-2.5/ADR-0012 (DCR-6): because TaskTraceability enforces the strict same-line-ref rule
+    // (no block scan), the breakdown self-conforms only when each task is one single-line row carrying
+    // its requirement symbol inline. The tasks prompt must (1) name the single-line task-row format,
+    // and forbid (2) range headings ("T-3 through T-8"), (3) multi-line **Refs:** blocks, (4) the
+    // arrow/sequencing-diagram-as-task-list ("T-1 -> T-2"). (joined(phase) lowercases the prompt.)
+
+    @Test
+    @DisplayName("AC-2.2/AC-2.5 (DCR-6): the tasks prompt names the single canonical single-line task-row format")
+    void tasksPhaseNamesSingleLineRowFormat() {
+        // Oracle: AC-2.2/AC-2.5 (DCR-6) — "force a single canonical single-line task row per task". The
+        // tasks-phase prompt must direct emitting exactly one task per line, each carrying its
+        // requirement symbol inline on the same line, so the strict line-by-line gate counts the
+        // breakdown as the author intends. The instruction traces to DCR-6's single-line-row contract,
+        // not to the prompt's exact wording.
+        String prompt = joined(GreenfieldPhase.TASKS);
+
+        assertTrue(prompt.contains("one task per line") || prompt.contains("single-line task row"),
+                "DCR-6: the tasks prompt names the single canonical single-line task-row format");
+        assertTrue(prompt.contains("own line"),
+                "DCR-6: the prompt directs each task onto its own line with its requirement symbol inline");
+    }
+
+    @Test
+    @DisplayName("AC-2.2/AC-2.5 (DCR-6): the tasks prompt forbids range headings (T-3 through T-8)")
+    void tasksPhaseForbidsRangeHeadings() {
+        // Oracle: AC-2.2/AC-2.5 (DCR-6) — "forbid range headings". A range heading stands in for
+        // several tasks the strict gate would have to expand; the prompt must steer the model away from
+        // authoring one. The prompt must forbid the "through" range form and direct emitting each task
+        // individually. The forbiddance traces to DCR-6, not to the prompt's wording.
+        String prompt = joined(GreenfieldPhase.TASKS);
+
+        assertTrue(prompt.contains("through"),
+                "DCR-6: the tasks prompt addresses the range-heading 'through' form so it can forbid it");
+        assertTrue(prompt.contains("never") || prompt.contains("do not"),
+                "DCR-6: the prompt forbids (never / do not) using a range heading for several tasks");
+    }
+
+    @Test
+    @DisplayName("AC-2.2/AC-2.5 (DCR-6): the tasks prompt forbids a multi-line **Refs:** block (the ref must be inline on the task's own line)")
+    void tasksPhaseForbidsMultiLineRefsBlock() {
+        // Oracle: AC-2.2/AC-2.5 (DCR-6) — "forbid multi-line **Refs:** blocks". Because the gate checks
+        // refs line by line (no block scan), the requirement symbols must be inline on the task's own
+        // line, not on a following Refs: line. The prompt must forbid the separate-Refs-line shape and
+        // require the inline ref. The constraint traces to DCR-6's same-line-ref guarantee.
+        String prompt = joined(GreenfieldPhase.TASKS);
+
+        assertTrue(prompt.contains("refs:"),
+                "DCR-6: the tasks prompt addresses the 'Refs:' line shape so it can forbid it");
+        assertTrue(prompt.contains("inline") && prompt.contains("own line"),
+                "DCR-6: the prompt requires the requirement symbols inline on the task's own line");
+    }
+
+    @Test
+    @DisplayName("AC-2.2/AC-2.5 (DCR-6): the tasks prompt forbids using an arrow/sequencing diagram (T-1 -> T-2) as the task list")
+    void tasksPhaseForbidsArrowDiagramTaskList() {
+        // Oracle: AC-2.2/AC-2.5 (DCR-6) — "forbid arrow-diagram-as-task-list". A sequencing diagram line
+        // (T-1 -> T-2) is not a task row; the prompt must steer the model away from using a diagram as
+        // the task list. The prompt must name the arrow/sequencing-diagram form and forbid it as the
+        // task list. The forbiddance traces to DCR-6, not to the prompt's wording.
+        String prompt = joined(GreenfieldPhase.TASKS);
+
+        assertTrue(prompt.contains("arrow") || prompt.contains("sequencing") || prompt.contains("->"),
+                "DCR-6: the tasks prompt names the arrow/sequencing-diagram form so it can forbid it");
+        assertTrue(prompt.contains("diagram"),
+                "DCR-6: the prompt forbids using a diagram line as a task row / the task list");
+    }
 }
