@@ -771,3 +771,80 @@ auto-invokes the designer.
 - resumed_task_commit: 4748c0a
 - budget: amendment #1 of 3 for T-3.5; DCR-5, amendment #5 of 10 for milestone M3 (warn threshold 8, not hit)
 - status: closed (DCR-5 amended at bfb2ce8 [OQ-lifecycle commit 36390dd]; T-3.5 resolved + pushed at 4748c0a under single-agent topology, task-builder round 1 — greenfield playbook prompt now EMITS the strict gate's vocabulary [REQUIREMENTS authors AC-<n>.<m>/US-<n>/NFR-<NAME>; TASKS emits T-<n>/T-<n>.<m> ids citing them]; TaskTraceability regexes UNCHANGED; mvn clean verify green, 1093 tests, JaCoCo 91.12%; shaded jar rebuilt. ONE non-blocking ripple_unresolved (02-architecture C3 row, out of approved scope — future doc-fold-in candidate). Unblocks the future G3 live greenfield smoke test; G3 gate left OPEN.)
+
+## OQ-design-6 — T-3.6/T-3.7 design-change requested (fix two G3-blocking greenfield bugs: write_artifact containment + TaskTraceability real-breakdown miscounting) — 2026-06-24
+
+- kind: ac-update + adr-clarification
+- raised_by: user via main-agent directive (closing two G3-blocking greenfield bugs found by the prior coordinator; both root causes independently re-verified by this coordinator against the live source)
+- request_id: DCR-6
+- spec_refs_touched: AC-1.4, AC-2.2, AC-2.5, RD-7, ADR-0012 (greenfield workflow formality), GreenfieldArtifactStore/WriteArtifactTool (C9 containment), TaskTraceability (the strict gate), GreenfieldPlaybook (C3 per-phase prompt), CT (new CT-GF-3), US-2
+- problem_statement: |
+    Two distinct G3-blocking greenfield defects, both confirmed by re-running/reading the live source:
+    (1) CONTAINMENT HOLE (T-3.6). GreenfieldArtifactStore.resolveArtifact (lines 93-102) confines a
+    write only by `resolved.startsWith(artifactRoot)` where artifactRoot = workspaceRoot/design — there
+    is NO allowlist of the known design-doc artifacts. So a path like design/impl/pom.xml or
+    design/impl/src/main/java/.../Calculator.java resolves UNDER <repo>/design and PASSES the check,
+    and WriteArtifactTool.handle (line 105) passes the raw model-supplied path straight to store.write().
+    Both class Javadocs already promise the tool "cannot write source files" (WriteArtifactTool lines
+    19-25/68-70; GreenfieldArtifactStore lines 24-27) and AC-1.4 forbids any Class-X op against source
+    files in the pre-approval dialogue — so this is a code-vs-Javadoc/AC-1.4 conformance gap, the
+    pre-approval source-write hole.
+    (2) GATE REAL-BREAKDOWN MISCOUNTING (T-3.7). TaskTraceability is correctly STRICT on which lines
+    count as tasks (T-<n> hyphen mandatory) and which refs count as traces (US-/AC-/NFR-/RD-/INV-), but
+    it MISCOUNTS the shapes a real Sonnet-style breakdown contains: (i) a repeated task id is double-
+    counted in untracedTasks (line 98, no dedup); (ii) an arrow/sequencing-diagram line `T-1 -> T-2`
+    is read as a single task (TASK_LINE captures only the first id); (iii) a range heading
+    `T-3 through T-8` recognizes only T-3, silently dropping T-4..T-8; (iv) a bold-wrapped id in a
+    table row `| **T-1** |` is not recognized at all (the `**` defeats the list/heading/table prefix).
+    These are recognition-COVERAGE misses, not strictness relaxations.
+- options_considered:
+  - id: "1"
+    summary: |
+      A single mini-DCR (DCR-6) scoped to design/ ONLY that creates BOTH new M3 task rows (T-3.6
+      containment, T-3.7 gate-hardening + prompt) and qualifies the AC-2.2/AC-2.5 gate wording so the
+      strict-recognition guarantee is preserved while a miscounting-only hardening is permitted; then
+      drive T-3.6 (containment) FIRST and T-3.7 (gate) SECOND. The gate hardening changes recognition
+      COVERAGE (dedup, arrow-diagram skip, range-heading expansion, bold-table-cell ids) not STRICTNESS
+      — the same-line-ref rule is NOT loosened into a block scan (the rejected DCR-5 Option b); single-
+      line task rows are guaranteed by the PROMPT, and the gate hardening only stops the parser
+      miscounting the shapes a real breakdown contains.
+    pros: One amendment for both interlocking fixes; preserves the strict formal traceability guarantee
+      ADR-0012 chose (no strictness relaxed, block-scan Option b stays rejected); both fixes land as
+      source changes (T-3.6 pure containment, T-3.7 prompt + gate-coverage hardening) with regression
+      tests pinning the exact failing shapes so they cannot silently regress; design/-only blast radius.
+    cons: Touches four design artifacts (00-requirements, ADR-0012, 07-tasks, contract-tests) in one
+      amendment; the AC wording must be qualified carefully so "unchanged" becomes "unchanged in
+      strictness" without inviting a loose block scan.
+  - id: "2"
+    summary: |
+      Relax the gate into a loose block scan (treat a block of lines as one task, scan for any ref
+      anywhere in the block) so real breakdown shapes pass without per-line discipline.
+    pros: Fewer recognition rules to add.
+    cons: This IS the DCR-5 Option b the user already rejected — it discards the strict same-line-ref
+      guarantee ADR-0012 chose, lets an untraced task pass because a sibling line carries a ref, and
+      breaks the reflexive-consistency value. Rejected (stands rejected from DCR-5).
+- recommended_option: "1"
+- chosen_option: "1"
+- user_decision: approved
+- user_approval:
+    approved_at: 2026-06-24T00:00:00+00:00
+    approver_note: |
+      APPROVED — proceed end-to-end with Option 1 + DCR-6 to fix the two G3-blocking greenfield bugs.
+      A single mini-DCR (ac-update + adr-clarification) scoped to design/ only, creating BOTH new task
+      rows (T-3.6 / T-3.7 under M3) and the gate-wording qualification; then drive T-3.6 (containment)
+      FIRST, T-3.7 (gate + prompt) SECOND. The TaskTraceability RECOGNITION is unchanged in STRICTNESS;
+      a miscounting-only hardening (dedup repeated ids, skip arrow/sequencing-diagram lines, expand
+      range headings, recognize bold-wrapped ids in table rows) is permitted because it changes
+      recognition COVERAGE, not strictness — the same-line-ref strictness is NOT loosened into a block
+      scan (DCR-5 Option b stays rejected). This unblocks the future G3 live smoke test; do NOT mark G3
+      passed. Bug 3 (live-generated CalculatorTest.java referencing CalcException unqualified) is
+      DEFERRED — not fixed here; the genuine IMPLEMENT-phase verify loop is expected to catch it.
+    revised_from_original: false
+- scope_of_design_edit:
+  - design/00-requirements.md (qualify the AC-2.2 + AC-2.5 wording that currently says the gate's TaskTraceability "is unchanged" / "regexes are unchanged" → "unchanged in STRICTNESS — which lines count as tasks / which refs count as traces is not relaxed; a miscounting-only hardening [dedup repeated ids, skip arrow/sequencing-diagram lines, expand range headings, recognize bold-wrapped ids in table rows] is permitted as it changes recognition COVERAGE not strictness; the same-line-ref strictness is NOT loosened into a block scan"; preserve EARS form + traceability)
+  - design/adr/0012-greenfield-workflow-formality.md (DCR-6 note: DCR-5's "gate unchanged / no regex relaxed" is QUALIFIED — miscounting-only hardening now permitted while the strict same-line-ref guarantee + the rejection of a loose block-scan (Option b) both stand; cross-reference DCR-5)
+  - design/07-tasks.md (add BOTH M3 task rows: T-3.6 [deps T-3.2] tighten write_artifact containment to the known design-doc artifacts — reject source paths under design/ e.g. design/impl/**, closing the AC-1.4 pre-approval source-write hole; cite AC-1.4, RD-7, ADR-0012, GreenfieldArtifactStore/WriteArtifactTool. T-3.7 [deps T-3.5] harden TaskTraceability against real-breakdown miscounting + extend the greenfield TASKS prompt to force single-line task rows and forbid range headings / multi-line **Refs:** blocks / arrow-diagram-as-task-list; cite AC-2.2, AC-2.5, ADR-0012/DCR-6, GreenfieldPlaybook, TaskTraceability. Add both task->US mappings under US-2)
+  - design/06-formal/contract-tests.md (add a contract test [next free id, likely CT-GF-3] covering the four gate miscounting shapes [multi-line refs / range heading / arrow diagram / bold table cell] + the containment cases [design/impl/** rejected; the three real artifacts allowed]; split into two CTs if cleaner)
+- designer_status: (pending)
+- budget: amendment #1 of 3 for T-3.6 (creates both task rows); DCR-6, amendment #6 of 10 for milestone M3 (warn threshold 8, not hit)
+- status: open (DCR-6 approved per directive; designer invoked in amendment mode; awaiting amendment commit)

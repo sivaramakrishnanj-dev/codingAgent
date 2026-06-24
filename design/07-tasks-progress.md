@@ -8,12 +8,43 @@ last_resolved:
   task: T-3.5
   title: "Align the greenfield playbook prompts to the strict traceability gate's vocabulary (DCR-5, Option a — fix the prompt, keep the gate strict): GreenfieldPlaybook REQUIREMENTS block now directs the model to author acceptance criteria as numbered AC-<n>.<m> symbols, user stories as US-<n>, NFRs as NFR-<NAME>; TASKS block directs each task to carry a T-<n>/T-<n>.<m> id (hyphen mandatory; 'write T-1, never T1') citing >=1 requirement symbol authored in the requirements phase; TaskTraceability regexes UNCHANGED; regression tests pin the exact prior live-failing forms (hyphen-less T1/T2/T10 ids citing R1-R6 refs -> strict gate refuses; gate-vocabulary T-<n> ids citing AC-<n>.<m>/US-<n>/NFR-<NAME> -> pass) + GreenfieldPlaybookTest asserts the prompt now names the vocabulary"
   resolved_at: 2026-06-24
-  commit: pending
+  commit: 4748c0a
   iterations: { task_builder: 1 }
   dcrs_consumed: [DCR-5]
 
-in_flight: null
+in_flight:
+  task: T-3.6
+  phase: AWAITING_AMENDMENT
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-24T00:00:00+00:00
+  last_updated_at: 2026-06-24T00:00:00+00:00
 ---
+
+## In-flight
+
+- task: T-3.6
+  phase: AWAITING_AMENDMENT
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  files_in_working_tree: []
+  dcrs_consumed:
+    - DCR-6
+  started_at: 2026-06-24T00:00:00+00:00
+  last_updated_at: 2026-06-24T00:00:00+00:00
+  note: |
+    DCR-6 (ac-update + adr-clarification, user pre-approved per the coordinator directive)
+    is in flight before T-3.6 code. DCR-6 creates BOTH new M3 task rows (T-3.6 containment,
+    T-3.7 gate-hardening + prompt) and qualifies the AC-2.2/AC-2.5 gate wording. Sequencing:
+    DCR-6 amendment lands first → drive T-3.6 → drive T-3.7. The AWAITING_AMENDMENT in-flight
+    entry is keyed to T-3.6 (the first task to drive after the amendment). Also corrected the
+    stale `commit: pending` for T-3.5 → 4748c0a (the real resolution SHA; backfilled at 431d18e).
 
 ### G0 (after M0 — Walking skeleton) — ✅ PASSED 2026-06-22
 - Auto checks: `mvn clean verify` green (424 tests, JaCoCo ≥0.80); shaded `codingagent.jar` builds; G0 contract tests (CT-SCH-1..4/9/10/13/14, CT-INV-1/7/8/9, CT-EX-1..4/6) green.
