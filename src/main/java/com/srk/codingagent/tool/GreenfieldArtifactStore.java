@@ -4,8 +4,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,8 +67,30 @@ public final class GreenfieldArtifactStore {
      */
     public static final String APPROVAL_STAMP_MARKER = "Approved:";
 
+    /**
+     * The file names of the <em>only</em> three known design-doc artifacts a greenfield run may write,
+     * each living directly under {@link #ARTIFACT_DIR} (DCR-6). These mirror the
+     * {@code GreenfieldArtifact} enum's {@code relativePath()} values
+     * ({@code design/00-requirements.md}, {@code design/01-design.md}, {@code design/02-tasks.md});
+     * the allowlist confines the design-doc write path to those three artifacts and rejects any other
+     * path under {@code design/} (e.g. a {@code design/impl/**} source tree), closing the AC-1.4
+     * pre-approval source-write hole the bare {@code startsWith(<workspaceRoot>/design)} check left
+     * open.
+     *
+     * <p><b>Why the store keeps its own copy of the names (the {@code tool}&rarr;{@code workflow}
+     * circular-dependency constraint).</b> The authoritative artifact list is the workflow-layer
+     * {@code GreenfieldArtifact} enum; the {@code workflow} package depends on this {@code tool}
+     * package (the enum imports this class for {@link #ARTIFACT_DIR}), so a
+     * {@code tool}&rarr;{@code workflow} back-dependency would be circular — the same constraint the
+     * {@link #APPROVAL_STAMP_MARKER} Javadoc calls out. The store therefore keeps a self-contained
+     * copy of the file names; a unit test pins that this set matches
+     * {@code GreenfieldArtifact.values()} {@code relativePath()} so the two cannot drift.
+     */
+    public static final Set<String> ARTIFACT_FILE_NAMES =
+            Set.of("00-requirements.md", "01-design.md", "02-tasks.md");
+
     private final WorkspacePaths paths;
-    private final Path artifactRoot;
+    private final Set<Path> allowedArtifactPaths;
 
     /**
      * Creates a store rooted at the target repository's workspace root.
@@ -77,26 +101,44 @@ public final class GreenfieldArtifactStore {
      */
     public GreenfieldArtifactStore(Path workspaceRoot) {
         this.paths = new WorkspacePaths(Objects.requireNonNull(workspaceRoot, "workspaceRoot"));
-        this.artifactRoot = paths.resolve(ARTIFACT_DIR);
+        Set<Path> allowed = new LinkedHashSet<>();
+        for (String fileName : ARTIFACT_FILE_NAMES) {
+            allowed.add(paths.resolve(ARTIFACT_DIR + "/" + fileName));
+        }
+        this.allowedArtifactPaths = Set.copyOf(allowed);
     }
 
     /**
-     * Resolves a target-repo-relative artifact path, confining it to the workspace root <em>and</em>
-     * to the artifact directory ({@link #ARTIFACT_DIR}). A path that escapes the workspace, or that
-     * resolves outside the artifact directory (e.g. a {@code src/} source file), is refused.
+     * Resolves a target-repo-relative artifact path, confining it to one of the <em>three known
+     * design-doc artifacts</em> ({@link #ARTIFACT_FILE_NAMES} under {@link #ARTIFACT_DIR}, DCR-6). A
+     * path that escapes the workspace, that resolves outside the artifact directory (e.g. a
+     * {@code src/} source file), or that resolves to any <em>other</em> path under {@code design/}
+     * (e.g. a {@code design/impl/pom.xml} or a source file under {@code design/impl/src/**}) is
+     * refused.
+     *
+     * <p>This is the DCR-6 tightening: the prior check confined a write only by
+     * {@code resolved.startsWith(<workspaceRoot>/design)}, which still let an arbitrary source path
+     * under {@code design/} (the {@code design/impl/**} hole) pass. Allowlisting the three known
+     * artifacts closes that hole and matches the class Javadoc's "cannot reach a source file (AC-1.4)"
+     * promise.
      *
      * @param relativePath the target-repo-relative artifact path (e.g. {@code design/00-requirements.md});
      *                     non-blank.
-     * @return the absolute, normalized artifact path inside the target repo's artifact directory.
-     * @throws ToolInvocationException if the path escapes the workspace or the artifact directory.
+     * @return the absolute, normalized path of one of the three known design-doc artifacts inside the
+     *         target repo.
+     * @throws ToolInvocationException if the path is not one of the three known design-doc artifacts
+     *                                 (escapes the workspace, resolves outside the artifact directory,
+     *                                 or names any other path under {@code design/}).
      */
     public Path resolveArtifact(String relativePath) {
         Path resolved = paths.resolve(relativePath);
-        if (!resolved.startsWith(artifactRoot)) {
+        if (!allowedArtifactPaths.contains(resolved)) {
             throw new ToolInvocationException(
-                    "not a design-doc artifact path: '" + relativePath + "' resolves outside the "
-                            + ARTIFACT_DIR + "/ artifact directory (source writes are not allowed "
-                            + "on the design-doc write path)");
+                    "not a design-doc artifact path: '" + relativePath + "' is not one of the known "
+                            + ARTIFACT_DIR + "/ design-doc artifacts " + ARTIFACT_FILE_NAMES
+                            + " (only those three artifacts may be written on the design-doc write "
+                            + "path — source writes, including any other path under " + ARTIFACT_DIR
+                            + "/, are not allowed)");
         }
         return resolved;
     }

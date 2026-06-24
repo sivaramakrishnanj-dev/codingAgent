@@ -2,19 +2,19 @@
 doc: tasks-progress
 last_updated: 2026-06-24
 last_updated_at_commit: pending
-total_resolved_count: 40
+total_resolved_count: 41
 
 last_resolved:
-  task: T-3.5
-  title: "Align the greenfield playbook prompts to the strict traceability gate's vocabulary (DCR-5, Option a — fix the prompt, keep the gate strict): GreenfieldPlaybook REQUIREMENTS block now directs the model to author acceptance criteria as numbered AC-<n>.<m> symbols, user stories as US-<n>, NFRs as NFR-<NAME>; TASKS block directs each task to carry a T-<n>/T-<n>.<m> id (hyphen mandatory; 'write T-1, never T1') citing >=1 requirement symbol authored in the requirements phase; TaskTraceability regexes UNCHANGED; regression tests pin the exact prior live-failing forms (hyphen-less T1/T2/T10 ids citing R1-R6 refs -> strict gate refuses; gate-vocabulary T-<n> ids citing AC-<n>.<m>/US-<n>/NFR-<NAME> -> pass) + GreenfieldPlaybookTest asserts the prompt now names the vocabulary"
+  task: T-3.6
+  title: "Tighten write_artifact containment to the known design-doc artifacts (DCR-6): GreenfieldArtifactStore.resolveArtifact narrowed from a bare startsWith(<workspaceRoot>/design) check to a strict allowlist of the three known design-doc artifacts (design/00-requirements.md, design/01-design.md, design/02-tasks.md) — design/impl/pom.xml + design/impl/src/** + bare-source + ../-traversal all REJECTED, the three real artifacts ALLOWED — closing the AC-1.4 pre-approval source-write hole; allowlist self-contained in the tool package (no tool->workflow cycle) with a drift guard against GreenfieldArtifact.values(); WriteArtifactTool unchanged (confinement single-sourced in the store); CT-GF-4"
   resolved_at: 2026-06-24
-  commit: 4748c0a
+  commit: pending
   iterations: { task_builder: 1 }
-  dcrs_consumed: [DCR-5]
+  dcrs_consumed: [DCR-6]
 
 in_flight:
-  task: T-3.6
-  phase: AWAITING_AMENDMENT
+  task: T-3.7
+  phase: TASK_BUILDER
   loop_iter: 1
   round: null
   last_handoff_kind: null
@@ -26,8 +26,8 @@ in_flight:
 
 ## In-flight
 
-- task: T-3.6
-  phase: AWAITING_AMENDMENT
+- task: T-3.7
+  phase: TASK_BUILDER
   loop_iter: 1
   round: null
   last_handoff_kind: null
@@ -39,12 +39,10 @@ in_flight:
   started_at: 2026-06-24T00:00:00+00:00
   last_updated_at: 2026-06-24T00:00:00+00:00
   note: |
-    DCR-6 (ac-update + adr-clarification, user pre-approved per the coordinator directive)
-    is in flight before T-3.6 code. DCR-6 creates BOTH new M3 task rows (T-3.6 containment,
-    T-3.7 gate-hardening + prompt) and qualifies the AC-2.2/AC-2.5 gate wording. Sequencing:
-    DCR-6 amendment lands first → drive T-3.6 → drive T-3.7. The AWAITING_AMENDMENT in-flight
-    entry is keyed to T-3.6 (the first task to drive after the amendment). Also corrected the
-    stale `commit: pending` for T-3.5 → 4748c0a (the real resolution SHA; backfilled at 431d18e).
+    Second of the two DCR-6 tasks. T-3.6 (write_artifact containment) resolved + committed first;
+    T-3.7 (TaskTraceability real-breakdown miscounting hardening + greenfield TASKS prompt, deps
+    T-3.5) is now driven SECOND under single-agent topology. DCR-6 amendment landed at e5e9b34
+    (backfill 4d1879c); both T-3.6 and T-3.7 consume DCR-6 (the single amendment created both rows).
 
 ### G0 (after M0 — Walking skeleton) — ✅ PASSED 2026-06-22
 - Auto checks: `mvn clean verify` green (424 tests, JaCoCo ≥0.80); shaded `codingagent.jar` builds; G0 contract tests (CT-SCH-1..4/9/10/13/14, CT-INV-1/7/8/9, CT-EX-1..4/6) green.
@@ -477,3 +475,14 @@ in_flight:
 - amendments: DCR-5 (bfb2ce8)
 - label: M3 task, born from a DCR (deps T-3.2). The G3-blocking greenfield traceability-vocabulary bug — a greenfield project could not satisfy its OWN AC-2.5 gate. The prior coordinator independently VERIFIED the diagnosis (compiled + ran the production regexes): TaskTraceability.TASK_LINE (line 44) requires T-<n> (hyphen mandatory) but the live greenfield model emitted T1/T2/T10; REQUIREMENT_REF (line 51-52) accepts only US-/AC-/NFR-/RD-/INV- but the model emitted R1-R6. GreenfieldPlaybook never told the model the gate's required vocabulary (TASKS block ~line 152-159; REQUIREMENTS block ~line 138-144), so the strict gate correctly refused 0-tasks/untraceable and greenfield never reached implement; the existing TaskTraceabilityTest (10 tests) only exercised gate-conformant forms, so the suite was green while live output failed — a defect class those tests could not catch by construction. USER APPROVED DCR-5 Option (a): FIX THE PROMPT, KEEP THE GATE STRICT (Option b — relax the regexes — rejected, discards the formal traceability guarantee + reflexive-consistency value ADR-0012 chose). Designer amended AC-2.2 + AC-2.5 (00-requirements, US-2) + ADR-0012 (Decision bullet "playbook prompt emits the gate's vocabulary; gate stays strict" + rejected Option b + Notes DCR-5) + appended T-3.5 + task->US mapping (amendment bfb2ce8); the coordinator then resumed T-3.5 under single-agent topology against the amended spec. ONE non-blocking ripple_unresolved (02-architecture C3 row does not yet note the DCR-5 prompt-emits-vocabulary contract; OUT of the approved scope_of_design_edit; NOT required for T-3.5 to land; surfaced as a future doc-fold-in candidate). This only UNBLOCKS the future G3 live greenfield smoke test; G3 milestone gate left OPEN/untouched. Because requirements+design are already stamped in the G3 test repo, the user's G3 re-run resumes directly at TASKS (the phase this fix targets).
 - notes: >>> DCR-5 (Option a) implementation under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (production prompt strings only): GreenfieldPlaybook.systemPrompt(phase) phaseBlock arms rewritten so the prompt EMITS the gate's vocabulary. REQUIREMENTS arm now directs the model to author acceptance criteria as numbered AC-<n>.<m> symbols, user stories as US-<n>, NFRs as NFR-<NAME> (the gate-recognizable requirement-symbol shapes — named as placeholder tokens matching ADR-0012's own notation, with concrete examples). TASKS arm now directs each task to carry a stable id of the form T-<n>/T-<n>.<m> (hyphen mandatory; explicit "write T-1, never T1") citing >=1 requirement symbol authored in the requirements phase, and states the strict gate will refuse a hyphen-less id or a task citing no requirement symbol. Javadoc + common block updated to reflect the DCR-5 contract; existing AC-1.1/1.3/1.4/2.3/DCR-1 instructions intact; systemPrompt signature unchanged. TaskTraceability.java NOT modified (verified byte-identical — DCR-5 Option a; the gate stays strict). Phase B (regression tests pinning the exact live-failing forms so the defect can never silently regress): TaskTraceabilityTest +4 (hyphen-less T1 NOT recognized as a task vs T-1 recognized; bare R1/R5 ref does NOT satisfy traceability vs AC-1.2/US-3/NFR-FOO does; a full greenfield-style breakdown in the NEW prompt vocabulary — T-<n> ids + AC-/US- refs — passes check() with the right taskCount; the exact prior live-failing combination T1/T2/T10 citing R1-R6 -> 0 tasks recognized -> not traceable) + GreenfieldPlaybookTest +3 (the REQUIREMENTS block now NAMES the AC-<n>.<m>/US-<n>/NFR-<NAME> shapes; the TASKS block now NAMES the T-<n>/T-<n>.<m> id form + the cite-a-requirement instruction). mvn clean verify GREEN (1093 tests, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met at 91.12%; GreenfieldPlaybook 100% line+branch, TaskTraceability 100% line+branch). Shaded codingagent.jar rebuilt (Phase 3, post-commit). Self-checks: oracle-traceability=passed (expected values trace to AC-2.2 T-<n>-id form, AC-2.5 model-authored-symbols-are-the-catalog + the prompt-emits-the-vocabulary contract, ADR-0012 DCR-5 Decision bullet — never to the regex's incidental behaviour), reuse=passed (the prompt reuses the gate's exact vocabulary shapes; the regression tests reuse the existing test's package/imports/assertion style; no duplication). 0 Blocker / 0 Major / 0 Minor / 0 Nit / 0 Discussion. No AWS/Bedrock calls (pure prompt-string + regex assertions). G3 SMOKE-TEST NOTE for the main agent: with the prompt now emitting the gate's vocabulary, re-run the live G3 greenfield arc; because requirements+design are already stamped in the test repo the re-run RESUMES at TASKS, where the model should now emit T-<n> ids citing AC-/US-/NFR- symbols and pass the strict AC-2.5 gate. This only UNBLOCKS the G3 live smoke test; it does NOT itself pass G3.
+
+## T-3.6 — Tighten write_artifact containment to the known design-doc artifacts (DCR-6): the first of two G3-blocking greenfield-bug fixes; closes the AC-1.4 pre-approval source-write hole
+- commit: pending
+- review: design/reviews/code/T-3.6-r1.md
+- resolved: 2026-06-24
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: [DCR-6]
+- amendments: DCR-6 (e5e9b34)
+- label: M3 task, born from DCR-6 (deps T-3.2). FIRST of the two G3-blocking greenfield bugs the user directed fixed (Bug 1 — containment). Root cause re-verified by the coordinator against the live source: GreenfieldArtifactStore.resolveArtifact confined a write ONLY by resolved.startsWith(<workspaceRoot>/design) — no allowlist — so design/impl/pom.xml and design/impl/src/main/java/.../Calculator.java resolved UNDER <workspaceRoot>/design and PASSED, reachable via WriteArtifactTool.handle passing the raw model path to store.write(). Both class Javadocs already promise the tool "cannot write source files" and AC-1.4 forbids any Class-X op against source files in the pre-approval dialogue — a code-vs-Javadoc/AC-1.4 conformance hole. DCR-6 (the single mini-amendment that also created T-3.7) records the tightened containment in AC-1.4-adjacent wording + ADR-0012 + the new CT-GF-4 contract; no contract change beyond the design-only DCR-6. This only UNBLOCKS the future G3 live greenfield smoke test; G3 milestone gate left OPEN/untouched. Bug 3 (live-generated CalculatorTest.java referencing CalcException unqualified) DEFERRED — not part of T-3.6; the genuine IMPLEMENT-phase verify loop is expected to catch it.
+- notes: >>> DCR-6 (Bug 1, containment) implementation under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main): GreenfieldArtifactStore.resolveArtifact narrowed from the bare startsWith(<workspaceRoot>/design) check to a STRICT ALLOWLIST of the three known design-doc artifacts — a self-contained Set of artifact file names (00-requirements.md, 01-design.md, 02-tasks.md) resolved under ARTIFACT_DIR into allowedArtifactPaths, and the check is now `if (!allowedArtifactPaths.contains(resolved)) throw ToolInvocationException(...)`. The allowlist subsumes the prior startsWith check (anything outside design/ is also absent from the allowlist), so bare-source and ../-traversal cases stay rejected while the design/impl/** hole is closed. Allowlist expressed self-contained in the tool package (NOT importing GreenfieldArtifact from the workflow package — that would be a tool->workflow CYCLE, the same constraint the APPROVAL_STAMP_MARKER Javadoc calls out); a drift-guard test pins that the hard-coded file names match GreenfieldArtifact.values() relativePath() so the two cannot drift. New public constant ARTIFACT_FILE_NAMES (Set<String>); the now-dead artifactRoot field removed. WriteArtifactTool.java deliberately UNCHANGED — confinement stays single-sourced in the store (per directive). Phase B (CT-GF-4): GreenfieldArtifactStoreTest +6 (design/00-requirements.md / 01-design.md / 02-tasks.md ALLOWED; design/impl/pom.xml REJECTED; design/impl/src/main/java/.../Calculator.java REJECTED; bare-source REJECTED [already]; ../-traversal probe REJECTED; drift guard vs GreenfieldArtifact.values()) + WriteArtifactToolTest +1 (tool-boundary CT-GF-4). mvn clean verify GREEN (1100 tests, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met at 91.13%; GreenfieldArtifactStore 88.14% line). Shaded codingagent.jar rebuilt with T-3.7 after the SECOND task (both DCR-6 fixes share one rebuild at the end of the directive). Self-checks: oracle-traceability=passed (expected values trace to AC-1.4 no-source-write + CT-GF-4 allow/reject cases, never to impl behaviour), reuse=passed (allowlist mirrors the existing APPROVAL_STAMP_MARKER self-contained-marker + drift-guard pattern; no duplication; WriteArtifactTool left delegating to the store). 0 Blocker / 0 Major / 0 Minor / 0 Nit / 0 Discussion. Two stated_assumptions surfaced (both defensible, neither a defect): (a) "ONLY the three known design-doc artifacts" read as an EXACT allowlist (even a hypothetical design/99-rogue.md is rejected) over a looser "*.md directly under design/" rule — matches the directive's "ONLY" + the drift-guard instruction; (b) used plain JUnit 5 assertions (not AssertJ — not on the classpath; every existing test in the package uses org.junit.jupiter.api.Assertions) to honour the in-project convention and avoid an unrequested pom dependency change. No AWS/Bedrock calls (pure path-resolution assertions). G3 NOTE for the main agent: T-3.6 only closes the pre-approval source-write hole; it does NOT itself pass G3. G3 stays OPEN.

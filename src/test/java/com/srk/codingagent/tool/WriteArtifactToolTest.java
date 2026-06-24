@@ -68,6 +68,25 @@ class WriteArtifactToolTest {
     }
 
     @Test
+    @DisplayName("CT-GF-4 (AC-1.4/DCR-6): a write_artifact for a source path UNDER design/ (design/impl/pom.xml) is REFUSED")
+    void sourcePathUnderDesignImplIsRefused(@TempDir Path targetRepo) {
+        // Oracle: CT-GF-4 — the tightened store/TOOL rejects any path under design/ that is not one of
+        // the three known artifacts: design/impl/pom.xml is REJECTED. AC-1.4 forbids a Class-X write
+        // against a source/build file in the pre-approval dialogue; the tool delegates confinement to
+        // the store, so the model's write_artifact for design/impl/pom.xml must surface as a tool error
+        // rather than write the file. Expected outcome (REFUSED) traces to CT-GF-4/AC-1.4, not the impl.
+        WriteArtifactTool tool = new WriteArtifactTool(new GreenfieldArtifactStore(targetRepo));
+
+        ToolInvocationException refused = assertThrows(ToolInvocationException.class,
+                () -> tool.handle(Map.of("path", "design/impl/pom.xml", "content", "<project/>")),
+                "CT-GF-4: a source/build file under design/impl is not a design-doc artifact");
+        assertTrue(refused.getMessage().toLowerCase(java.util.Locale.ROOT).contains("design")
+                        || refused.getMessage().toLowerCase(java.util.Locale.ROOT).contains("artifact"),
+                "CT-GF-4: the refusal explains the path is not a design-doc artifact; was: "
+                        + refused.getMessage());
+    }
+
+    @Test
     @DisplayName("the tool reports its identity and operation class (Class X)")
     void toolIdentityAndClass(@TempDir Path targetRepo) {
         // Oracle: 04-apis § 3 / AC-5.2 — a write is Class X (side-effecting), gated by the permission

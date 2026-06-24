@@ -97,6 +97,122 @@ class GreenfieldArtifactStoreTest {
                 () -> store.write("design/../../escape.md", "x"));
     }
 
+    // --- CT-GF-4 (AC-1.4 / DCR-6) : the write path is confined to ONLY the three known artifacts ---
+
+    @Test
+    @DisplayName("CT-GF-4 (AC-1.4/DCR-6): the three known design-doc artifacts are ALLOWED to be written")
+    void allowsTheThreeKnownDesignDocArtifacts(@TempDir Path targetRepo) {
+        // Oracle: CT-GF-4 — the tightened store allows a write to ONLY the three known design-doc
+        // artifacts: design/00-requirements.md, design/01-design.md, design/02-tasks.md. RD-7/AC-1.2/
+        // AC-2.1 require those three deliverables to be persisted, so each must remain ALLOWED (the
+        // write succeeds and returns the resolved target-repo path). The expected outcome (ALLOWED for
+        // exactly these three) traces to CT-GF-4, not to store internals.
+        GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
+
+        for (String artifact :
+                new String[] {"design/00-requirements.md", "design/01-design.md", "design/02-tasks.md"}) {
+            Path written = store.write(artifact, "# content\n");
+            Path expected = targetRepo.resolve(artifact).toAbsolutePath().normalize();
+            assertEquals(expected, written,
+                    "CT-GF-4: the known artifact '" + artifact + "' is ALLOWED and lands at its "
+                            + "target-repo path");
+        }
+    }
+
+    @Test
+    @DisplayName("CT-GF-4 (AC-1.4/DCR-6): a source path UNDER design/ (design/impl/pom.xml) is REJECTED")
+    void rejectsSourcePathUnderDesignImpl(@TempDir Path targetRepo) {
+        // Oracle: CT-GF-4 — design/impl/pom.xml is REJECTED. AC-1.4 forbids a Class-X write against a
+        // SOURCE file in the pre-approval dialogue; the prior bare startsWith(<workspaceRoot>/design)
+        // check let design/impl/** source paths pass because they resolve UNDER design/. DCR-6 tightens
+        // the confinement to ONLY the three known artifacts, so a build/source file under design/ — even
+        // though it sits under design/ — is no longer a design-doc artifact and must be refused. The
+        // expected outcome (REJECTED) traces to CT-GF-4/AC-1.4, not to the impl.
+        GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
+
+        ToolInvocationException refused = assertThrows(ToolInvocationException.class,
+                () -> store.write("design/impl/pom.xml", "<project/>"),
+                "CT-GF-4: a source/build file under design/impl is not a design-doc artifact");
+        assertTrue(refused.getMessage().contains("design"),
+                "the refusal names the design-doc artifact confinement; was: " + refused.getMessage());
+    }
+
+    @Test
+    @DisplayName("CT-GF-4 (AC-1.4/DCR-6): a source file under design/impl/src/** (a .java) is REJECTED")
+    void rejectsSourceFileUnderDesignImplSrc(@TempDir Path targetRepo) {
+        // Oracle: CT-GF-4 — a source file under design/impl/src/** is REJECTED. This is the exact
+        // AC-1.4 source-write hole DCR-6 closes: a Calculator.java nested under design/impl/src resolves
+        // under design/ and passed the old startsWith check, yet it is a SOURCE file the pre-approval
+        // dialogue must not write. The tightened allowlist refuses it. Expected outcome traces to
+        // CT-GF-4/AC-1.4.
+        GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
+
+        assertThrows(ToolInvocationException.class,
+                () -> store.write("design/impl/src/main/java/com/example/Calculator.java",
+                        "class Calculator {}"),
+                "CT-GF-4: a .java source file nested under design/impl/src is not a design-doc artifact");
+    }
+
+    @Test
+    @DisplayName("CT-GF-4 (AC-1.4/DCR-6): a bare source path outside design/ is REJECTED (held by the prior check too)")
+    void rejectsBareSourcePathOutsideDesign(@TempDir Path targetRepo) {
+        // Oracle: CT-GF-4 — a bare source path outside design/ is REJECTED (the latter already held
+        // under the prior startsWith(<workspaceRoot>/design) check). The tightening must NOT regress
+        // this: a path that never reaches design/ at all (pom.xml at the repo root, a src/ source file)
+        // is still refused. Expected outcome traces to CT-GF-4/AC-1.4.
+        GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
+
+        assertThrows(ToolInvocationException.class, () -> store.write("pom.xml", "<project/>"),
+                "CT-GF-4: a bare source path outside design/ is refused");
+        assertThrows(ToolInvocationException.class,
+                () -> store.write("src/main/java/Foo.java", "class Foo {}"),
+                "CT-GF-4: a bare src/ source path outside design/ is refused");
+    }
+
+    @Test
+    @DisplayName("CT-GF-4 (AC-1.4/DCR-6): a traversal probe that re-enters a source path is REJECTED (confine, don't escape)")
+    void rejectsTraversalProbeIntoSource(@TempDir Path targetRepo) {
+        // Oracle: CT-GF-4/AC-1.4 — a path-traversal probe that uses design/ as a prefix but ../-escapes
+        // back to a source path must be refused (confine, don't escape). design/../src/Foo.java and
+        // design/impl/../../src/Foo.java both normalize to a SOURCE path, which is not one of the three
+        // known design-doc artifacts. Expected outcome (REJECTED) traces to CT-GF-4/AC-1.4 + the C9
+        // confinement invariant, not to the impl.
+        GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
+
+        assertThrows(ToolInvocationException.class,
+                () -> store.write("design/../src/Foo.java", "class Foo {}"),
+                "CT-GF-4: a traversal probe re-entering a source path is refused");
+        assertThrows(ToolInvocationException.class,
+                () -> store.write("design/impl/../../src/Foo.java", "class Foo {}"),
+                "CT-GF-4: a deeper traversal probe re-entering a source path is refused");
+    }
+
+    @Test
+    @DisplayName("DCR-6 drift guard: the store's hard-coded allowlist matches GreenfieldArtifact.values() relativePath()")
+    void allowlistMatchesGreenfieldArtifactEnum() {
+        // Oracle: DCR-6 — the store keeps a self-contained copy of the known artifact file names
+        // (a tool->workflow dependency would be CIRCULAR, the same constraint the APPROVAL_STAMP_MARKER
+        // Javadoc calls out). The authoritative artifact list is the workflow-layer GreenfieldArtifact
+        // enum; this belt-and-braces test pins that the store's ARTIFACT_FILE_NAMES — resolved under
+        // ARTIFACT_DIR — matches every GreenfieldArtifact.relativePath(), so the two cannot drift. The
+        // expectation traces to the enum's relativePath() values (the authoritative list), not to the
+        // store's hard-coded set in isolation.
+        java.util.Set<String> allowlistRelativePaths = new java.util.HashSet<>();
+        for (String fileName : GreenfieldArtifactStore.ARTIFACT_FILE_NAMES) {
+            allowlistRelativePaths.add(GreenfieldArtifactStore.ARTIFACT_DIR + "/" + fileName);
+        }
+
+        java.util.Set<String> enumRelativePaths = new java.util.HashSet<>();
+        for (com.srk.codingagent.workflow.GreenfieldArtifact artifact
+                : com.srk.codingagent.workflow.GreenfieldArtifact.values()) {
+            enumRelativePaths.add(artifact.relativePath());
+        }
+
+        assertEquals(enumRelativePaths, allowlistRelativePaths,
+                "DCR-6 drift guard: the store's allowlist must match GreenfieldArtifact.values() "
+                        + "relativePath() exactly, so the hard-coded names cannot drift from the enum");
+    }
+
     // --- D13 (AC-1.2/AC-1.5) : a prior-APPROVED artifact is not silently overwritten by a new run --
 
     @Test
