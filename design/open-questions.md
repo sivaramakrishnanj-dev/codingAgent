@@ -845,6 +845,42 @@ auto-invokes the designer.
   - design/adr/0012-greenfield-workflow-formality.md (DCR-6 note: DCR-5's "gate unchanged / no regex relaxed" is QUALIFIED — miscounting-only hardening now permitted while the strict same-line-ref guarantee + the rejection of a loose block-scan (Option b) both stand; cross-reference DCR-5)
   - design/07-tasks.md (add BOTH M3 task rows: T-3.6 [deps T-3.2] tighten write_artifact containment to the known design-doc artifacts — reject source paths under design/ e.g. design/impl/**, closing the AC-1.4 pre-approval source-write hole; cite AC-1.4, RD-7, ADR-0012, GreenfieldArtifactStore/WriteArtifactTool. T-3.7 [deps T-3.5] harden TaskTraceability against real-breakdown miscounting + extend the greenfield TASKS prompt to force single-line task rows and forbid range headings / multi-line **Refs:** blocks / arrow-diagram-as-task-list; cite AC-2.2, AC-2.5, ADR-0012/DCR-6, GreenfieldPlaybook, TaskTraceability. Add both task->US mappings under US-2)
   - design/06-formal/contract-tests.md (add a contract test [next free id, likely CT-GF-3] covering the four gate miscounting shapes [multi-line refs / range heading / arrow diagram / bold table cell] + the containment cases [design/impl/** rejected; the three real artifacts allowed]; split into two CTs if cleaner)
-- designer_status: (pending)
+- designer_status: amended
+- amendment_commit: e5e9b34
+- amendment_summary: |
+    Design-only amendment (no src/ edited). 00-requirements.md: AC-2.2 + AC-2.5 "gate's TaskTraceability
+    is unchanged" / "regexes are unchanged" qualified to "recognition is unchanged in STRICTNESS — which
+    lines count as tasks / which refs count as traces is not relaxed; a miscounting-only hardening (dedup
+    repeated ids, skip arrow/sequencing-diagram lines, expand range headings so each task is individually
+    recognized + correctly flagged if untraced, recognize bold-wrapped ids in table rows) is permitted as
+    it changes recognition COVERAGE, not strictness — the same-line-ref strictness is NOT loosened into a
+    block scan (DCR-5 Option b stands rejected)"; EARS U-form + (US-2, ADR-0012) Refs preserved; cites
+    (ADR-0012, DCR-6). ADR-0012: Decision bullet qualified (gate unchanged in STRICTNESS + coverage-
+    hardening sub-bullet) + "Amended 2026-06-24 (DCR-6)" Notes entry cross-referencing DCR-5; the
+    "Relax the traceability gate (DCR-5 Option b)" Alternatives row LEFT rejected; front-matter
+    amended/Status/review updated. 07-tasks.md: new M3 rows T-3.6 (deps T-3.2, C9/C3, AC-1.4/RD-7/
+    ADR-0012, Verify CT-GF-4 — write_artifact containment allowlist) + T-3.7 (deps T-3.5, C3, AC-2.2/
+    AC-2.5/ADR-0012-DCR-6, Verify CT-GF-3 — gate miscounting hardening + TASKS prompt), § 6 US-1/2/3
+    mapping += T-3.6/T-3.7, front-matter amended_by += DCR-6. contract-tests.md: § 7 CT-GF-3 (four gate
+    miscounting shapes + full Sonnet-style breakdown passes; traces AC-2.2/AC-2.5/ADR-0012) + CT-GF-4
+    (containment: design/impl/pom.xml + design/impl/src/** REJECTED, three real artifacts ALLOWED;
+    traces AC-1.4/RD-7/ADR-0012) — designer split the combined CT into two for clarity (permitted by the
+    directive); CT-GF-1/2 intact; § 6 traceability summary + front-matter amended_by updated.
+    design-progress.md flip-and-return + § 1/§ 3/§ 5. Review:
+    design/reviews/2026-06-24-amendment-greenfield-containment-and-gate-miscounting-r1.md.
+    SHA-backfill commit 4d1879c (design-progress § 5 Landed line + review approved_in), mirroring the
+    DCR-3/DCR-4 backfill precedent. NO TaskTraceability strictness relaxed; gate same-line-ref guarantee
+    stands; block-scan (Option b) stays rejected. No milestone gate touched; G3 stays OPEN.
+- ripple_unresolved: |
+    1 item, NON-BLOCKING, OUTSIDE the approved scope_of_design_edit (same precedent as the DCR-5 C3
+    ripple): design/02-architecture.md C3 (Workflow drivers) / C7 (Tool Registry) / C9 (File tools) rows
+    record the DCR-1/2/3 greenfield contracts but do not yet note the DCR-6 contracts — C3/C9 the
+    write_artifact containment allowlist (only the three known design-doc artifacts; source paths under
+    design/ rejected) and the gate recognition-COVERAGE hardening, C7 the same containment note. Semantic
+    addition (judgment), not a mechanical cross-reference; deliberately OUT of the approved four-file
+    scope (00-requirements / adr-0012 / 07-tasks / contract-tests). The architecture's traceability
+    semantics live in ADR-0012, which IS updated; T-3.6/T-3.7 cite ADR-0012 + AC-1.4/AC-2.2/AC-2.5
+    directly, so the missing C3/C7/C9 notes do NOT block either task. Surfaced to the user as a candidate
+    for a future tiny doc-fold-in (could bundle with the still-open DCR-5 C3 ripple) — user's call.
 - budget: amendment #1 of 3 for T-3.6 (creates both task rows); DCR-6, amendment #6 of 10 for milestone M3 (warn threshold 8, not hit)
-- status: open (DCR-6 approved per directive; designer invoked in amendment mode; awaiting amendment commit)
+- status: open (DCR-6 amended at e5e9b34 [SHA backfill 4d1879c]; awaiting T-3.6 + T-3.7 resumed-task commits)
