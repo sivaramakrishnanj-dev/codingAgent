@@ -1,11 +1,11 @@
 ---
 doc: requirements
-last_reviewed: 2026-06-23
+last_reviewed: 2026-06-24
 phase: resolved
 status: resolved
-review: reviews/2026-06-23-amendment-greenfield-resume-r1.md
+review: reviews/2026-06-24-amendment-bedrock-call-timeout-r1.md
 approved_in: e03b032
-amended_by: [DCR-1, DCR-2, DCR-3]
+amended_by: [DCR-1, DCR-2, DCR-3, DCR-4]
 ---
 
 # Requirements — codingAgent
@@ -281,6 +281,8 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 | **AC-8.7** | Un | If no AWS profile is configured (or the configured profile is not found), then the agent shall fall back to the AWS default credential provider chain rather than failing. | RD-11, NFR-AWS-CREDENTIALS |
 | **AC-8.8** | U | The agent shall authenticate Bedrock with SigV4 credentials (profile or default chain) only, and shall not authenticate using a `AWS_BEARER_TOKEN_BEDROCK` bearer token even when that environment variable is present. | RD-11, NFR-AWS-CREDENTIALS |
 | **AC-8.9** | Un | If no usable SigV4 credentials are resolved by either path (profile, default chain), then the agent shall exit `4` (model-backend) with a message naming the paths attempted. | RD-11, exit-code 4 |
+| **AC-8.10** | U | The agent shall apply a Bedrock-call connect timeout and an overall-response timeout to every Converse call, both configurable via `bedrockCallConnectTimeoutSeconds` and `bedrockCallResponseTimeoutSeconds`, where the response timeout covers streaming responses including extended thinking and counts toward the `NFR-BEDROCK-MAX-RETRIES` retry budget. | NFR-BEDROCK-CALL-TIMEOUT, ADR-0001 |
+| **AC-8.11** | Ev | When `bedrockCallConnectTimeoutSeconds` or `bedrockCallResponseTimeoutSeconds` is not configured, the agent shall use the `NFR-BEDROCK-CALL-TIMEOUT` defaults (connect 10 s, overall response 300 s) respectively. | NFR-BEDROCK-CALL-TIMEOUT |
 
 #### US-9 — Choose permission mode
 
@@ -444,7 +446,7 @@ Every NFR has a numeric value, version, or platform name. Symbolic NFRs introduc
 | **NFR-MODEL-CONTEXT-WINDOW** | model-dependent; read from config at startup | The agent must know the active model's effective input-token window to compute `NFR-CONTEXT-COMPACT-THRESHOLD`. |
 | **NFR-BEDROCK-REGION** | `us-east-1`, configurable | AWS region for Bedrock calls. |
 | **NFR-BEDROCK-MAX-RETRIES** | 3, exponential backoff + jitter | On a retryable Bedrock error. Exhaustion → exit `4` (model-backend). |
-| **NFR-BEDROCK-CALL-TIMEOUT** | connect 10 s; overall response 300 s; configurable | Covers streaming responses incl. extended thinking. Timeout counts toward retry budget. |
+| **NFR-BEDROCK-CALL-TIMEOUT** | connect 10 s; overall response 300 s; configurable | Covers streaming responses incl. extended thinking. Timeout counts toward retry budget. Pinned by `bedrockCallConnectTimeoutSeconds` (default 10) and `bedrockCallResponseTimeoutSeconds` (default 300) in `06-formal/resolved-config.schema.json`; folded into the US-8 config-key set via AC-8.10 (configurable budget) and AC-8.11 (defaults when absent); Converse-client wiring recorded in ADR-0001 (apiCallTimeout = response, Apache httpClient socketTimeout = response / connectionTimeout = connect). Pinned by DCR-4. |
 | **NFR-AWS-CREDENTIALS** | named profile → default chain; SigV4 only, bearer ignored (RD-11) | Resolution precedence: (1) configured AWS profile from `~/.aws/{config,credentials}`; (2) AWS SDK v2 default provider chain (env → SSO/SDK cache → instance/container role). **SigV4 only — `AWS_BEARER_TOKEN_BEDROCK` is explicitly ignored even if set** (prevents wrong-account auth via a stray bearer token). No usable credentials by either path → exit `4` (AC-8.6–8.9). The agent issues **read/invoke** Bedrock calls only (`bedrock:InvokeModel`, `bedrock:InvokeModelWithResponseStream`, inference-profile reads) — never AWS write/create/delete verbs. |
 
 ### Permission & safety — `NFR-PERMISSION-*` [runtime]
@@ -506,8 +508,11 @@ Confirms every symbolic `NFR-*` introduced in 1b is now pinned and still referen
 | `NFR-CONTEXT-COMPACT-THRESHOLD` | 0.85 × effective window | AC-18.1 |
 | `NFR-OUTPUT-MAX-INLINE` | 16 KB | AC-19.1 |
 | `NFR-BEDROCK-MAX-RETRIES` | 3 + backoff | exit-code 4 (AC reference via US-11/US-20 backend-failure paths) |
+| `NFR-BEDROCK-CALL-TIMEOUT` | connect 10 s / response 300 s (configurable) | AC-8.10, AC-8.11 *(folded into US-8 config-key set by DCR-4; previously orphaned — referenced by no AC, see below)* |
 
 All 7 symbolic NFRs resolved. ✅
+
+> **DCR-4 (2026-06-24) — orphan closure.** `NFR-BEDROCK-CALL-TIMEOUT` was introduced in this 1c table at design time but, unlike its mirror `NFR-CMD-TIMEOUT`, was never wired into an AC, a config key, an ADR, a contract test, or a task — it was orphaned (referenced by zero ACs). DCR-4 closes it end-to-end: two config keys in `resolved-config.schema.json` (`bedrockCallConnectTimeoutSeconds`, `bedrockCallResponseTimeoutSeconds`), AC-8.10 / AC-8.11 under US-8, the Converse-client wiring in ADR-0001 + `02-architecture.md` § 2, contract tests CT-SCH-16 / CT-SCH-17, and M4 task T-4.6. The NFR is now referenced by ≥ 1 AC and ≥ 1 CT.
 
 ---
 

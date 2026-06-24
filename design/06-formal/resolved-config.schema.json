@@ -26,6 +26,8 @@
     "contextCompactThreshold": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.85 },
     "outputMaxInlineBytes": { "type": "integer", "minimum": 1, "default": 16384 },
     "verifyMaxIterations": { "type": "integer", "minimum": 1, "default": 5 },
-    "commandTimeoutSeconds": { "type": "integer", "minimum": 1, "default": 300 }
+    "commandTimeoutSeconds": { "type": "integer", "minimum": 1, "default": 300 },
+    "bedrockCallConnectTimeoutSeconds": { "type": "integer", "minimum": 1, "default": 10, "description": "NFR-BEDROCK-CALL-TIMEOUT (connect). TCP/TLS connection-establishment timeout for the Converse client; wired to the Apache httpClient connectionTimeout (ADR-0001)." },
+    "bedrockCallResponseTimeoutSeconds": { "type": "integer", "minimum": 1, "default": 300, "description": "NFR-BEDROCK-CALL-TIMEOUT (overall response). End-to-end response budget for a Converse call incl. streaming/extended-thinking; wired to apiCallTimeout and the Apache httpClient socketTimeout (ADR-0001). Counts toward the retry budget." }
   }
 }

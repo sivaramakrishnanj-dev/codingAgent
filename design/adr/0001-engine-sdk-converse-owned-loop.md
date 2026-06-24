@@ -8,7 +8,8 @@ phase: 2-architecture
 supersedes: []
 superseded_by: []
 related: [ADR-0002, ADR-0003, ADR-0005, ADR-0011]
-spec_refs: [US-3, US-5, US-20, NFR-MODEL-DEFAULT, NFR-PLAT-JAVA, OQ-A]
+spec_refs: [US-3, US-5, US-20, NFR-MODEL-DEFAULT, NFR-PLAT-JAVA, NFR-BEDROCK-CALL-TIMEOUT, OQ-A]
+amended_by: [DCR-4]
 ---
 
 # ADR-0001 — Engine: AWS SDK for Java v2 + Bedrock Converse, owned agent loop
@@ -36,6 +37,11 @@ Constraints: Java 21 (`NFR-PLAT-JAVA`); Bedrock-only backend; we require full tr
 - **Owned loop (C2).** We implement the cycle: build `ConverseRequest` (messages + system + `toolConfig`) → call → parse `output.message.content[]` → on `stopReason == tool_use`, route each `toolUse` through the permission gate (ADR-0004) and tool registry (C7) → append `toolResult` blocks → re-call → until `end_turn`. `stopReason` is the loop's state selector (matrices in `02-architecture.md` § 3).
 - **Tool registry → `toolConfig` (C7, OQ-A).** Each internal tool is `{name, description, inputSchema(JSON Schema)}` rendered to a Converse `toolSpec`; the model's `toolUse.input` (JSON matching the schema) dispatches to the handler.
 - **Streaming.** Use `ConverseStream` for interactive output; assemble `toolUse` input from `contentBlockDelta` partial-JSON; accumulate `reasoningContent` verbatim (signatures — ADR-0006/§ 6.A.1).
+- **Call timeouts (`NFR-BEDROCK-CALL-TIMEOUT`; amended DCR-4, 2026-06-24).** The Converse client applies the NFR-pinned connect/response budget rather than relying on the AWS SDK's own defaults. Concretely, `BedrockClientFactory` constructs the `BedrockRuntimeClient` with:
+  - `.overrideConfiguration(o -> o.apiCallTimeout(...))` set to the **response timeout** (the end-to-end budget for a Converse call, default 300 s) — this bounds the whole call including retries/streaming at the SDK layer;
+  - `.httpClientBuilder(ApacheHttpClient.builder()...)` (artifact `software.amazon.awssdk:apache-client`) with **`socketTimeout` = the response timeout** (idle-between-bytes / overall response, default 300 s — sized to cover streaming responses incl. extended thinking) and **`connectionTimeout` = the connect timeout** (TCP/TLS establishment, default 10 s).
+
+  Both values are read from `ResolvedConfig` via the two config keys `bedrockCallResponseTimeoutSeconds` (default 300) and `bedrockCallConnectTimeoutSeconds` (default 10) — `06-formal/resolved-config.schema.json`, AC-8.10 / AC-8.11. The response timeout **counts toward the `NFR-BEDROCK-MAX-RETRIES` retry budget** (a timed-out call is a retryable failure; exhaustion → exit 4, per § 3.2 of `02-architecture.md`). The mirror command-side budget `NFR-CMD-TIMEOUT` (`commandTimeoutSeconds`) was wired from M0; this is the model-side equivalent it was missing. Implemented by M4 task **T-4.6**.
 - **Default model** `NFR-MODEL-DEFAULT` = newest Claude Opus (4.8 as of 2026-06-15). The pinned default is the **cross-region inference-profile id `us.anthropic.claude-opus-4-8`**, not the bare model id `anthropic.claude-opus-4-8`: on-demand Converse for Opus rejects the bare id with a 400 `ValidationException` ("Invocation of model ID ... with on-demand throughput isn't supported. Retry your request with the ID or ARN of an inference profile that contains this model."), so an inference-profile id is required and the `us.` cross-region profile is preferred for availability (confirmed by a real-Bedrock smoke test at implementation time; T-0.2-RD1). The exact id is resolved at runtime from config; this pinned default is carried in `ConfigDefaults.MODEL_ID`.
 
 ## Consequences
@@ -53,6 +59,7 @@ Constraints: Java 21 (`NFR-PLAT-JAVA`); Bedrock-only backend; we require full tr
 **Neutral / follow-ons**
 - Forces ADR-0003 (command exec), ADR-0004 (permission gate placement in the loop), ADR-0005 (what we log per turn).
 - The `additionalModelRequestFields` passthrough is where Claude extended-thinking budget / `top_k` live (ADR-0002 capability layer).
+- Setting an Apache `httpClient` (`software.amazon.awssdk:apache-client`) to carry the socket/connection timeouts is an explicit dependency choice over the SDK's default URL-connection client — needed because the per-request `socketTimeout`/`connectionTimeout` knobs the NFR pins live on the HTTP-client builder, not on `apiCallTimeout` alone (DCR-4). The artifact is added to the project `pom.xml` at T-4.6 implementation time.
 
 ## Alternatives considered
 

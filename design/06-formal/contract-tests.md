@@ -1,11 +1,11 @@
 ---
 doc: formal-contract-tests
-last_reviewed: 2026-06-23
+last_reviewed: 2026-06-24
 phase: 3-formal
 status: resolved
-review: ../reviews/2026-06-23-amendment-greenfield-resume-r1.md
+review: ../reviews/2026-06-24-amendment-bedrock-call-timeout-r1.md
 approved_in: 2518fee
-amended_by: [DCR-3]
+amended_by: [DCR-3, DCR-4]
 ---
 
 # Contract Tests — Index
@@ -33,6 +33,10 @@ Validate the persisted shapes against their JSON Schemas (`*.schema.json`). Fixt
 | CT-SCH-13 | resolved-config | + | `fixtures/config.global.yaml` validates | AC-8.1 |
 | CT-SCH-14 | resolved-config | − | unknown config key rejected (fail-fast → exit 2) | AC-8.5 |
 | CT-SCH-15 | model-capability-profile | + | a Claude profile + the conservative default profile both validate | ADR-0002, OQ-J |
+| CT-SCH-16 | resolved-config | + | a config carrying `bedrockCallConnectTimeoutSeconds` and `bedrockCallResponseTimeoutSeconds` (integers ≥ 1) validates (DCR-4) | AC-8.10, NFR-BEDROCK-CALL-TIMEOUT |
+| CT-SCH-17 | resolved-config | + | when both Bedrock-timeout keys are absent, the resolver applies the defaults connect 10 / response 300 (default-when-absent; DCR-4) | AC-8.11, NFR-BEDROCK-CALL-TIMEOUT |
+
+> **CT-SCH-16 / CT-SCH-17 note (DCR-4).** CT-SCH-16 is a pure schema-validation positive (a config object that includes both timeout keys validates against `resolved-config.schema.json`); it does not require mutating the shared `fixtures/config.global.yaml` positive corpus — the implementer supplies the timeout-bearing config object in the Phase 5 test, the same way the CT-EX/CT-INV tests construct their own inputs. CT-SCH-17 asserts **resolver behavior**, not raw schema validation: JSON-Schema `default` keywords are documentary (validators don't inject defaults), so the config resolver (C17, ADR-0009) is what must apply connect 10 / response 300 when the keys are absent — CT-SCH-17 pins that the resolved `ResolvedConfig` carries those defaults. Both exercised in Phase 5 (T-4.6).
 
 ## 2. Invariant contract tests
 
@@ -98,7 +102,7 @@ Run with `jsonschema` (Draft 2020-12) + `pyyaml` on 2026-06-17:
 
 ## 6. Traceability summary
 
-Every CT cites an AC or a pinned symbol. Coverage spans: persistence/observability (US-13), permission/safety (US-9/10, RD-1/2), verification (US-20, RD-10), context (US-18/19), memory (US-12/14/21), multimodal (INV-18/19), credentials (AC-8.8), the exit-code contract, and (§ 7, DCR-3) greenfield mid-flow resume + clobber-protection (US-1/2/7, ADR-0012). Remaining gap to revisit when the milestone is scoped: sub-agent summary-only propagation (INV-11) has loop-level CTs implied by CT-INV-* but may warrant a dedicated test. *(The greenfield-workflow phase-gating gap previously flagged here is now addressed by T-3.1's phase-gating CT and § 7's CT-GF-* — see `07-tasks.md` M3 / G3.)*
+Every CT cites an AC or a pinned symbol. Coverage spans: persistence/observability (US-13), permission/safety (US-9/10, RD-1/2), verification (US-20, RD-10), context (US-18/19), memory (US-12/14/21), multimodal (INV-18/19), credentials (AC-8.8), Bedrock-call timeouts (AC-8.10/8.11, NFR-BEDROCK-CALL-TIMEOUT — CT-SCH-16/17, DCR-4), the exit-code contract, and (§ 7, DCR-3) greenfield mid-flow resume + clobber-protection (US-1/2/7, ADR-0012). Remaining gap to revisit when the milestone is scoped: sub-agent summary-only propagation (INV-11) has loop-level CTs implied by CT-INV-* but may warrant a dedicated test. *(The greenfield-workflow phase-gating gap previously flagged here is now addressed by T-3.1's phase-gating CT and § 7's CT-GF-* — see `07-tasks.md` M3 / G3.)*
 
 ## 7. Greenfield-workflow contract tests (DCR-3)
 

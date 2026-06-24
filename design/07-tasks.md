@@ -1,11 +1,11 @@
 ---
 doc: tasks
-last_reviewed: 2026-06-23
+last_reviewed: 2026-06-24
 phase: resolved
 status: resolved
-review: reviews/2026-06-23-amendment-greenfield-resume-r1.md
+review: reviews/2026-06-24-amendment-bedrock-call-timeout-r1.md
 approved_in: 6e1d54f
-amended_by: [DCR-1, DCR-2, DCR-3]
+amended_by: [DCR-1, DCR-2, DCR-3, DCR-4]
 ---
 
 # Tasks — codingAgent
@@ -96,6 +96,7 @@ Component refs are `C*` (`02-architecture.md` § 1.2). Deps are task ids. Gate c
 | T-4.3 | Capability profiles: registry, feature detection, graceful degradation; non-default model swap | C5 | ADR-0002, NFR-MODEL-PROVIDER, OQ-J | M | T-0.5 | CT-SCH-15; degrade when capability absent |
 | T-4.4 | Prompt-cache placement (cachePoint after tools→system→memory-index, capability-gated) | C6, C4 | ADR-0006, OQ-I | S | T-2.4, T-4.3 | cache write/read tokens observed (manual) |
 | T-4.5 | `sessions`/`memory`/`config` subcommands; `--debug`; SLF4J log levels | C1 | 04 §1.2, 05 §3 | S | T-1.1, T-2.4 | subcommands list/show/edit; levels tunable |
+| T-4.6 | **Wire `NFR-BEDROCK-CALL-TIMEOUT` into the Bedrock client (DCR-4).** Construct the `BedrockRuntimeClient` (in `BedrockClientFactory`) with `apiCallTimeout` = the response budget and an Apache `httpClientBuilder` (`software.amazon.awssdk:apache-client`) whose `socketTimeout` = response budget / `connectionTimeout` = connect budget; read both from `ResolvedConfig` (new keys `bedrockCallResponseTimeoutSeconds` default 300, `bedrockCallConnectTimeoutSeconds` default 10, min 1, configurable). Add the two `ConfigKeys` + `ConfigDefaults` entries. Extend the `BedrockClientFactory.wiring(...)` seam so a CT-INV-13-style SUT-not-mocked wiring test can inspect the configured timeouts (no live Bedrock call). | C4 | NFR-BEDROCK-CALL-TIMEOUT, ADR-0001, AC-8.10/8.11, CT-SCH-16/17, 02 §2 | S | T-0.3 | CT-SCH-16 (timeout keys validate) + CT-SCH-17 (defaults applied when keys absent); wiring test asserts apiCall/socket = 300 s, connect = 10 s by default and overrides from config |
 
 ## 3. Cross-milestone verification gates
 
@@ -131,7 +132,7 @@ Per `00-requirements.md` OOS + the ADRs: non-Claude provider *validation* (seam 
 | US-4/5 brownfield | T-1.3, T-1.6, T-0.6 |
 | US-6 CLI | T-0.9, T-1.1 |
 | US-7 resume | T-1.2, T-3.4 (greenfield mid-flow resume, AC-7.6) |
-| US-8 configure | T-0.2, T-4.5 |
+| US-8 configure | T-0.2, T-4.5, T-4.6 (Bedrock call timeout, AC-8.10/8.11) |
 | US-9/10 permission | T-0.7 |
 | US-11 web lookup | T-4.1 |
 | US-12/14/21 memory | T-2.4, T-2.5 |
