@@ -3,9 +3,9 @@ doc: requirements
 last_reviewed: 2026-06-24
 phase: resolved
 status: resolved
-review: reviews/2026-06-24-amendment-bedrock-call-timeout-r1.md
+review: reviews/2026-06-24-amendment-greenfield-playbook-traceability-vocabulary-r1.md
 approved_in: e03b032
-amended_by: [DCR-1, DCR-2, DCR-3, DCR-4]
+amended_by: [DCR-1, DCR-2, DCR-3, DCR-4, DCR-5]
 ---
 
 # Requirements — codingAgent
@@ -215,10 +215,10 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 | AC | Type | Criterion | Refs |
 |----|------|-----------|------|
 | **AC-2.1** | Ev | When requirements are confirmed, the agent shall produce a design artifact and a task-breakdown artifact as markdown in the target project. As with AC-1.2, the persistence is **driver-guaranteed**: the workflow driver writes each artifact in code from the phase's settled output (ADR-0012), not via a model-emitted tool call. | RD-7, ADR-0012 |
-| **AC-2.2** | U | The agent shall express the task breakdown as an ordered list of discrete tasks, each with a stable identifier. | US-2 |
+| **AC-2.2** | U | The agent shall express the task breakdown as an ordered list of discrete tasks, each with a stable identifier of the form `T-<n>` or `T-<n>.<m>` (the hyphen is mandatory). For a greenfield project the breakdown is authored by the model under the greenfield playbook prompt, which **emits** this id form so the project's own breakdown conforms to the strict traceability gate (ADR-0012, DCR-2 multi-turn dialogue; the gate's `TaskTraceability` is unchanged). | US-2, ADR-0012 |
 | **AC-2.3** | Ev | When the design or task breakdown is presented, the agent shall request developer approval before implementation begins. Each phase is a multi-turn dialogue (ADR-0012); the approval prompt is offered each round and developer approval is the finalize signal that persists the converged artifact and advances. | US-2, ADR-0012 |
 | **AC-2.4** | Un | If the developer requests design changes, then the agent shall revise the artifact and re-request approval. Within the multi-turn phase dialogue (ADR-0012), a non-approval (a revision request or any answer other than approve) is realized as another refining turn in the same phase conversation — it does not persist-and-stop — and the agent re-offers the approval prompt after revising. | US-2, ADR-0012 |
-| **AC-2.5** | U | The agent shall ensure every task in the breakdown traces to at least one stated requirement. Traceability is verified against the driver-written task-breakdown artifact (AC-2.1, ADR-0012) — which, under the multi-turn phase dialogue (DCR-2), holds the *converged* breakdown the developer approved, not a single-turn first draft. | US-2, ADR-0012 |
+| **AC-2.5** | U | The agent shall ensure every task in the breakdown traces to at least one stated requirement. Traceability is verified against the driver-written task-breakdown artifact (AC-2.1, ADR-0012) — which, under the multi-turn phase dialogue (DCR-2), holds the *converged* breakdown the developer approved, not a single-turn first draft. For a greenfield project, the **traceability vocabulary is the model-authored requirement symbols** — the numbered acceptance criteria `AC-<n>.<m>`, user stories `US-<n>`, and non-functional requirements `NFR-<NAME>` the model authors in the **requirements** phase (AC-2.2). Each task line in the tasks-phase breakdown cites at least one such symbol, so a greenfield project's own model-authored requirement symbols are the catalog its tasks trace to. The greenfield playbook prompt **emits** this vocabulary on both phases (the requirements phase authors gate-recognizable `AC-<n>.<m>`/`US-<n>`/`NFR-<NAME>` symbols; the tasks phase emits `T-<n>`/`T-<n>.<m>` task ids each citing ≥ 1 such symbol), so the project self-conforms to the strict traceability gate (ADR-0012, DCR-5) — the gate's `TaskTraceability` regexes are unchanged. | US-2, ADR-0012 |
 
 #### US-3 — Implement tasks one at a time
 

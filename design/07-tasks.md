@@ -3,9 +3,9 @@ doc: tasks
 last_reviewed: 2026-06-24
 phase: resolved
 status: resolved
-review: reviews/2026-06-24-amendment-bedrock-call-timeout-r1.md
+review: reviews/2026-06-24-amendment-greenfield-playbook-traceability-vocabulary-r1.md
 approved_in: 6e1d54f
-amended_by: [DCR-1, DCR-2, DCR-3, DCR-4]
+amended_by: [DCR-1, DCR-2, DCR-3, DCR-4, DCR-5]
 ---
 
 # Tasks — codingAgent
@@ -86,6 +86,7 @@ Component refs are `C*` (`02-architecture.md` § 1.2). Deps are task ids. Gate c
 | T-3.2 | Artifact authoring: requirements/design/tasks markdown into the target repo, approval timestamps. **Driver-authored persistence (DCR-1) + approve-to-finalize capture (DCR-2):** the driver writes each phase artifact in code via `GreenfieldArtifactStore.write()`, not via a model `write_artifact` tool call; the capture-and-persist trigger is **phase approval** (DCR-2), so the *converged* multi-turn deliverable is written (not a single-turn first draft); later phases inject approved earlier artifacts into their conversation; AC-1.4 design/-confinement preserved (source-write tools withheld every turn). **Output-token budget (DCR-2, D1 follow-on):** set `inferenceConfig.maxTokens = 16384` (configurable) on the greenfield Converse request so a large deliverable is not truncated at the default 4096 cap. **Clobber protection (DCR-3, D13):** `GreenfieldArtifactStore.write()` refuses to truncate an already-approval-stamped artifact (`ApprovedArtifactProtectedException`) — the AC-1.5 stamp protects the approved deliverable and (per T-3.4) marks the phase resumable. | C3, C4 | RD-7, AC-1.1/1.2/1.4/1.5/2.1/2.3/2.4/2.5, ADR-0012 | M | T-3.1 | artifacts written (driver-guaranteed, captured at approval from the converged dialogue); no MAX_TOKENS truncation of a full deliverable; traceability AC→task verified against the written tasks artifact; a stamped artifact is not silently clobbered by a fresh run |
 | T-3.3 | Greenfield implement loop: one task at a time, verify each before next (over the breakdown converged + approved via the multi-turn phase dialogue, DCR-2) | C3, C2 | US-3, AC-3.1/3.3 | M | T-3.1, T-1.4 | tasks done in order, each verified |
 | T-3.4 | **Greenfield mid-flow resume + AC-7.3 repo-keying-forward (DCR-3).** On greenfield session start, reconstruct phase-state from the target repo's on-disk artifacts — an AC-1.5-stamped phase artifact = approved; resume at the first unstamped/absent phase rather than restarting at requirements; a transient mid-phase failure left the failed phase unstamped, so it is retryable in place. Bring the real AC-7.3 repo-keying forward (git remote URL else normalized abs path, ADR-0005) to scope the resumable session, **replacing the `Main.ONE_SHOT_LINEAGE` M0 placeholder** (the run-collision root cause). The AC-1.5 stamp is both the resume marker and the D13 clobber-protection signal (one durable on-disk fact). In-phase transcript is not preserved across an interruption (resume at phase boundary, re-converse — accepted tradeoff). | C3, C15 | AC-7.6, AC-7.3, ADR-0012, ADR-0005, US-1/2/7 | M | T-3.2 | CT-GF-1 (resume at design over a stamped requirements artifact, no restart), CT-GF-2 (no-clobber of a stamped artifact); a fresh greenfield run over a project keyed to its real repo key resumes at the first unstamped phase |
+| T-3.5 | **Align the greenfield playbook prompts to the strict traceability gate's vocabulary (DCR-5).** Constrain the `GreenfieldPlaybook` per-phase prompt (C3) so it **emits** the gate's vocabulary: the **REQUIREMENTS** phase block directs the model to author acceptance criteria as numbered `AC-<n>.<m>` symbols, user stories as `US-<n>`, and NFRs as `NFR-<NAME>` (the gate-recognizable requirement-symbol shapes); the **TASKS** phase block directs the model to give each task a stable id of the form `T-<n>` / `T-<n>.<m>` (hyphen mandatory) with each task line citing ≥ 1 requirement symbol authored in the requirements phase. **No change to `TaskTraceability`** — the gate stays strict (DCR-5 Option a; relaxing the regexes was Option b, rejected). Add regression tests pinning the exact live-failing forms (hyphen-less `T1`/`T2`/`T10` ids citing `R1`–`R6` refs → strict gate refuses; gate-vocabulary `T-<n>` ids citing `AC-<n>.<m>`/`US-<n>`/`NFR-<NAME>` → pass), the class of defect the existing `TaskTraceabilityTest` could not catch by construction. | C3 | AC-2.5, AC-2.2, ADR-0012, US-1/2/3, `GreenfieldPlaybook` (C3 per-phase prompt) | S | T-3.2 | the prompt emits `AC-<n>.<m>`/`US-<n>`/`NFR-<NAME>` in the requirements phase + `T-<n>` ids citing them in the tasks phase; a regression test feeds the prior live-failing `T1`/`R5` forms and asserts the strict gate refuses them, and feeds gate-vocabulary forms and asserts it passes (no `TaskTraceability` regex change) |
 
 ### M4 — Knowledge + polish
 
@@ -128,7 +129,7 @@ Per `00-requirements.md` OOS + the ADRs: non-Claude provider *validation* (seam 
 
 | US | Tasks |
 |----|-------|
-| US-1/2/3 greenfield | T-3.1, T-3.2, T-3.3, T-3.4 |
+| US-1/2/3 greenfield | T-3.1, T-3.2, T-3.3, T-3.4, T-3.5 (US-2 traceability-vocabulary alignment, AC-2.5/AC-2.2) |
 | US-4/5 brownfield | T-1.3, T-1.6, T-0.6 |
 | US-6 CLI | T-0.9, T-1.1 |
 | US-7 resume | T-1.2, T-3.4 (greenfield mid-flow resume, AC-7.6) |
