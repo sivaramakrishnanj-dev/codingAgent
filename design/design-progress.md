@@ -1,7 +1,7 @@
 ---
 doc: design-progress
 last_updated: 2026-06-24
-last_updated_at_commit: pending
+last_updated_at_commit: 589e751
 current_phase: 5
 current_sub_phase: handed-off-to-coordinator
 current_sub_phase_status: resolved
@@ -97,7 +97,7 @@ _(none yet)_
 - DCR-1 amendment for T-3.2-RD-D10 — greenfield driver-authored phase-deliverable persistence (AC-1.2/1.4/1.5/2.1/2.5, ADR-0012, C3/C7 in 02-architecture, T-3.2 in 07-tasks; review: `reviews/2026-06-23-amendment-greenfield-driver-authored-persistence-r1.md`) — `67b12b6`
 - DCR-2 amendment for T-3.2 — greenfield multi-turn phase dialogue + approve-to-finalize, plus D1 output-token-cap fix (AC-1.1/1.4/1.5/2.1/2.3/2.4/2.5, ADR-0012, C3 + § 2.1 C4 output-budget in 02-architecture, T-3.1/3.2/3.3 in 07-tasks; review: `reviews/2026-06-23-amendment-greenfield-multiturn-phase-dialogue-r1.md`) — `a9644b4`
 - DCR-3 amendment for T-3.2-RD-D12-D13 — greenfield mid-flow resume by re-deriving phase-state from stamped on-disk artifacts + AC-7.3 repo-keying forward (new AC-7.6, AC-1.5 stamp doubles as resume + D13 clobber-protection marker; ADR-0012 "Greenfield mid-flow resume" + DCR-3 Notes; C3 reconstruction + C15 repo-keying in 02-architecture; T-3.2 note + new T-3.4 in 07-tasks; CT-GF-1/CT-GF-2 in 06-formal/contract-tests § 7; review: `reviews/2026-06-23-amendment-greenfield-resume-r1.md`) — `7a10d31` (resumed task: `fbd33c4`)
-- DCR-4 amendment for T-4.6 — close orphaned NFR-BEDROCK-CALL-TIMEOUT (full schema-update): two config keys `bedrockCallConnectTimeoutSeconds`/`bedrockCallResponseTimeoutSeconds` (resolved-config.schema.json, additionalProperties:false kept); AC-8.10/AC-8.11 under US-8 + NFR→AC coverage row (00-requirements); Converse-client timeout wiring in ADR-0001 ("Call timeouts" + spec_refs/amended_by) + 02-architecture § 2 / C4; new M4 task T-4.6 (07-tasks); CT-SCH-16/17 (06-formal/contract-tests § 1). NFR now referenced by ≥ 1 AC + ≥ 1 CT. No milestone gate touched; G3 stays OPEN. (review: `reviews/2026-06-24-amendment-bedrock-call-timeout-r1.md`) — `<pending-sha>`
+- DCR-4 amendment for T-4.6 — close orphaned NFR-BEDROCK-CALL-TIMEOUT (full schema-update): two config keys `bedrockCallConnectTimeoutSeconds`/`bedrockCallResponseTimeoutSeconds` (resolved-config.schema.json, additionalProperties:false kept); AC-8.10/AC-8.11 under US-8 + NFR→AC coverage row (00-requirements); Converse-client timeout wiring in ADR-0001 ("Call timeouts" + spec_refs/amended_by) + 02-architecture § 2 / C4; new M4 task T-4.6 (07-tasks); CT-SCH-16/17 (06-formal/contract-tests § 1). NFR now referenced by ≥ 1 AC + ≥ 1 CT. No milestone gate touched; G3 stays OPEN. (review: `reviews/2026-06-24-amendment-bedrock-call-timeout-r1.md`) — `589e751`
 
 ## 6. Phase 2 carry-forward material (pre-explored ADRs & mechanisms)
 
