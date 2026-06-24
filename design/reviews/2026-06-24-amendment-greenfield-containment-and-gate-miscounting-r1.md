@@ -9,7 +9,7 @@ approved_by_user_at: 2026-06-24T00:00:00+00:00
 artifact: design/00-requirements.md, design/adr/0012-greenfield-workflow-formality.md, design/07-tasks.md, design/06-formal/contract-tests.md
 reviewer: user (approved via coordinator preview)
 status: approved
-approved_in: pending
+approved_in: e5e9b34
 ---
 
 # Amendment review — DCR-6 greenfield write_artifact containment + TaskTraceability real-breakdown miscounting (ac-update + adr-clarification) (r1)
