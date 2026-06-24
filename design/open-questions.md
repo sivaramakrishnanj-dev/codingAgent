@@ -674,6 +674,6 @@ auto-invokes the designer.
     by ≥ 1 AC and ≥ 1 CT. ripple_unresolved: []. Review:
     design/reviews/2026-06-24-amendment-bedrock-call-timeout-r1.md. SHA-backfill commit 0b190e2
     (design-progress.md, mirroring the DCR-3 backfill precedent).
-- resumed_task_commit: (pending — T-4.6 implementation)
+- resumed_task_commit: df22677
 - budget: amendment #1 of 3 for T-4.6; DCR-4, amendment #4 of 10 for the milestone
-- status: open (DCR-4 amended at 589e751; T-4.6 implementation in flight)
+- status: closed (DCR-4 amended at 589e751 [backfill 0b190e2]; T-4.6 resolved + pushed at df22677 — orphaned NFR-BEDROCK-CALL-TIMEOUT closed end-to-end: 2 config keys + Converse-client apiCall/socket/connect wiring; mvn clean verify green, 1086 tests, JaCoCo 91.12%. Unblocks the future G3 live smoke test; G3 gate left OPEN.)
