@@ -677,3 +677,96 @@ auto-invokes the designer.
 - resumed_task_commit: df22677
 - budget: amendment #1 of 3 for T-4.6; DCR-4, amendment #4 of 10 for the milestone
 - status: closed (DCR-4 amended at 589e751 [backfill 0b190e2]; T-4.6 resolved + pushed at df22677 — orphaned NFR-BEDROCK-CALL-TIMEOUT closed end-to-end: 2 config keys + Converse-client apiCall/socket/connect wiring; mvn clean verify green, 1086 tests, JaCoCo 91.12%. Unblocks the future G3 live smoke test; G3 gate left OPEN.)
+
+## OQ-design-5 — T-3.5 design-change requested (align greenfield playbook prompts to the gate's traceability vocabulary) — 2026-06-24
+
+- kind: ac-update + adr-clarification
+- raised_by: user via main-agent directive (closing a G3-blocking greenfield traceability-vocabulary bug; independently verified by the prior coordinator — compiled + ran the production regexes)
+- request_id: DCR-5
+- spec_refs_touched: AC-2.2, AC-2.5, ADR-0012 (greenfield workflow formality — traceability chain), GreenfieldPlaybook (C3 per-phase prompt), TaskTraceability (the strict gate), US-2
+- problem_statement: |
+    A greenfield project cannot satisfy its OWN AC-2.5 traceability gate. TaskTraceability (the
+    ArtifactApprovalGate's tasks-phase check, ADR-0012) is STRICT by design:
+    TASK_LINE (TaskTraceability.java line 44-45) requires a stable id of the form T-<n> / T-<n>.<m>
+    (the hyphen is MANDATORY), and REQUIREMENT_REF (line 51-52) accepts only the requirement-symbol
+    vocabulary US- / AC- / NFR- / RD- / INV-. But GreenfieldPlaybook (C3) never tells the model that
+    required vocabulary: the TASKS phase block (line 152-159) says "each with a stable identifier and
+    each tracing to at least one requirement" without naming the T-<n> id form or the AC-/US-/NFR-
+    symbol forms, and the REQUIREMENTS phase block (line 138-144) says "personas, user stories,
+    acceptance criteria, non-functional requirements" without pinning the gate-recognizable AC-<n>.<m>
+    / US-<n> / NFR-<NAME> symbol shapes. A live greenfield model accordingly emits T1/T2/T10 ids
+    (no hyphen → not recognized as tasks) citing R1-R6 refs (not in the gate vocabulary → not a valid
+    trace), so the strict gate correctly refuses 0-tasks / untraceable, and greenfield never reaches
+    implement. Existing TaskTraceabilityTest (10 tests) only exercises gate-conformant forms, so the
+    suite is green while live model output fails — a defect class the existing tests cannot catch by
+    construction. Confirmed NEW (not previously in open-questions.md).
+- options_considered:
+  - id: a
+    summary: |
+      Fix the prompt, keep the gate strict. NO change to TaskTraceability's regexes. Constrain
+      GreenfieldPlaybook so (1) the REQUIREMENTS phase authors acceptance criteria using the gate's
+      requirement-symbol vocabulary (AC-<n>.<m> numbered ACs, US-<n> user stories, NFR-<NAME>), and
+      (2) the TASKS phase emits task ids of the form T-<n> / T-<n>.<m> (hyphen mandatory) with each
+      task line citing >= 1 requirement symbol authored in the requirements phase. A greenfield
+      project's own model-authored requirement symbols become the traceability catalog its tasks
+      trace to. Fold the contract into AC-2.2 + AC-2.5 (the prompt EMITS the gate vocabulary) and
+      record it in ADR-0012 (the gate stays strict; the prompt carries the burden of conformance),
+      preserving the full-rigor traceability chain ADR-0012 deliberately chose over the lightweight
+      scaffold.
+    pros: Keeps the strict gate (the formal traceability guarantee ADR-0012 chose) intact; makes a
+      greenfield project self-consistent (its model-authored symbols are the catalog its tasks trace
+      to); the fix is a production-prompt change + regression tests that pin the exact live-failing
+      cases so it can never silently regress; no schema / contract-test / data-model blast radius.
+    cons: ac-update + adr-clarification touches three design artifacts (00-requirements, ADR-0012,
+      07-tasks); the prompt now carries the burden of teaching the model the gate's vocabulary.
+  - id: b
+    summary: |
+      Relax the gate. Broaden TaskTraceability's TASK_LINE to also accept hyphen-less ids (T1/T10)
+      and broaden REQUIREMENT_REF to accept bare R<n> refs, so the live model's natural output passes.
+    pros: Smallest code change (two regexes); no prompt change.
+    cons: Discards the strict formal traceability guarantee ADR-0012 deliberately chose over the
+      lightweight scaffold — T1/R5 are ambiguous and collide with unrelated tokens; the gate would
+      no longer pin the US→AC→NFR/ADR→task chain; a greenfield project would NOT match the
+      methodology that built codingAgent itself (the reflexive-consistency value in ADR-0012).
+      Rejected by the user.
+- recommended_option: a
+- chosen_option: a
+- user_decision: approved
+- user_approval:
+    approved_at: 2026-06-24T00:00:00+00:00
+    approver_note: |
+      Approve Option (a) — FIX THE PROMPT, KEEP THE GATE STRICT. No change to TaskTraceability's
+      regexes. Constrain GreenfieldPlaybook so the REQUIREMENTS phase authors AC-<n>.<m> / US-<n> /
+      NFR-<NAME> symbols and the TASKS phase emits T-<n> / T-<n>.<m> ids each citing >= 1 such symbol.
+      Fold into AC-2.2 + AC-2.5; record the prompt-emits-the-vocabulary contract in ADR-0012; append
+      M3 task T-3.5 (deps T-3.2). This unblocks the G3 live smoke test; do NOT mark G3 passed.
+    revised_from_original: false
+- scope_of_design_edit:
+  - design/00-requirements.md (add a clause to AC-2.2 + AC-2.5: a greenfield project's traceability vocabulary is the model-authored requirement symbols AC-<n>.<m>/US-<n>/NFR-<NAME> authored in the requirements phase, and tasks carry T-<n>/T-<n>.<m> stable ids citing >= 1 such symbol; preserve EARS form + existing traceability)
+  - design/adr/0012-greenfield-workflow-formality.md (record the contract: the GreenfieldPlaybook prompt EMITS the gate's vocabulary on both phases — requirements authors gate-recognizable symbols, tasks use T-<n> ids citing them; the gate stays strict, no TaskTraceability change; preserves the full-rigor traceability chain)
+  - design/07-tasks.md (append M3 task T-3.5, deps T-3.2: align greenfield playbook prompts to the gate vocabulary + regression tests; cite AC-2.5/AC-2.2 + ADR-0012 + GreenfieldPlaybook prompt; add the task→US mapping under US-2)
+- designer_status: amended
+- amendment_commit: bfb2ce8
+- amendment_summary: |
+    Folded the prompt-emits-the-gate-vocabulary contract into AC-2.2 + AC-2.5 (00-requirements.md,
+    US-2; AC-2.2 widened to Refs US-2/ADR-0012) and recorded it in ADR-0012 (Decision bullet "the
+    playbook prompt emits the gate's vocabulary; the gate stays strict" + rejected Option b in
+    Alternatives + Notes DCR-5 + front-matter amended/review). Appended M3 task T-3.5 (deps T-3.2:
+    align greenfield playbook prompts to the gate vocabulary + regression tests) to 07-tasks.md +
+    the task→US greenfield-row mapping + front-matter amended_by += DCR-5. Gate stays STRICT — NO
+    TaskTraceability regex change (Option b rejected, recorded explicitly). design-progress.md
+    front-matter flip-and-return + § 1/§ 3/§ 5 updates. Review:
+    design/reviews/2026-06-24-amendment-greenfield-playbook-traceability-vocabulary-r1.md.
+    ripple_unresolved: [02-architecture.md C3 row does not yet note the DCR-5 prompt-emits-vocabulary
+    contract — OUT of the approved scope_of_design_edit; NOT required for T-3.5 to land (T-3.5 cites
+    ADR-0012 + AC-2.2/AC-2.5 directly); surfaced as a non-blocking future doc-fold-in candidate].
+- ripple_unresolved: |
+    1 item, NON-BLOCKING, within the approved scope boundary: design/02-architecture.md C3 (Workflow
+    drivers) row records the DCR-1/2/3 greenfield contracts but not the DCR-5 prompt-emits-the-gate-
+    vocabulary contract. It was deliberately out of the approved scope_of_design_edit (only
+    00-requirements / adr-0012 / 07-tasks). The architecture's traceability semantics live in
+    ADR-0012, which IS updated; T-3.5 cites ADR-0012 + AC-2.2/AC-2.5 directly, so the missing C3 note
+    does not block T-3.5. Surfaced to the user as a candidate for a future tiny doc-clarification /
+    adr-clarification fold-in — user's call. Not a new ambiguity, not scope creep.
+- budget: amendment #1 of 3 for T-3.5; DCR-5, amendment #5 of 10 for milestone M3 (warn threshold 8, not hit)
+- status: open (DCR-5 amended at bfb2ce8 + pushed; T-3.5 implementation in flight under single-agent topology — to be closed with the resumed-task SHA on commit)
