@@ -12,9 +12,13 @@ import com.srk.codingagent.tool.CommandExecutor;
 import com.srk.codingagent.tool.CommandResult;
 import com.srk.codingagent.tool.GreenfieldArtifactStore;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,6 +64,31 @@ import org.slf4j.LoggerFactory;
  * The append happens <em>before</em> the next task's turn begins (AC-3.3 "before starting the next")
  * and is durable on disk so a later intra-IMPLEMENT resume (T-3.10, AC-7.6) can read the markers back
  * and skip already-completed tasks.
+ *
+ * <p><b>Intra-IMPLEMENT resume skips already-completed tasks (T-3.10, resolves D2; AC-7.6, AC-3.3,
+ * ADR-0012).</b> The completion marker {@link #markComplete} writes is now also <em>read back</em>:
+ * before running, the loop reads the per-task completion markers from the current task-breakdown
+ * artifact ({@link #readCompletedTaskIds()}) and skips the ids already marked complete, resuming at
+ * the first incomplete task rather than restarting at the first task. So a greenfield re-entry whose
+ * reconstructed phase is {@link GreenfieldPhase#IMPLEMENT} (the phase boundary is handled by
+ * {@link GreenfieldPhaseState}, T-3.4/DCR-3) makes within-IMPLEMENT progress: it implements only the
+ * remaining incomplete tasks, in breakdown order, then runs the end-of-phase verify. A re-entry over a
+ * <em>fully</em>-completed breakdown has nothing left to implement; it still runs the end-of-phase
+ * verify once over the already-complete phase (AC-3.2 gates the <em>phase</em>, not each task) and
+ * reaches the same terminal disposition a single uninterrupted run would. The same phase-boundary
+ * tradeoff applies (AC-7.6): task-completion granularity is durable on disk, but the in-phase implement
+ * conversation is not preserved across the interruption.
+ *
+ * <p><b>The completion marker is distinguished from a planned-task line by its own shape, not by the
+ * {@code [x]} checkbox alone (T-3.10).</b> The markers ({@code - [x] <taskId> Implemented}) live in the
+ * <em>same</em> {@code 02-tasks.md} artifact the planned tasks are read from, and a checked-checkbox
+ * line is itself recognized as a task by {@link TaskTraceability}. So the loop separates the two: a
+ * completion-marker line is recognized specifically by {@link CompletionStamp#isCompletionLine} (the
+ * checked {@code - [x]} box <em>plus</em> the trailing {@code Implemented} {@link CompletionStamp#MARKER}
+ * token), and those marker lines are excluded before the planned tasks are enumerated &mdash; so the
+ * planned-task enumeration ({@link TaskTraceability#tasksInOrder}) is never polluted by the markers and
+ * the traceability gate's {@link TaskTraceability#check} contract (which runs over the breakdown
+ * <em>before</em> any marker is appended, at tasks-phase approval) is unaffected.
  *
  * <p><b>The IMPLEMENT-phase loop turn (how it plugs into the driver).</b> The
  * {@link GreenfieldDriver} runs the terminal phase as a {@link GreenfieldDriver.LoopTurn}; this loop
@@ -147,31 +176,49 @@ public final class GreenfieldImplementLoop {
     }
 
     /**
-     * Runs the implementation phase: implement <em>every</em> task in the approved breakdown one at a
-     * time in breakdown order, marking each complete in the task-breakdown artifact as it is
-     * implemented, before the next task begins (DCR-7; AC-3.2/3.3).
+     * Runs the implementation phase: implement the not-yet-completed tasks of the approved breakdown
+     * one at a time in breakdown order, marking each complete in the task-breakdown artifact as it is
+     * implemented, before the next task begins (DCR-7; AC-3.2/3.3), then verify the phase once at the
+     * end (T-3.9).
      *
      * <p>The flow:
      * <ol>
-     *   <li>Read the approved task-breakdown artifact and enumerate its tasks in breakdown order
-     *       (AC-3.2). An empty / task-less breakdown yields {@link ImplementOutcome#noTasks()}.</li>
-     *   <li>For each task, in order: drive an agent-loop turn to implement that one task, then
-     *       <em>immediately</em> mark it complete in the task-breakdown artifact (AC-3.3) before the
-     *       next task's turn begins. A task that is not independently testable (an early scaffold, a
-     *       not-yet-buildable {@code pom.xml}) is implemented without per-task verification &mdash;
-     *       there is no per-task verify cycle (DCR-7), so the loop never hard-stops at such a task.</li>
-     *   <li>When every task has been implemented and marked complete, run the configured build/test
-     *       command <em>once</em> over the whole implemented phase (testable-only, AC-3.2) via the
-     *       reused {@link VerifyLoop} and map the single verify outcome (T-3.9): a passing verify is
-     *       {@link ImplementOutcome#verified(List, VerifyOutcome)} (the clean phase success); a verify
-     *       that does not pass within {@code NFR-VERIFY-MAX-ITERATIONS} attempts is
-     *       {@link ImplementOutcome#verifyFailed(List, VerifyOutcome)} (stop and surface,
+     *   <li>Read the approved task-breakdown artifact and enumerate its <em>planned</em> tasks in
+     *       breakdown order (AC-3.2/AC-3.1) &mdash; excluding the completion-marker lines a prior
+     *       (interrupted) run may have appended, so the enumeration is the planned tasks, not the
+     *       markers. An empty / task-less breakdown yields {@link ImplementOutcome#noTasks()}.</li>
+     *   <li>Read back the per-task completion markers ({@link #readCompletedTaskIds()}, T-3.10) and
+     *       <em>skip</em> the planned ids already marked complete &mdash; resuming at the first
+     *       incomplete task rather than restarting at the first task (AC-7.6, AC-3.3, resolves D2). A
+     *       fresh (uninterrupted) run has no markers, so nothing is skipped and every task is
+     *       implemented; a re-entry over a partially-completed breakdown implements only the remaining
+     *       incomplete tasks; a re-entry over a fully-completed breakdown implements nothing.</li>
+     *   <li>For each <em>incomplete</em> task, in order: drive an agent-loop turn to implement that one
+     *       task, then <em>immediately</em> mark it complete in the task-breakdown artifact (AC-3.3)
+     *       before the next task's turn begins. A task that is not independently testable (an early
+     *       scaffold, a not-yet-buildable {@code pom.xml}) is implemented without per-task
+     *       verification &mdash; there is no per-task verify cycle (DCR-7), so the loop never hard-stops
+     *       at such a task.</li>
+     *   <li>When every planned task is complete (the ones implemented this run plus any already-marked
+     *       on re-entry), run the configured build/test command <em>once</em> over the whole phase
+     *       (testable-only, AC-3.2) via the reused {@link VerifyLoop} and map the single verify outcome
+     *       (T-3.9): a passing verify is {@link ImplementOutcome#verified(List, VerifyOutcome)} (the
+     *       clean phase success); a verify that does not pass within {@code NFR-VERIFY-MAX-ITERATIONS}
+     *       attempts is {@link ImplementOutcome#verifyFailed(List, VerifyOutcome)} (stop and surface,
      *       AC-3.4/AC-20.5); no configured test command is
      *       {@link ImplementOutcome#completeWithWarning(List, VerifyOutcome)} (skip with one warning,
      *       terminate deterministically &mdash; AC-3.6). When the loop carries no verify collaborators
      *       (the per-task unit path), the end verify is skipped and the result is
-     *       {@link ImplementOutcome#allImplemented(List)}.</li>
+     *       {@link ImplementOutcome#allImplemented(List)}. The end-of-phase verify gates the
+     *       <em>phase</em> (AC-3.2), so it runs once even on a re-entry that implemented nothing
+     *       (every planned task was already complete) &mdash; verifying the already-complete work,
+     *       consistent with a single uninterrupted run.</li>
      * </ol>
+     *
+     * <p>The {@code implementedTasks} the terminal {@link ImplementOutcome} carries are the phase's
+     * complete tasks in breakdown order &mdash; the union of the tasks implemented this run and the
+     * tasks already marked complete on re-entry &mdash; so the report reflects the whole completed
+     * phase, not only the tasks this particular (resumed) run touched.
      *
      * @param prompt the prompt that opens the implementation phase (the phase-advance prompt the
      *               driver supplies when it enters IMPLEMENT, naming the per-task implementation it
@@ -185,28 +232,59 @@ public final class GreenfieldImplementLoop {
             throw new IllegalArgumentException("prompt must be non-blank");
         }
 
-        List<String> tasks = readTasksInOrder();
-        if (tasks.isEmpty()) {
+        List<String> plannedTasks = readPlannedTasksInOrder();
+        if (plannedTasks.isEmpty()) {
             LOGGER.warn("Greenfield implement phase entered but the approved breakdown ({}) has no "
                     + "recognizable task to implement", TASKS_ARTIFACT.relativePath());
             return ImplementOutcome.noTasks();
         }
 
-        LOGGER.info("Greenfield implement phase: {} task(s) to implement one at a time in breakdown "
-                + "order, marking each complete on implementation; verification runs once at end of "
-                + "phase (AC-3.2/3.3, ADR-0012/DCR-7)", tasks.size());
+        Set<String> alreadyComplete = readCompletedTaskIds();
+        List<String> remaining = new ArrayList<>(plannedTasks);
+        remaining.removeAll(alreadyComplete);
 
-        List<String> implemented = new ArrayList<>();
-        for (String taskId : tasks) {
-            implementTask(taskId, prompt);
-            markComplete(taskId);
-            implemented.add(taskId);
+        if (alreadyComplete.isEmpty()) {
+            LOGGER.info("Greenfield implement phase: {} task(s) to implement one at a time in breakdown "
+                    + "order, marking each complete on implementation; verification runs once at end of "
+                    + "phase (AC-3.2/3.3, ADR-0012/DCR-7)", plannedTasks.size());
+        } else {
+            LOGGER.info("Greenfield intra-IMPLEMENT resume: {} of {} planned task(s) already marked "
+                    + "complete on disk; resuming at the first incomplete task and implementing the "
+                    + "remaining {} (skipping completed, not restarting at the first task) "
+                    + "(AC-7.6/AC-3.3, T-3.10)",
+                    alreadyComplete.size(), plannedTasks.size(), remaining.size());
         }
 
-        LOGGER.info("Greenfield implement phase: {} task(s) implemented and marked complete in order "
-                + "(AC-3.2/3.3); running the end-of-phase verify once (ADR-0012/DCR-7)",
-                implemented.size());
-        return verifyEndOfPhase(implemented);
+        for (String taskId : remaining) {
+            implementTask(taskId, prompt);
+            markComplete(taskId);
+        }
+
+        List<String> completedPhase = plannedTasksThatAreComplete(plannedTasks);
+        LOGGER.info("Greenfield implement phase: {} task(s) complete in order ({} implemented this "
+                + "run, {} already complete on re-entry); running the end-of-phase verify once over "
+                + "the whole phase (AC-3.2, ADR-0012/DCR-7)",
+                completedPhase.size(), remaining.size(), alreadyComplete.size());
+        return verifyEndOfPhase(completedPhase);
+    }
+
+    /**
+     * The planned tasks (the union of {@code plannedTasks}) whose ids are now marked complete, in
+     * breakdown order. After the per-task loop ran, every remaining task was implemented and marked, so
+     * this is the whole set of planned tasks that are complete &mdash; the tasks implemented this run
+     * plus any already marked on re-entry &mdash; deduplicated in breakdown order. This is what the
+     * terminal {@link ImplementOutcome} reports as the phase's complete tasks (AC-3.2 gates the phase).
+     */
+    private List<String> plannedTasksThatAreComplete(List<String> plannedTasks) {
+        Set<String> complete = readCompletedTaskIds();
+        List<String> ordered = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (String taskId : plannedTasks) {
+            if (complete.contains(taskId) && seen.add(taskId)) {
+                ordered.add(taskId);
+            }
+        }
+        return ordered;
     }
 
     /**
@@ -297,14 +375,71 @@ public final class GreenfieldImplementLoop {
         return prompt -> LoopOutcome.completed(report(run(prompt)));
     }
 
-    private List<String> readTasksInOrder() {
+    /**
+     * Enumerates the <em>planned</em> tasks of the breakdown in breakdown order (AC-3.2/AC-3.1),
+     * reusing the shared {@link TaskTraceability#tasksInOrder} recognition but <em>excluding</em> the
+     * completion-marker lines a prior interrupted run may have appended (T-3.10). The markers
+     * ({@code - [x] <taskId> Implemented}) live in the same artifact and a checked-checkbox line is
+     * itself recognized as a task by {@link TaskTraceability}; without this exclusion a post-completion
+     * re-read would double-count each marked id (once for its planned line, once for its marker line).
+     * Stripping the recognized markers before enumeration keeps the planned-task list exactly the
+     * planned tasks, while {@link #readCompletedTaskIds()} computes the completed-id set from those same
+     * markers. {@link TaskTraceability#tasksInOrder} itself is left marker-unaware so its contract (and
+     * {@link TaskTraceability#check}'s, which runs at tasks-phase approval before any marker exists)
+     * is unchanged.
+     */
+    private List<String> readPlannedTasksInOrder() {
         Optional<String> breakdown = store.read(TASKS_ARTIFACT.relativePath());
         if (breakdown.isEmpty()) {
             LOGGER.warn("Greenfield implement phase entered but no task-breakdown artifact exists at "
                     + "{}", TASKS_ARTIFACT.relativePath());
             return List.of();
         }
-        return TaskTraceability.tasksInOrder(breakdown.get());
+        return TaskTraceability.tasksInOrder(withoutCompletionMarkers(breakdown.get()));
+    }
+
+    /**
+     * The set of task ids already marked complete on disk (T-3.10, the read-back side of
+     * {@code markComplete}; AC-3.3 "completion markers are read back on resume", AC-7.6). Reads the
+     * current task-breakdown artifact and collects the id from every completion-marker line &mdash;
+     * recognized specifically by {@link CompletionStamp#isCompletionLine} (the checked {@code - [x]}
+     * box plus the trailing {@code Implemented} marker token), so a planned {@code - [x] T-1 …} or
+     * unchecked {@code - [ ] T-1 …} task line is never mistaken for a completion marker. An absent
+     * artifact (or one with no markers, the fresh-run case) yields an empty set. The order is not
+     * significant for skip-set membership, but a {@link LinkedHashSet} preserves first-seen order for
+     * deterministic logging.
+     */
+    private Set<String> readCompletedTaskIds() {
+        String content = store.read(TASKS_ARTIFACT.relativePath()).orElse("");
+        Set<String> completed = new LinkedHashSet<>();
+        for (String line : content.split("\n", -1)) {
+            CompletionStamp.taskIdOf(line).ifPresent(completed::add);
+        }
+        return completed;
+    }
+
+    /**
+     * Returns the breakdown content with the completion-marker lines removed (T-3.10), so the planned
+     * tasks can be enumerated without the markers polluting them. Only lines recognized as completion
+     * markers ({@link CompletionStamp#isCompletionLine}) are dropped; every other line (including the
+     * original planned-task lines, even when they use a {@code - [x]} checkbox) is preserved verbatim,
+     * so the planned-task enumeration over the result is identical to the enumeration over the original
+     * pre-completion breakdown.
+     */
+    private static String withoutCompletionMarkers(String breakdown) {
+        StringBuilder kept = new StringBuilder(breakdown.length());
+        boolean first = true;
+        for (String line : breakdown.split("\n", -1)) {
+            if (CompletionStamp.isCompletionLine(line)) {
+                continue;
+            }
+            if (!first) {
+                kept.append('\n');
+            }
+            kept.append(line);
+            first = false;
+        }
+        return kept.toString();
     }
 
     /**
@@ -319,8 +454,14 @@ public final class GreenfieldImplementLoop {
 
     /**
      * Marks an implemented task complete in the task-breakdown artifact (AC-3.3), reusing the T-3.2
-     * {@link GreenfieldArtifactStore#appendLine} writer. The completion line records the task id so a
-     * reader (and the T-3.10 intra-IMPLEMENT resume) can see which tasks the loop implemented.
+     * {@link GreenfieldArtifactStore#appendLine} writer. The completion line records the task id in the
+     * {@link CompletionStamp} shape so a reader can see which tasks the loop implemented.
+     *
+     * <p><b>Write paired with read (T-3.10).</b> The marker this method writes is read back by
+     * {@link #readCompletedTaskIds()} on a later (resumed) run &mdash; the prior write-only marker is
+     * now a durable write-and-read fact: the write here and the read-back there recognize the same
+     * {@link CompletionStamp} shape, so an intra-IMPLEMENT resume skips exactly the tasks this method
+     * marked (AC-3.3 "completion markers are read back on resume", AC-7.6, resolves D2).
      */
     private void markComplete(String taskId) {
         store.appendLine(TASKS_ARTIFACT.relativePath(), CompletionStamp.line(taskId));
@@ -378,24 +519,71 @@ public final class GreenfieldImplementLoop {
     }
 
     /**
-     * Builds the completion line appended to the task-breakdown artifact when a task is implemented
-     * (AC-3.3, DCR-7): a stable, greppable marker naming the task id, with the conventional completed-
-     * checkbox shape ({@code - [x] <taskId> …}) so a reader (and the T-3.10 intra-IMPLEMENT resume)
-     * can read back which tasks the loop implemented. Kept as a small tested artifact so the suite can
-     * assert the marker carries the task id (rather than an opaque string), the same discipline
-     * {@link ApprovalStamp} uses for the approval line.
+     * Builds <em>and parses</em> the completion line appended to the task-breakdown artifact when a
+     * task is implemented (AC-3.3, DCR-7; the read-back side is T-3.10): a stable, greppable marker
+     * naming the task id, with the conventional completed-checkbox shape ({@code - [x] <taskId>
+     * Implemented}) so a reader (the T-3.10 intra-IMPLEMENT resume) can read back which tasks the loop
+     * implemented. Kept as a small tested artifact so the suite can assert the marker carries the task
+     * id (rather than an opaque string), the same discipline {@link ApprovalStamp} uses for the
+     * approval line.
+     *
+     * <p><b>One shape, written and recognized here (T-3.10).</b> The marker is distinguished from a
+     * planned-task line by this <em>whole</em> shape &mdash; the checked {@code - [x]} box <em>plus</em>
+     * the trailing {@link #MARKER} token &mdash; not by the {@code [x]} checkbox alone (a real planned
+     * task may itself be a checked or unchecked checkbox, which {@link TaskTraceability} recognizes as a
+     * task). {@link #line} writes that shape and {@link #isCompletionLine} / {@link #taskIdOf} recognize
+     * exactly it, so the writer and the reader cannot drift: a unit test pins that {@code line(id)} is
+     * recognized as a completion line for {@code id}.
      */
     static final class CompletionStamp {
 
         static final String MARKER = "Implemented";
 
+        /**
+         * Recognizes the completion-line shape this stamp writes (T-3.10): optional leading whitespace,
+         * the checked {@code - [x]} list-checkbox, a stable task id ({@code T-<n>}/{@code T-<n>.<m>},
+         * the same id form {@link TaskTraceability} uses), then the trailing {@link #MARKER} token as
+         * the final content of the line. Group 1 captures the bare task id. Matching the trailing marker
+         * (not just the {@code [x]} box) is what keeps a planned {@code - [x] T-1 Build the parser} or
+         * an unchecked {@code - [ ] T-1 …} task line from being mistaken for a completion marker.
+         */
+        private static final Pattern COMPLETION_LINE = Pattern.compile(
+                "^\\s*-\\s*\\[[xX]\\]\\s+(T-\\d+(?:\\.\\d+)*)\\s+" + MARKER + "\\s*$");
+
         private CompletionStamp() {
-            // Holder for the completion-line builder; not instantiable.
+            // Holder for the completion-line builder + parser; not instantiable.
         }
 
         static String line(String taskId) {
             Objects.requireNonNull(taskId, "taskId");
             return "- [x] " + taskId + " " + MARKER;
+        }
+
+        /**
+         * Whether {@code line} is a completion-marker line in this stamp's shape (a checked
+         * {@code - [x]} box, a task id, then the trailing {@link #MARKER} token). Used to exclude the
+         * markers when enumerating the planned tasks (T-3.10).
+         *
+         * @param line one line of the task-breakdown artifact; must not be {@code null}.
+         * @return {@code true} if {@code line} is a completion marker.
+         * @throws NullPointerException if {@code line} is {@code null}.
+         */
+        static boolean isCompletionLine(String line) {
+            return COMPLETION_LINE.matcher(Objects.requireNonNull(line, "line")).matches();
+        }
+
+        /**
+         * The task id named by {@code line} when it is a completion-marker line in this stamp's shape,
+         * or {@link Optional#empty()} otherwise (T-3.10). The read-back side of {@link #line}: a marker
+         * {@code - [x] T-1 Implemented} yields {@code T-1}; any other line yields empty.
+         *
+         * @param line one line of the task-breakdown artifact; must not be {@code null}.
+         * @return the bare task id of the completion marker, or empty when {@code line} is not a marker.
+         * @throws NullPointerException if {@code line} is {@code null}.
+         */
+        static Optional<String> taskIdOf(String line) {
+            Matcher matcher = COMPLETION_LINE.matcher(Objects.requireNonNull(line, "line"));
+            return matcher.matches() ? Optional.of(matcher.group(1)) : Optional.empty();
         }
     }
 }

@@ -205,4 +205,96 @@ class GreenfieldResumeContractTest {
                 "DCR-1 (resume): the design prompt injects the on-disk approved requirements content; "
                         + "was: " + designPrompt);
     }
+
+    // --- CT-GF-6 (DCR-7) : intra-IMPLEMENT resume over disk skips completed, resumes at first incomplete
+
+    /** Stamps the given artifact with the production AC-1.5 approval stamp (never hand-faked). */
+    private static void writeAndStamp(GreenfieldArtifactStore store, GreenfieldArtifact artifact,
+            String body) {
+        store.write(artifact.relativePath(), body);
+        store.appendLine(artifact.relativePath(), ApprovalStamp.line(artifact, TS));
+    }
+
+    /**
+     * A phase-loop factory that routes the terminal IMPLEMENT phase to the REAL
+     * {@link GreenfieldImplementLoop} over the target-repo store (so the on-disk read-back + skip is
+     * exercised end-to-end), and routes any pre-approval phase to a stub that records it ran. On a
+     * resume that reconstructs to IMPLEMENT (all three pre-approval artifacts stamped) the pre-approval
+     * stubs never run; if one did, the recorded phase would expose a regression.
+     */
+    private static final class ImplementBackedPhaseLoops implements GreenfieldDriver.PhaseLoopFactory {
+        private final List<GreenfieldPhase> phasesRun = new ArrayList<>();
+        private final List<String> implementTaskPrompts = new ArrayList<>();
+        private final GreenfieldImplementLoop.LoopTurn implementTurns;
+        private final GreenfieldArtifactStore store;
+
+        ImplementBackedPhaseLoops(GreenfieldArtifactStore store,
+                GreenfieldImplementLoop.LoopTurn implementTurns) {
+            this.store = store;
+            this.implementTurns = implementTurns;
+        }
+
+        @Override
+        public GreenfieldDriver.LoopTurn loopFor(GreenfieldPhase phase) {
+            phasesRun.add(phase);
+            if (phase == GreenfieldPhase.IMPLEMENT) {
+                // Real implement loop: it reads the planned tasks + the on-disk completion markers and
+                // implements only the incomplete ones (the per-task implementation turn is the scripted
+                // seam, recording which task each turn names).
+                GreenfieldImplementLoop.LoopTurn recordingTurns = prompt -> {
+                    implementTaskPrompts.add(prompt);
+                    return implementTurns.run(prompt);
+                };
+                return new GreenfieldImplementLoop(recordingTurns, store).asLoopTurn();
+            }
+            return prompt -> LoopOutcome.completed("# " + phase.name() + " deliverable\n");
+        }
+    }
+
+    @Test
+    @DisplayName("CT-GF-6/AC-7.6/AC-3.3: a fresh greenfield run reconstructing to IMPLEMENT over a partially-completed breakdown resumes at the first incomplete task — completed tasks skipped, NOT a restart at T-1")
+    void reconstructedImplementOverPartialBreakdownResumesAtFirstIncomplete(
+            @TempDir java.nio.file.Path targetRepo) {
+        // Oracle: CT-GF-6 / AC-7.6 (IMPLEMENT facet) / AC-3.3 — "a greenfield re-entry whose
+        // reconstructed phase is IMPLEMENT over a partially-completed breakdown reads back the per-task
+        // completion markers and resumes at the FIRST INCOMPLETE TASK, terminating — it does NOT restart
+        // at the first task (T-1). Completed tasks are skipped." A PRIOR run approved + stamped all three
+        // pre-approval artifacts (so reconstruct resolves to IMPLEMENT, the phase boundary, T-3.4), then
+        // implemented + marked T-1 before being interrupted. A fresh run re-derives IMPLEMENT from disk
+        // and the implement loop reads the marker back, resuming at T-2 (skipping T-1). The on-disk
+        // stamps + markers are written exactly as production writes them. Expected resume-at-T-2 +
+        // skip-T-1 trace to CT-GF-6 / AC-7.6, end-to-end over disk.
+        GreenfieldArtifactStore store = new GreenfieldArtifactStore(targetRepo);
+        writeAndStamp(store, GreenfieldArtifact.REQUIREMENTS, "# Requirements\n");
+        writeAndStamp(store, GreenfieldArtifact.DESIGN, "# Design\n");
+        writeAndStamp(store, GreenfieldArtifact.TASKS,
+                "# Tasks\n- T-1 Parser (AC-1.2)\n- T-2 CLI (US-3)\n- T-3 Persist (AC-2.1)\n");
+        // A prior interrupted run implemented + marked T-1 (the durable on-disk marker, AC-3.3).
+        store.appendLine(GreenfieldArtifact.TASKS.relativePath(),
+                GreenfieldImplementLoop.CompletionStamp.line("T-1"));
+
+        ImplementBackedPhaseLoops loops = new ImplementBackedPhaseLoops(
+                store, prompt -> LoopOutcome.completed("did a task"));
+        ArtifactApprovalGate gate = new ArtifactApprovalGate(completedPhase -> true, store, () -> TS);
+        GreenfieldDriver.PhaseStateReconstructor reconstructor =
+                () -> GreenfieldPhaseState.reconstruct(resumeProbeOver(store));
+        GreenfieldDriver freshRun = new GreenfieldDriver(
+                loops, writerOver(store), gate, phase -> null, reconstructor);
+
+        freshRun.run(REQUEST);
+
+        assertEquals(GreenfieldPhase.IMPLEMENT, loops.phasesRun.get(0),
+                "CT-GF-6: the fresh run reconstructs to IMPLEMENT (all three pre-approval phases are "
+                        + "stamped on disk) — the phase boundary resumes at IMPLEMENT");
+        assertFalse(loops.phasesRun.contains(GreenfieldPhase.REQUIREMENTS),
+                "CT-GF-6: the approved pre-approval phases are not re-run");
+        assertEquals(2, loops.implementTaskPrompts.size(),
+                "CT-GF-6: within IMPLEMENT only the two INCOMPLETE tasks (T-2, T-3) are implemented — "
+                        + "the completed T-1 is skipped, so it does NOT restart at T-1");
+        assertTrue(loops.implementTaskPrompts.get(0).contains("T-2"),
+                "CT-GF-6/AC-7.6: the resume point within IMPLEMENT is the first incomplete task (T-2); "
+                        + "was: " + loops.implementTaskPrompts.get(0));
+        assertFalse(loops.implementTaskPrompts.stream().anyMatch(p -> p.contains("Implement task T-1")),
+                "CT-GF-6: the already-completed T-1 is not re-implemented on the disk-driven resume");
+    }
 }

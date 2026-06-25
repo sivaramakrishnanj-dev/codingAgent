@@ -568,7 +568,172 @@ class GreenfieldImplementLoopTest {
                         + text);
     }
 
-    // --- CompletionStamp : the marker names the task id ------------------------------------------
+    // --- T-3.10 (CT-GF-6) : intra-IMPLEMENT resume skips completed tasks, resumes at first incomplete
+
+    private static final String THREE_TASK_BREAKDOWN = """
+            # Tasks
+
+            - T-1 Build the parser (refs AC-1.2)
+            - T-2 Wire the CLI (refs US-3)
+            - T-3 Persist results (refs AC-2.1)
+            """;
+
+    /** Appends the durable per-task completion marker T-3.8 writes (the read-back side T-3.10 reads). */
+    private static void markCompletedOnDisk(GreenfieldArtifactStore store, String... taskIds) {
+        for (String taskId : taskIds) {
+            store.appendLine(TASKS_PATH, GreenfieldImplementLoop.CompletionStamp.line(taskId));
+        }
+    }
+
+    @Test
+    @DisplayName("CT-GF-6/AC-7.6/AC-3.3: a re-entry over a partially-completed breakdown resumes at the first incomplete task — completed tasks are skipped, it does NOT restart at T-1")
+    void resumeOverPartiallyCompletedBreakdownResumesAtFirstIncomplete(@TempDir Path workspace) {
+        // Oracle: CT-GF-6 + AC-7.6 (IMPLEMENT facet) + AC-3.3 — "a greenfield re-entry whose
+        // reconstructed phase is IMPLEMENT over a partially-completed breakdown reads back the per-task
+        // completion markers and resumes at the FIRST INCOMPLETE TASK, terminating — it does NOT restart
+        // at the first task (T-1). Completed tasks (marked complete on implementation, AC-3.3) are
+        // skipped." With T-1 already marked complete on disk (a prior interrupted run) and T-2/T-3 not,
+        // the re-entry must implement ONLY T-2 then T-3 (the first incomplete onward), never re-running
+        // T-1. The skipped id (T-1) and the resume point (T-2 first) trace to CT-GF-6/AC-7.6, not to the
+        // loop's code.
+        GreenfieldArtifactStore store = storeWithBreakdown(workspace, THREE_TASK_BREAKDOWN);
+        markCompletedOnDisk(store, "T-1"); // a prior run implemented + marked T-1, then was interrupted
+        ScriptedLoop loop = new ScriptedLoop().thenCompleted("did T-2").thenCompleted("did T-3");
+
+        ImplementOutcome outcome = new GreenfieldImplementLoop(loop, store).run(IMPLEMENT_PROMPT);
+
+        assertEquals(2, loop.runs(),
+                "CT-GF-6: only the two INCOMPLETE tasks (T-2, T-3) are implemented — the completed T-1 "
+                        + "is skipped (no re-run), so the re-entry does NOT restart at T-1");
+        assertTrue(loop.prompts.get(0).contains("T-2"),
+                "CT-GF-6/AC-7.6: the re-entry resumes at the FIRST INCOMPLETE task (T-2), not T-1; "
+                        + "was: " + loop.prompts.get(0));
+        assertFalse(loop.prompts.stream().anyMatch(p -> p.contains("Implement task T-1")),
+                "CT-GF-6: the already-completed T-1 is not re-implemented on the re-entry");
+        assertTrue(loop.prompts.get(1).contains("T-3"),
+                "CT-GF-6: after the first incomplete task, the remaining incomplete tasks follow in "
+                        + "breakdown order (T-3); was: " + loop.prompts.get(1));
+    }
+
+    @Test
+    @DisplayName("CT-GF-6/AC-3.2: a partially-completed re-entry reports the whole completed phase in breakdown order (the skipped completed task plus the newly implemented ones)")
+    void resumeReportsWholeCompletedPhaseInBreakdownOrder(@TempDir Path workspace) {
+        // Oracle: CT-GF-6 + AC-3.2 — the end-of-phase verify gates the PHASE, so the terminal outcome
+        // reflects the whole completed phase, not only the tasks this resumed run touched. With T-1
+        // already complete and T-2/T-3 implemented this run, every planned task is now complete, in
+        // breakdown order (T-1, T-2, T-3). The reported list traces to the breakdown's order + AC-3.2's
+        // phase-level gating, not to the loop's code.
+        GreenfieldArtifactStore store = storeWithBreakdown(workspace, THREE_TASK_BREAKDOWN);
+        markCompletedOnDisk(store, "T-1");
+        ScriptedLoop loop = new ScriptedLoop().thenCompleted("did T-2").thenCompleted("did T-3");
+
+        ImplementOutcome outcome = new GreenfieldImplementLoop(loop, store).run(IMPLEMENT_PROMPT);
+
+        assertEquals(ImplementOutcome.Disposition.ALL_IMPLEMENTED, outcome.disposition(),
+                "CT-GF-6: with every planned task now complete the run is all-implemented");
+        assertEquals(List.of("T-1", "T-2", "T-3"), outcome.implementedTasks(),
+                "CT-GF-6/AC-3.2: the terminal outcome reports the whole completed phase in breakdown "
+                        + "order — the skipped already-complete T-1 plus the newly implemented T-2, T-3");
+    }
+
+    @Test
+    @DisplayName("CT-GF-6/AC-7.6: a re-entry that resumes mid-breakdown does NOT double-count the markers as planned tasks (planned enumeration is not polluted)")
+    void resumeDoesNotDoubleCountMarkersAsPlannedTasks(@TempDir Path workspace) {
+        // Oracle: CT-GF-6 / AC-7.6 critical subtlety — the completion markers (- [x] T-1 Implemented)
+        // live in the SAME artifact and a checked-checkbox line is itself recognized as a task; a naive
+        // enumeration would count T-1 twice (its planned line + its marker) and could re-run it. The
+        // spec requires the completed task to be SKIPPED. With T-1 and T-2 marked complete on disk, only
+        // the single remaining incomplete task (T-3) is implemented — exactly once — proving the markers
+        // are read as "already done", not enumerated as extra planned work. Traced to AC-7.6/CT-GF-6.
+        GreenfieldArtifactStore store = storeWithBreakdown(workspace, THREE_TASK_BREAKDOWN);
+        markCompletedOnDisk(store, "T-1", "T-2");
+        ScriptedLoop loop = new ScriptedLoop().thenCompleted("did T-3");
+
+        ImplementOutcome outcome = new GreenfieldImplementLoop(loop, store).run(IMPLEMENT_PROMPT);
+
+        assertEquals(1, loop.runs(),
+                "CT-GF-6: exactly ONE incomplete task (T-3) is implemented — the two completed tasks are "
+                        + "skipped and the markers are NOT mistaken for extra planned tasks to re-run");
+        assertTrue(loop.prompts.get(0).contains("T-3"),
+                "CT-GF-6: the resume point is the first incomplete task (T-3); was: " + loop.prompts.get(0));
+        assertEquals(List.of("T-1", "T-2", "T-3"), outcome.implementedTasks(),
+                "CT-GF-6: the completed phase is the three planned tasks in order — each listed once, "
+                        + "not duplicated by its marker line");
+    }
+
+    @Test
+    @DisplayName("CT-GF-6/AC-3.3: a fresh (uninterrupted) run has no completion markers, so nothing is skipped and every task is implemented")
+    void freshRunWithNoMarkersImplementsEveryTask(@TempDir Path workspace) {
+        // Oracle: AC-3.3/AC-7.6 — completion markers are read back "so a re-entry skips already-completed
+        // tasks". A FRESH run over a breakdown with NO markers has nothing to skip, so every planned task
+        // is implemented in order — the read-back is a no-op on the fresh path (no regression to the
+        // T-3.8/T-3.9 implement-every-task behaviour). Traced to AC-3.3 (the read-back is for re-entries).
+        GreenfieldArtifactStore store = storeWithBreakdown(workspace, THREE_TASK_BREAKDOWN);
+        ScriptedLoop loop = new ScriptedLoop()
+                .thenCompleted("did T-1").thenCompleted("did T-2").thenCompleted("did T-3");
+
+        ImplementOutcome outcome = new GreenfieldImplementLoop(loop, store).run(IMPLEMENT_PROMPT);
+
+        assertEquals(3, loop.runs(),
+                "AC-3.3: a fresh run with no markers skips nothing — every planned task is implemented");
+        assertEquals(List.of("T-1", "T-2", "T-3"), outcome.implementedTasks(),
+                "AC-3.3: with no markers to skip, every planned task is implemented in breakdown order");
+    }
+
+    @Test
+    @DisplayName("CT-GF-6/AC-3.2: a re-entry over a FULLY-completed breakdown implements nothing and terminates — it does not restart at T-1")
+    void resumeOverFullyCompletedBreakdownImplementsNothing(@TempDir Path workspace) {
+        // Oracle: CT-GF-6 + AC-7.6 + AC-3.2 — when every planned task already carries a completion marker
+        // (a re-entry over a fully-implemented breakdown), there is nothing left to implement: the loop
+        // skips all tasks and terminates, it does NOT restart at the first task (T-1). With T-1/T-2/T-3
+        // all marked complete on disk, NO implementation turn runs, and the outcome reports the whole
+        // already-complete phase. The "implements nothing / does not restart" behaviour traces to
+        // CT-GF-6/AC-7.6, not the loop's code.
+        GreenfieldArtifactStore store = storeWithBreakdown(workspace, THREE_TASK_BREAKDOWN);
+        markCompletedOnDisk(store, "T-1", "T-2", "T-3");
+        ScriptedLoop loop = new ScriptedLoop(); // empty: any implementation turn would throw
+
+        ImplementOutcome outcome = new GreenfieldImplementLoop(loop, store).run(IMPLEMENT_PROMPT);
+
+        assertEquals(0, loop.runs(),
+                "CT-GF-6: a fully-completed breakdown implements NOTHING on re-entry — no task is "
+                        + "re-run, and the loop does not restart at T-1");
+        assertEquals(List.of("T-1", "T-2", "T-3"), outcome.implementedTasks(),
+                "CT-GF-6/AC-3.2: the terminal outcome reports the whole already-complete phase in order");
+    }
+
+    @Test
+    @DisplayName("CT-GF-6/AC-3.2: a FULLY-completed re-entry still runs the end-of-phase verify ONCE over the already-complete phase (the verify gates the phase, not each task)")
+    void fullyCompletedReEntryStillRunsEndOfPhaseVerifyOnce(@TempDir Path workspace) {
+        // Oracle: AC-3.2 (amended DCR-7) — "when all tasks in the greenfield breakdown have been
+        // implemented, the agent shall verify them ONCE at the end of the phase"; the verify gates the
+        // PHASE, not each task. On a re-entry where every planned task is already complete, nothing is
+        // implemented, but the end-of-phase verify still runs once over the already-complete phase
+        // (consistent with a single uninterrupted run). With a trivially-passing configured command and
+        // no implementation turns, the run is the clean ALL_IMPLEMENTED success carrying the verified
+        // verify. The "verify still runs once" behaviour traces to AC-3.2's phase-level gating.
+        GreenfieldArtifactStore store = storeWithBreakdown(workspace, TWO_TASK_BREAKDOWN);
+        markCompletedOnDisk(store, "T-1", "T-2");
+        ScriptedLoop loop = new ScriptedLoop(); // no implementation turns: every task already complete
+        ResolvedConfig config = configWith(new Commands(null, "true", null), 5);
+        GreenfieldImplementLoop implementLoop = GreenfieldImplementLoop.overConfig(
+                loop, new CommandExecutor(workspace), config, store);
+
+        ImplementOutcome outcome = implementLoop.run(IMPLEMENT_PROMPT);
+
+        assertEquals(0, loop.runs(),
+                "AC-7.6: nothing was implemented — every planned task was already complete on re-entry");
+        assertEquals(ImplementOutcome.Disposition.ALL_IMPLEMENTED, outcome.disposition(),
+                "AC-3.2: the end-of-phase verify gates the phase and still runs on a fully-complete "
+                        + "re-entry; the trivially-passing verify is the clean phase success");
+        assertTrue(outcome.verifyOutcomeIfPresent().orElseThrow().verified(),
+                "AC-3.2: the single end-of-phase verify ran once over the already-complete phase and "
+                        + "passed");
+        assertEquals(List.of("T-1", "T-2"), outcome.implementedTasks(),
+                "AC-3.2: the verified phase reports its complete tasks in breakdown order");
+    }
+
+    // --- CompletionStamp : the marker names the task id, and is read back by its own shape ---------
 
     @Test
     @DisplayName("AC-3.3: the completion marker names the task id with the [x] checkbox shape")
@@ -585,6 +750,42 @@ class GreenfieldImplementLoopTest {
                         + line);
         assertTrue(line.contains(GreenfieldImplementLoop.CompletionStamp.MARKER),
                 "the completion marker is a stable, greppable token");
+    }
+
+    @Test
+    @DisplayName("AC-3.3/T-3.10: the marker line() writes is read back by isCompletionLine/taskIdOf for the SAME id (write+read round-trip)")
+    void completionStampRoundTripsWriteAndRead() {
+        // Oracle: AC-3.3 (amended DCR-7) — "Completion markers are read back on resume". The write side
+        // (line) and the read-back side (isCompletionLine / taskIdOf) must agree on the same shape so a
+        // resume skips exactly the tasks the loop marked: the line written for an id must be recognized
+        // as a completion line FOR THAT id. Round-tripping the id traces to AC-3.3's write+read marker
+        // contract, not to the impl's regex.
+        String written = GreenfieldImplementLoop.CompletionStamp.line("T-3.4");
+        assertTrue(GreenfieldImplementLoop.CompletionStamp.isCompletionLine(written),
+                "AC-3.3: the line the loop writes is recognized as a completion-marker line; was: "
+                        + written);
+        assertEquals("T-3.4", GreenfieldImplementLoop.CompletionStamp.taskIdOf(written).orElseThrow(),
+                "AC-3.3: the read-back recovers the SAME task id the marker was written for");
+    }
+
+    @Test
+    @DisplayName("AC-3.3/T-3.10: a planned task line ([x] or [ ] without the Implemented marker) is NOT mistaken for a completion marker")
+    void completionStampDoesNotMatchPlannedTaskLines() {
+        // Oracle: AC-3.3 + the CT-GF-6 critical subtlety — the marker is distinguished by the WHOLE
+        // shape (the checked box PLUS the trailing "Implemented" token), not by the [x] checkbox alone,
+        // because a real planned task may itself be a checked/unchecked checkbox line that
+        // TaskTraceability recognizes as a task. A planned "- [x] T-1 Build the parser" (checked, but no
+        // Implemented marker) and a planned "- [ ] T-2 Wire the CLI" must NOT read as completion
+        // markers, or a resume would wrongly skip an unimplemented task. Traced to AC-3.3 + CT-GF-6.
+        assertFalse(GreenfieldImplementLoop.CompletionStamp.isCompletionLine(
+                        "- [x] T-1 Build the parser (refs AC-1.2)"),
+                "AC-3.3: a checked planned-task line without the 'Implemented' marker is NOT a completion "
+                        + "marker — the box alone does not make a marker");
+        assertTrue(GreenfieldImplementLoop.CompletionStamp.taskIdOf(
+                        "- [ ] T-2 Wire the CLI (refs US-3)").isEmpty(),
+                "AC-3.3: an unchecked planned-task line is not a completion marker");
+        assertTrue(GreenfieldImplementLoop.CompletionStamp.taskIdOf("# Tasks").isEmpty(),
+                "a non-task line is not a completion marker");
     }
 
     // --- construction + input validation ---------------------------------------------------------
