@@ -3,9 +3,9 @@ doc: requirements
 last_reviewed: 2026-06-24
 phase: resolved
 status: resolved
-review: reviews/2026-06-24-amendment-greenfield-containment-and-gate-miscounting-r1.md
+review: reviews/2026-06-25-amendment-greenfield-implement-verify-model-r1.md
 approved_in: e03b032
-amended_by: [DCR-1, DCR-2, DCR-3, DCR-4, DCR-5, DCR-6]
+amended_by: [DCR-1, DCR-2, DCR-3, DCR-4, DCR-5, DCR-6, DCR-7]
 ---
 
 # Requirements — codingAgent
@@ -225,10 +225,11 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 | AC         | Type | Criterion                                                                                                                                          | Refs                      |
 | ---------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
 | **AC-3.1** | St   | While implementing, the agent shall work one task at a time in breakdown order, unless dependencies dictate otherwise.                             | US-3                      |
-| **AC-3.2** | Ev   | When a task's changes are complete, the agent shall verify them via the configured build/test commands.                                            | AC-20.1                   |
-| **AC-3.3** | Ev   | When a task passes verification, the agent shall mark it complete in the task-breakdown artifact before starting the next.                         | US-3                      |
-| **AC-3.4** | Un   | If a task fails verification after `NFR-VERIFY-MAX-ITERATIONS`, then the agent shall stop and surface the failure rather than continuing silently. | NFR-VERIFY-MAX-ITERATIONS |
+| **AC-3.2** | Ev   | When all tasks in the greenfield breakdown have been implemented, the agent shall verify them **once at the end of the phase** via the configured build/test commands — not after each individual task. The greenfield implement phase is a flat task list with no milestone substructure, so the verify boundary is end-of-phase (a single configured build/test run after the last task). Tasks that are not independently testable (for example an early scaffold or a `pom.xml` that is not buildable until later tasks land) are implemented **without per-task verification** — only the end-of-phase verify gates the phase (ADR-0012, DCR-7). | AC-20.1, ADR-0012         |
+| **AC-3.3** | Ev   | When a task is implemented, the agent shall mark it complete in the task-breakdown artifact **as it is implemented** (a durable on-disk completion marker), before starting the next. Completion markers are **read back on resume** so a re-entry skips already-completed tasks (AC-7.6). End-of-phase verification (AC-3.2) gates the **phase**, not each individual task — a task is marked complete on implementation, not on passing an individual verify (ADR-0012, DCR-7). | US-3, ADR-0012            |
+| **AC-3.4** | Un   | If end-of-phase verification fails after `NFR-VERIFY-MAX-ITERATIONS`, then the agent shall stop and surface the failure rather than continuing silently. | NFR-VERIFY-MAX-ITERATIONS |
 | **AC-3.5** | Op   | Where the developer requested a single specific task, the agent shall implement only that task and then stop.                                      | US-3                      |
+| **AC-3.6** | Un   | If the greenfield implement phase has no configured test command, then the agent shall skip the end-of-phase verification with a single warning — having implemented and marked complete every task — and terminate the phase deterministically (no re-prompt loop). This is a **complete-with-warning** terminal success (exit 0), consistent with the brownfield no-verify precedent; it is **not** a hard-stop and **not** a re-loop into a fresh implement attempt (ADR-0012, DCR-7). | US-3, NFR-VERIFY-MAX-ITERATIONS, ADR-0012 |
 
 #### US-4 — Understand existing code (brownfield)
 
@@ -266,7 +267,7 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 | **AC-7.3** | U | The agent shall key stored sessions to the repository (git remote URL when present, else normalized absolute path). | US-7 |
 | **AC-7.4** | Ev | When resuming a session that has compaction-derived continuations, the agent shall resume the latest continuation in the lineage by default. | RD-8 |
 | **AC-7.5** | Un | If a session's persisted events are corrupt or unreadable, then the agent shall report it and offer to start a new session rather than crashing. | US-7 |
-| **AC-7.6** | Ev | When the developer starts greenfield mode against a target project that already holds approval-stamped phase artifacts, the agent shall reconstruct its phase-state from those on-disk artifacts and resume at the first phase whose artifact is unstamped or absent, rather than restarting at requirements. A phase whose artifact bears the AC-1.5 approval stamp is treated as approved; an interrupted mid-phase (whose artifact is unstamped) is re-entered, so a transient failure is retryable in place. Resumable greenfield sessions are keyed to the target project by the AC-7.3 repo key. The in-phase multi-turn transcript is **not** preserved across the interruption — resume re-enters at the phase boundary and re-converses (accepted tradeoff, ADR-0012). | US-1, US-2, US-7, ADR-0012 |
+| **AC-7.6** | Ev | When the developer starts greenfield mode against a target project that already holds approval-stamped phase artifacts, the agent shall reconstruct its phase-state from those on-disk artifacts and resume at the first phase whose artifact is unstamped or absent, rather than restarting at requirements. A phase whose artifact bears the AC-1.5 approval stamp is treated as approved; an interrupted mid-phase (whose artifact is unstamped) is re-entered, so a transient failure is retryable in place. Resumable greenfield sessions are keyed to the target project by the AC-7.3 repo key. The in-phase multi-turn transcript is **not** preserved across the interruption — resume re-enters at the phase boundary and re-converses (accepted tradeoff, ADR-0012). **Intra-IMPLEMENT resume (DCR-7):** when the resumed phase is IMPLEMENT, the agent shall read back the per-task completion markers (AC-3.3) and resume at the **first incomplete task** — skipping tasks already marked complete and terminating rather than restarting at the first task (`T-1`). The same phase-boundary tradeoff applies within IMPLEMENT: task-completion granularity is durable on disk, but the in-phase implement conversation is not preserved across the interruption. | US-1, US-2, US-3, US-7, ADR-0012 |
 
 #### US-8 — Configure
 
@@ -412,7 +413,7 @@ The agent is a CLI, so it has a failure-to-caller surface. This is a **seed**; t
 |--------|---------|------------------|
 | `NFR-MODEL-DEFAULT` | AC-8.3 | Default Bedrock model id. |
 | `NFR-PERMISSION-DEFAULT` | AC-8.4, RD-3 | Default permission mode (= `ASK_EVERY_TIME`). |
-| `NFR-VERIFY-MAX-ITERATIONS` | AC-3.4, AC-20.5 | Max verify-fix attempts before stopping. |
+| `NFR-VERIFY-MAX-ITERATIONS` | AC-3.4, AC-20.5, AC-3.6 | Max verify-fix attempts before stopping. |
 | `NFR-SUBAGENT-MAX` | AC-17.3 | Max concurrent sub-agents per parent. |
 | `NFR-CONTEXT-COMPACT-THRESHOLD` | AC-18.1 | Token usage that triggers auto-compaction. |
 | `NFR-OUTPUT-MAX-INLINE` | AC-19.1 | Output size above which disposal kicks in. |
@@ -503,7 +504,7 @@ Confirms every symbolic `NFR-*` introduced in 1b is now pinned and still referen
 |------------------------|--------------|---------------|
 | `NFR-MODEL-DEFAULT` | Claude Opus 4.x (exact id Phase 2) | AC-8.3 |
 | `NFR-PERMISSION-DEFAULT` | `ASK_EVERY_TIME` | AC-8.4, RD-3 |
-| `NFR-VERIFY-MAX-ITERATIONS` | 5 | AC-3.4, AC-20.5 |
+| `NFR-VERIFY-MAX-ITERATIONS` | 5 | AC-3.4, AC-20.5, AC-3.6 *(DCR-7: AC-3.6 references the bound's no-test-command skip path)* |
 | `NFR-SUBAGENT-MAX` | 1 (configurable) | AC-17.3 |
 | `NFR-CONTEXT-COMPACT-THRESHOLD` | 0.85 × effective window | AC-18.1 |
 | `NFR-OUTPUT-MAX-INLINE` | 16 KB | AC-19.1 |
