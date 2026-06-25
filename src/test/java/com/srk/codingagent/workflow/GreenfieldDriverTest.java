@@ -6,16 +6,23 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.srk.codingagent.config.PermissionMode;
+import com.srk.codingagent.config.ResolvedConfig;
 import com.srk.codingagent.loop.LoopOutcome;
 import com.srk.codingagent.persistence.StopReason;
+import com.srk.codingagent.tool.CommandExecutor;
+import com.srk.codingagent.tool.GreenfieldArtifactStore;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * The greenfield <b>phase-gating + multi-turn-dialogue contract test</b> (T-3.2-RD-D11, DCR-2 /
@@ -516,6 +523,57 @@ class GreenfieldDriverTest {
                 "no approval gate is reached when a phase round surfaces (nothing to approve)");
         assertEquals(List.of(GreenfieldPhase.REQUIREMENTS), loops.phasesRun,
                 "only the surfaced phase ran; no advance, no further phase");
+    }
+
+    // --- CT-GF-5 : the no-test-command IMPLEMENT phase is a TERMINAL COMPLETED run (no re-prompt) --
+
+    @Test
+    @DisplayName("CT-GF-5/AC-3.6: a no-test-command IMPLEMENT phase (real implement loop) maps to a terminal COMPLETED greenfield run — the driver does NOT re-enter implement")
+    void noTestCommandImplementPhaseIsTerminalCompleted(@TempDir Path workspace) {
+        // Oracle: CT-GF-5 + AC-3.6 + ADR-0012 — a greenfield implement phase with NO configured test
+        // command terminates cleanly: every task implemented + marked complete, end verify skipped with
+        // a warning, the outcome is TERMINAL (exit 0, complete-with-warning) and the driver does NOT
+        // re-prompt into a fresh implement attempt (the D1 livelock fix). Wiring the IMPLEMENT phase to
+        // the REAL implement loop (overConfig with a null test command) over an approved breakdown, the
+        // driver must yield COMPLETED at IMPLEMENT — proving the terminal mapping treats the no-test
+        // outcome as a finished phase, not a stop/re-loop. The COMPLETED disposition + the warning text
+        // trace to AC-3.6/CT-GF-5, not the driver's code.
+        GreenfieldArtifactStore store = new GreenfieldArtifactStore(workspace);
+        store.write(GreenfieldArtifact.TASKS.relativePath(), "# Tasks\n\n- T-1 Build it (AC-1.1)\n");
+        ResolvedConfig noTestConfig = configWith(new ResolvedConfig.Commands(null, null, null), 5);
+        GreenfieldDriver.LoopTurn realImplementPhase = GreenfieldImplementLoop.overConfig(
+                p -> LoopOutcome.completed("implemented"),
+                new CommandExecutor(workspace), noTestConfig, store).asLoopTurn();
+
+        // Pre-approval phases scripted to complete-and-approve; the IMPLEMENT phase delegates to the
+        // real implement loop's asLoopTurn() (the only un-scripted phase — the SUT path under test).
+        ScriptedPhaseLoops preApproval = new ScriptedPhaseLoops()
+                .complete(GreenfieldPhase.REQUIREMENTS, "reqs")
+                .complete(GreenfieldPhase.DESIGN, "design")
+                .complete(GreenfieldPhase.TASKS, "# Tasks\n- T-1 (AC-1.1)\n");
+        GreenfieldDriver.PhaseLoopFactory loops = phase -> phase == GreenfieldPhase.IMPLEMENT
+                ? realImplementPhase
+                : preApproval.loopFor(phase);
+        GreenfieldDriver driver = new GreenfieldDriver(
+                loops, new RecordingArtifactWriter(), ScriptedGate.approveEveryRound(), noFurtherTurns());
+
+        GreenfieldOutcome outcome = driver.run(REQUEST);
+
+        assertEquals(GreenfieldOutcome.Disposition.COMPLETED, outcome.disposition(),
+                "CT-GF-5/AC-3.6: the no-test-command implement phase is a TERMINAL COMPLETED run "
+                        + "(not AWAITING_APPROVAL, not TURN_SURFACED) — no re-prompt livelock");
+        assertEquals(GreenfieldPhase.IMPLEMENT, outcome.phase(),
+                "AC-3.6: the completed run finishes in the implementation phase");
+        String text = outcome.loopOutcome().finalTextIfPresent().orElse("").toLowerCase(Locale.ROOT);
+        assertTrue(text.contains("no test command") && text.contains("warning"),
+                "CT-GF-5/AC-3.6: the terminal outcome carries the single warning that the verify was "
+                        + "skipped; was: " + text);
+    }
+
+    private static ResolvedConfig configWith(ResolvedConfig.Commands commands, int verifyMaxIterations) {
+        return new ResolvedConfig(
+                "anthropic.claude-opus-4-8", PermissionMode.ASK_EVERY_TIME, "us-east-1", null,
+                1, null, commands, 0.85, 16384, verifyMaxIterations, 300, 10, 300);
     }
 
     // --- construction + input validation ---------------------------------------------------------

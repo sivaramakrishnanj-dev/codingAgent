@@ -30,11 +30,12 @@ import org.slf4j.LoggerFactory;
  *       does not run an (N+1)-th attempt.</li>
  * </ol>
  *
- * <p><b>No test command (AC-20.6).</b> When no test command is configured, there is nothing
- * to verify against; the loop runs nothing and returns
- * {@link VerifyOutcome.Kind#NO_TEST_COMMAND} (the configured command is preferred &mdash;
- * absence is a config state to report, not to substitute an ad-hoc command for). This state
- * is represented by a {@code null} {@link CommandRunner}; use
+ * <p><b>No test command.</b> When no test command is configured, there is nothing to verify
+ * against; the loop runs nothing and returns {@link VerifyOutcome.Kind#NO_TEST_COMMAND} &mdash;
+ * a config state to report, not to paper over with an ad-hoc command. This is a generic
+ * verify-loop state; the consuming workflow driver binds it to its own behaviour (the
+ * greenfield end-of-phase consumer treats it as the AC-3.6 complete-with-warning terminal).
+ * The state is represented by a {@code null} {@link CommandRunner}; use
  * {@link #forConfig(CommandExecutor, ResolvedConfig, RemedyAttempt)} to build a loop wired
  * directly to a {@link ResolvedConfig}, which yields it automatically when
  * {@code config.commands().test() == null}.
@@ -62,7 +63,7 @@ public final class VerifyLoop {
      * @param runner        the command-runner seam that runs the configured test command on
      *                      each attempt (AC-20.1), or {@code null} when no test command is
      *                      configured (the loop then verifies nothing and yields
-     *                      {@link VerifyOutcome.Kind#NO_TEST_COMMAND}, AC-20.6).
+     *                      {@link VerifyOutcome.Kind#NO_TEST_COMMAND}).
      * @param remedy        the remedy seam invoked between failing attempts to feed the
      *                      failure back and attempt a fix (AC-20.3); use
      *                      {@link RemedyAttempt#NONE} for a pure re-run; must not be
@@ -91,8 +92,8 @@ public final class VerifyLoop {
      * bounded by {@link ResolvedConfig#verifyMaxIterations()}.
      *
      * <p>When no test command is configured ({@code config.commands().test() == null}), the
-     * returned loop verifies nothing and yields {@link VerifyOutcome.Kind#NO_TEST_COMMAND}
-     * (AC-20.6); no executor call is made.
+     * returned loop verifies nothing and yields {@link VerifyOutcome.Kind#NO_TEST_COMMAND}; no
+     * executor call is made.
      *
      * @param executor the command executor rooted at the workspace; must not be {@code null}.
      * @param config   the resolved configuration supplying the test command, the timeout,
@@ -126,7 +127,8 @@ public final class VerifyLoop {
      */
     public VerifyOutcome verify() {
         if (runner == null) {
-            LOGGER.info("No test command configured; nothing to verify (AC-20.6)");
+            LOGGER.info("No test command configured; nothing to verify "
+                    + "(the consuming driver decides how to surface it)");
             return VerifyOutcome.noTestCommand();
         }
 

@@ -3,7 +3,13 @@ package com.srk.codingagent.workflow;
 import com.srk.codingagent.config.ResolvedConfig;
 import com.srk.codingagent.loop.AgentLoop;
 import com.srk.codingagent.loop.LoopOutcome;
+import com.srk.codingagent.loop.RemedyAttempt;
+import com.srk.codingagent.loop.RemedyPrompt;
+import com.srk.codingagent.loop.VerifyFailureReport;
+import com.srk.codingagent.loop.VerifyLoop;
+import com.srk.codingagent.loop.VerifyOutcome;
 import com.srk.codingagent.tool.CommandExecutor;
+import com.srk.codingagent.tool.CommandResult;
 import com.srk.codingagent.tool.GreenfieldArtifactStore;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,15 +36,23 @@ import org.slf4j.LoggerFactory;
  * later tasks land &mdash; is implemented <em>without</em> per-task verification, so a scaffold-first
  * breakdown implements every task in order and never hard-stops at the not-yet-buildable first task.
  * Each task is marked complete <em>on implementation</em>, not on passing an individual verify
- * (AC-3.3). The end-of-phase verification that gates the phase (AC-3.2/AC-3.4) is added around this
- * loop by T-3.9; this loop reports the tasks it implemented for that end verify to wrap.
+ * (AC-3.3). Once every task is implemented, the loop runs the configured build/test command
+ * <em>once</em> (testable-only, AC-3.2) over the whole implemented phase and maps the single verify
+ * outcome (T-3.9): a passing verify is the clean phase success; a verify that does not pass within
+ * {@code NFR-VERIFY-MAX-ITERATIONS} attempts stops and surfaces the failure (AC-3.4/AC-20.5); and
+ * <em>no configured test command</em> skips the end verify with a single warning and terminates the
+ * phase deterministically &mdash; a complete-with-warning terminal success (AC-3.6), not a hard-stop
+ * and not a re-loop into a fresh implement attempt.
  *
  * <p><b>Orchestration over the loop, not a separate engine (ADR-0012).</b> Each task's implementation
  * is one {@link AgentLoop} turn (the {@link LoopTurn} seam, the same {@link AgentLoop#run(String)}
  * shape {@link BrownfieldDriver} uses); the loop runs that implement&rarr;mark-complete step once per
- * task, in order. The verify engine ({@link com.srk.codingagent.loop.VerifyLoop}) is reused for the
- * end-of-phase verify (T-3.9), never reimplemented; the {@link #overConfig} factory carries the
- * collaborators that end verify will need.
+ * task, in order. The verify engine ({@link VerifyLoop}) is <em>reused</em> for the end-of-phase
+ * verify, never reimplemented &mdash; the loop builds it via {@link VerifyLoop#forConfig} over the
+ * {@link #overConfig} factory's carried collaborators, with a remedy that drives another agent-loop
+ * turn between failing attempts (AC-20.3), exactly as {@link BrownfieldDriver} does for its
+ * change-verify. The two-arg constructor (used by the unit tests, which drive only the per-task loop)
+ * leaves the verify collaborators {@code null}, so a loop built without them runs no end verify.
  *
  * <p><b>Marking complete reuses the T-3.2 artifact store (AC-3.3).</b> When a task is implemented, its
  * completion is recorded by appending a completion line to the task-breakdown artifact through the
@@ -68,12 +82,11 @@ public final class GreenfieldImplementLoop {
 
     /**
      * The target-repo command executor and resolved config for the <em>end-of-phase</em> verify
-     * (AC-3.2/AC-3.4, ADR-0012) that T-3.9 adds after the per-task loop, reusing the proven T-1.4
-     * {@link com.srk.codingagent.loop.VerifyLoop} via {@link #overConfig}. T-3.8 introduces no
-     * per-task verify (DCR-7), so the loop body does not consult these yet; they are carried so the
-     * end-of-phase verify can be wired in without re-threading the composition root. The four-arg
-     * {@link #GreenfieldImplementLoop(LoopTurn, GreenfieldArtifactStore)} constructor (used by the
-     * unit tests, which drive only the per-task loop) leaves them {@code null}.
+     * (AC-3.2/AC-3.4/AC-3.6, ADR-0012/DCR-7) the loop runs after the per-task loop, reusing the proven
+     * T-1.4 {@link VerifyLoop} via {@link VerifyLoop#forConfig} (wired through {@link #overConfig}).
+     * The two-arg {@link #GreenfieldImplementLoop(LoopTurn, GreenfieldArtifactStore)} constructor
+     * (used by the unit tests, which drive only the per-task loop) leaves them {@code null}; a loop
+     * built without them runs no end verify and reports {@link ImplementOutcome#allImplemented(List)}.
      */
     private final CommandExecutor verifyExecutor;
     private final ResolvedConfig verifyConfig;
@@ -147,9 +160,17 @@ public final class GreenfieldImplementLoop {
      *       next task's turn begins. A task that is not independently testable (an early scaffold, a
      *       not-yet-buildable {@code pom.xml}) is implemented without per-task verification &mdash;
      *       there is no per-task verify cycle (DCR-7), so the loop never hard-stops at such a task.</li>
-     *   <li>When every task has been implemented and marked complete, return
-     *       {@link ImplementOutcome#allImplemented(List)} carrying the completed ids. End-of-phase
-     *       verification (T-3.9, AC-3.2/AC-3.4) gates the phase around this result.</li>
+     *   <li>When every task has been implemented and marked complete, run the configured build/test
+     *       command <em>once</em> over the whole implemented phase (testable-only, AC-3.2) via the
+     *       reused {@link VerifyLoop} and map the single verify outcome (T-3.9): a passing verify is
+     *       {@link ImplementOutcome#verified(List, VerifyOutcome)} (the clean phase success); a verify
+     *       that does not pass within {@code NFR-VERIFY-MAX-ITERATIONS} attempts is
+     *       {@link ImplementOutcome#verifyFailed(List, VerifyOutcome)} (stop and surface,
+     *       AC-3.4/AC-20.5); no configured test command is
+     *       {@link ImplementOutcome#completeWithWarning(List, VerifyOutcome)} (skip with one warning,
+     *       terminate deterministically &mdash; AC-3.6). When the loop carries no verify collaborators
+     *       (the per-task unit path), the end verify is skipped and the result is
+     *       {@link ImplementOutcome#allImplemented(List)}.</li>
      * </ol>
      *
      * @param prompt the prompt that opens the implementation phase (the phase-advance prompt the
@@ -183,16 +204,91 @@ public final class GreenfieldImplementLoop {
         }
 
         LOGGER.info("Greenfield implement phase: {} task(s) implemented and marked complete in order "
-                + "(AC-3.2/3.3); end-of-phase verification gates the phase (ADR-0012/DCR-7)",
+                + "(AC-3.2/3.3); running the end-of-phase verify once (ADR-0012/DCR-7)",
                 implemented.size());
-        return ImplementOutcome.allImplemented(implemented);
+        return verifyEndOfPhase(implemented);
+    }
+
+    /**
+     * Runs the single end-of-phase verify over the whole implemented phase and maps its outcome
+     * (T-3.9; AC-3.2 testable-only, AC-3.4/AC-20.5, AC-3.6). The configured build/test command runs
+     * <em>once</em> through the reused {@link VerifyLoop}, with a remedy that drives another agent-loop
+     * turn between failing attempts (AC-20.3) so the verify loop's bounded retry can converge; the
+     * verify loop bounds the attempts by {@code NFR-VERIFY-MAX-ITERATIONS}.
+     *
+     * <p>A loop built without verify collaborators (the two-arg unit-test constructor) runs no end
+     * verify and reports {@link ImplementOutcome#allImplemented(List)} &mdash; the per-task path the
+     * unit tests exercise.
+     */
+    private ImplementOutcome verifyEndOfPhase(List<String> implemented) {
+        if (verifyExecutor == null || verifyConfig == null) {
+            return ImplementOutcome.allImplemented(implemented);
+        }
+        VerifyOutcome verify = Objects.requireNonNull(
+                VerifyLoop.forConfig(verifyExecutor, verifyConfig, remedyFeedingFailureBack())
+                        .verify(),
+                "verify loop returned a null outcome");
+        return switch (verify.kind()) {
+            case VERIFIED -> {
+                LOGGER.info("Greenfield implement phase verified at end of phase on attempt {} "
+                        + "(AC-3.2); the phase is complete (ADR-0012/DCR-7)", verify.iterations());
+                yield ImplementOutcome.verified(implemented, verify);
+            }
+            case EXHAUSTED -> {
+                LOGGER.warn("Greenfield end-of-phase verify did not pass within {} attempt(s); "
+                        + "stopping and surfacing the failure (AC-3.4/AC-20.5)", verify.iterations());
+                yield ImplementOutcome.verifyFailed(implemented, verify);
+            }
+            case NO_TEST_COMMAND -> {
+                // AC-3.6 (DCR-7): no configured test command. Every task was implemented and marked
+                // complete; skip the end verify with ONE warning and terminate the phase
+                // deterministically — a complete-with-warning terminal success, NOT a hard-stop and
+                // NOT a re-loop into a fresh implement attempt. (The shared VerifyLoop's NO_TEST_COMMAND
+                // is a generic config state; the greenfield end-of-phase consumer binds it to AC-3.6 —
+                // AC-20.6 is "prefer named commands", not the no-test-command behaviour.)
+                LOGGER.warn("Greenfield implement phase: no test command configured; skipping the "
+                        + "end-of-phase verify and completing with a warning (AC-3.6, DCR-7)");
+                yield ImplementOutcome.completeWithWarning(implemented, verify);
+            }
+        };
+    }
+
+    /**
+     * The remedy seam the end-of-phase {@link VerifyLoop} invokes between failing attempts (AC-20.3):
+     * it drives another agent-loop turn (the {@link LoopTurn} seam) with a prompt built from the
+     * failing command's output via the shared {@link RemedyPrompt}, so the model reads the failure,
+     * fixes the cause, and the verify loop's next attempt re-runs the command. The verify loop bounds
+     * how many times this runs. Mirrors {@link BrownfieldDriver}'s change-verify remedy &mdash; the
+     * one failure-feedback prompt builder both drivers reuse.
+     */
+    private RemedyAttempt remedyFeedingFailureBack() {
+        return failure -> {
+            CommandResult result = Objects.requireNonNull(failure, "failure");
+            LOGGER.info("Greenfield end-of-phase verify failed (exit {}); driving a remedy turn "
+                    + "(AC-20.3)", result.exitCode());
+            loop.run(RemedyPrompt.forFailure(result));
+        };
     }
 
     /**
      * Adapts this implement loop to the {@link GreenfieldDriver.LoopTurn} the driver runs the terminal
      * IMPLEMENT phase through: it runs the loop and maps the {@link ImplementOutcome} to the
-     * {@link LoopOutcome} the phase seam returns. An all-implemented (or no-tasks) run completes
-     * cleanly so the driver reaches its {@code COMPLETED} greenfield outcome (exit 0).
+     * {@link LoopOutcome} the phase seam returns.
+     *
+     * <p>Every terminal disposition maps to a <em>completed</em> {@link LoopOutcome} (exit 0) whose
+     * final text carries the disposition's report &mdash; the same "verification signal distinct from
+     * the agent-process exit" stance the brownfield change-verify takes (exit-code contract G4):
+     * <ul>
+     *   <li>an all-implemented run (verified or no-verify) or a no-tasks run completes cleanly so the
+     *       driver reaches its {@code COMPLETED} greenfield outcome (exit 0);</li>
+     *   <li>a {@link ImplementOutcome.Disposition#COMPLETE_WITH_WARNING} run (no configured test
+     *       command, AC-3.6) is a <b>terminal</b> completed outcome whose text carries the single
+     *       warning &mdash; so the driver's {@code COMPLETED} mapping treats it as a finished turn and
+     *       the REPL keep-alive does not re-enter implement (the D1 livelock fix);</li>
+     *   <li>a {@link ImplementOutcome.Disposition#VERIFY_FAILED} run surfaces the end-verify failure
+     *       and its relevant output (AC-20.5) in the completed text, so the developer sees the stuck
+     *       phase &mdash; the process exit stays 0 (G4), as the brownfield verify-exhaustion does.</li>
+     * </ul>
      *
      * @return the IMPLEMENT-phase loop turn for the {@link GreenfieldDriver.PhaseLoopFactory}; never
      *         {@code null}.
@@ -245,11 +341,23 @@ public final class GreenfieldImplementLoop {
     /** Renders the user-facing report for the implement-phase loop outcome. */
     private static String report(ImplementOutcome outcome) {
         return switch (outcome.disposition()) {
-            case ALL_IMPLEMENTED -> "Implemented " + outcome.implementedTasks().size()
-                    + " task(s) one at a time, marking each complete in order: "
-                    + String.join(", ", outcome.implementedTasks()) + ".";
+            case ALL_IMPLEMENTED -> implementedReport(outcome)
+                    + " The end-of-phase verification passed.";
+            case COMPLETE_WITH_WARNING -> implementedReport(outcome)
+                    + " No test command is configured, so the end-of-phase verification was skipped "
+                    + "with a warning; the phase is complete (AC-3.6).";
+            case VERIFY_FAILED -> implementedReport(outcome) + "\n\n"
+                    + VerifyFailureReport.forExhaustedVerify(
+                            "End-of-phase verification did not pass", outcome.verifyOutcome());
             case NO_TASKS -> "The approved task breakdown has no task to implement.";
         };
+    }
+
+    /** The "implemented every task in order" prefix shared by the terminal reports. */
+    private static String implementedReport(ImplementOutcome outcome) {
+        return "Implemented " + outcome.implementedTasks().size()
+                + " task(s) one at a time, marking each complete in order: "
+                + String.join(", ", outcome.implementedTasks()) + ".";
     }
 
     /**

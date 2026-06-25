@@ -431,25 +431,30 @@ final class ToolRegistryComposer {
     }
 
     /**
-     * Builds the greenfield IMPLEMENT-phase loop turn (C3 over C2, ADR-0012 implement clause; T-3.3):
-     * the {@link GreenfieldImplementLoop} that, once the terminal IMPLEMENT phase is entered, reads the
-     * approved task breakdown and implements the planned tasks one at a time &mdash; driving an
-     * agent-loop turn per task, verifying each via the configured build/test command before the next
-     * (reusing the T-1.4 {@link com.srk.codingagent.loop.VerifyLoop}), marking each verified task
-     * complete in the task-breakdown artifact (AC-3.3, reusing the T-3.2 {@link GreenfieldArtifactStore})
-     * &mdash; and stops if a task fails verification within the bound (AC-3.4). Returned as the
-     * {@link GreenfieldDriver.LoopTurn} the IMPLEMENT phase runs through, so it slots into the existing
-     * phase-loop seam the {@link AgentLoopFactory} wires without changing the driver.
+     * Builds the greenfield IMPLEMENT-phase loop turn (C3 over C2, ADR-0012 implement clause amended by
+     * DCR-7; T-3.3 reworked by T-3.8/T-3.9): the {@link GreenfieldImplementLoop} that, once the terminal
+     * IMPLEMENT phase is entered, reads the approved task breakdown and implements every task one at a
+     * time in breakdown order &mdash; driving an agent-loop turn per task and marking each complete
+     * <em>on implementation</em> in the task-breakdown artifact (AC-3.3, reusing the T-3.2
+     * {@link GreenfieldArtifactStore}), with no per-task verify (DCR-7) &mdash; then runs the configured
+     * build/test command <em>once</em> at the end of the phase (testable-only, AC-3.2) via the reused
+     * T-1.4 {@link com.srk.codingagent.loop.VerifyLoop}: a passing end verify is the clean phase success,
+     * a verify that does not pass within the bound stops and surfaces (AC-3.4/AC-20.5), and no configured
+     * test command skips the end verify with one warning and terminates the phase deterministically
+     * (AC-3.6). Returned as the {@link GreenfieldDriver.LoopTurn} the IMPLEMENT phase runs through, so it
+     * slots into the existing phase-loop seam the {@link AgentLoopFactory} wires without changing the
+     * driver.
      *
      * <p><b>Why this is assembled here (the gate-covered-seam discipline).</b> Like the phase-scoped
      * registry, the per-phase prompt, and the timestamped approval gate, the implement loop's
-     * orchestration &mdash; one task at a time, verify each via the reused verify loop, mark complete
-     * before the next &mdash; is the load-bearing T-3.3 enforcement. It is assembled in this NOT-
-     * coverage-excluded composer (not the JaCoCo-excluded {@link AgentLoopFactory}/{@link Main}) so a
-     * unit test pins, under the coverage gate, that the implement loop is constructed and reachable from
-     * the composition root with the verify step wired to the configured test command. The collaborators
-     * it needs &mdash; the target-repo {@link CommandExecutor} for the per-task verify loop, the
-     * resolved {@link ResolvedConfig} (test command + timeout + verify bound), and the
+     * orchestration &mdash; implement every task one at a time, mark complete on implementation, then a
+     * single end-of-phase verify via the reused verify loop &mdash; is the load-bearing
+     * T-3.3/T-3.8/T-3.9 enforcement. It is assembled in this NOT-coverage-excluded composer (not the
+     * JaCoCo-excluded {@link AgentLoopFactory}/{@link Main}) so a unit test pins, under the coverage
+     * gate, that the implement loop is constructed and reachable from the composition root with the
+     * end-of-phase verify wired to the configured test command. The collaborators it needs &mdash; the
+     * target-repo {@link CommandExecutor} for the end-of-phase verify loop, the resolved
+     * {@link ResolvedConfig} (test command + timeout + verify bound), and the
      * {@link GreenfieldArtifactStore} for read-and-mark-complete &mdash; already live on (or are
      * constructible from) this composer; the factory only threads the resulting turn into the phase-loop
      * factory for the terminal phase.

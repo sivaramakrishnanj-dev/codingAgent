@@ -5,11 +5,17 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.srk.codingagent.config.PermissionMode;
+import com.srk.codingagent.config.ResolvedConfig;
 import com.srk.codingagent.loop.LoopOutcome;
 import com.srk.codingagent.persistence.StopReason;
+import com.srk.codingagent.tool.CommandExecutor;
+import com.srk.codingagent.tool.GreenfieldArtifactStore;
+import java.nio.file.Path;
 import java.util.Locale;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Unit tests for {@link GreenfieldRunner} — the adapter that maps a {@link GreenfieldOutcome} to the
@@ -167,6 +173,40 @@ class GreenfieldRunnerTest {
         assertTrue(mapped.completed(), "AC-2.3: a paused session is exit 0 even with no deliverable text");
         assertTrue(mapped.finalTextIfPresent().orElse("").toLowerCase(Locale.ROOT).contains("approv"),
                 "AC-2.3: the approval note is surfaced even when the phase produced no final text");
+    }
+
+    @Test
+    @DisplayName("CT-GF-5/AC-3.6/G3: a no-test-command implement run maps to a completed (exit-0) LoopOutcome the run path treats as a finished turn")
+    void noTestCommandRunMapsToCompletedExitZero(@TempDir Path workspace) {
+        // Oracle: CT-GF-5 + AC-3.6 + exit-code contract G3 — a greenfield implement phase with no
+        // configured test command terminates cleanly (exit 0, complete-with-warning); at the run-path
+        // boundary (the LoopOutcome the OneShot/REPL runners consume) it must be a COMPLETED outcome so
+        // the run path exits 0 (one-shot) or treats it as a finished turn (the REPL keep-alive reads the
+        // NEXT line rather than auto-re-entering implement — the D1 livelock fix). Wiring the IMPLEMENT
+        // phase to the REAL no-test-command implement loop over an approved breakdown, the runner must
+        // return a completed LoopOutcome whose text carries the single warning. Traced to AC-3.6/CT-GF-5
+        // + G3, not the runner's code.
+        GreenfieldArtifactStore store = new GreenfieldArtifactStore(workspace);
+        store.write(GreenfieldArtifact.TASKS.relativePath(), "# Tasks\n\n- T-1 Build it (AC-1.1)\n");
+        ResolvedConfig noTestConfig = new ResolvedConfig(
+                "anthropic.claude-opus-4-8", PermissionMode.ASK_EVERY_TIME, "us-east-1", null,
+                1, null, new ResolvedConfig.Commands(null, null, null), 0.85, 16384, 5, 300, 10, 300);
+        GreenfieldDriver.LoopTurn realImplementPhase = GreenfieldImplementLoop.overConfig(
+                prompt -> LoopOutcome.completed("implemented"),
+                new CommandExecutor(workspace), noTestConfig, store).asLoopTurn();
+        GreenfieldDriver.PhaseLoopFactory loops = phase -> phase == GreenfieldPhase.IMPLEMENT
+                ? realImplementPhase
+                : p -> LoopOutcome.completed(phase.name() + " deliverable");
+        GreenfieldRunner runner = new GreenfieldRunner(
+                new GreenfieldDriver(loops, noopWriter(), completedPhase -> true, noFurtherTurns()));
+
+        LoopOutcome mapped = runner.run(REQUEST);
+
+        assertTrue(mapped.completed(),
+                "CT-GF-5/AC-3.6/G3: a no-test-command implement run is a completed (exit-0) LoopOutcome "
+                        + "the run path treats as a finished turn — no re-prompt livelock");
+        assertTrue(mapped.finalTextIfPresent().orElse("").toLowerCase(Locale.ROOT).contains("warning"),
+                "AC-3.6: the completed outcome carries the single warning that the verify was skipped");
     }
 
     @Test

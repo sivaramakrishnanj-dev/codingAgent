@@ -42,11 +42,25 @@ import org.junit.jupiter.api.io.TempDir;
  * This mirrors {@code BrownfieldDriverTest}'s scripted-seam discipline (the external boundary is
  * substituted, never the SUT).
  *
+ * <p><b>T-3.9 (DCR-7, resolves D1) — the end-of-phase verify.</b> Once every task is implemented, the
+ * loop runs the configured build/test command ONCE over the whole phase (testable-only, AC-3.2) via
+ * the reused {@link com.srk.codingagent.loop.VerifyLoop} and maps the single verify outcome: a passing
+ * verify is the clean phase success (ALL_IMPLEMENTED); a verify that does not pass within
+ * {@code NFR-VERIFY-MAX-ITERATIONS} attempts stops and surfaces the failure (VERIFY_FAILED,
+ * AC-3.4/AC-20.5 — CT-GF-7); and NO configured test command skips the end verify with a single warning
+ * and terminates the phase deterministically (COMPLETE_WITH_WARNING, AC-3.6 — CT-GF-5). These verify
+ * tests drive the {@code overConfig} path (the carried verify collaborators are live) over the REAL
+ * {@link CommandExecutor} with trivially-passing ("true") / always-failing ("false") / absent test
+ * commands — the same real-executor discipline {@code VerifyLoopTest.forConfig*} uses (no scripted
+ * exit-code sequence, no live build).
+ *
  * <p><b>Oracles trace to the US-3 implement ACs (and ADR-0012/DCR-7), never to the loop's code:</b>
  * see each test's inline oracle note. Expected values are derived from the spec body — "one task at a
  * time in breakdown order" + "verify once at end of phase, not per task" (AC-3.2), "mark it complete …
  * as it is implemented … before starting the next" (AC-3.3), "implements all tasks … does NOT
- * hard-stop at T-1" (CT-GF-8) — not from observing the implementation.
+ * hard-stop at T-1" (CT-GF-8), "verify fails after N → stop and surface" (AC-3.4/AC-20.5, CT-GF-7),
+ * "no test command → skip with one warning, terminate deterministically" (AC-3.6, CT-GF-5) — not from
+ * observing the implementation.
  */
 class GreenfieldImplementLoopTest {
 
@@ -360,6 +374,198 @@ class GreenfieldImplementLoopTest {
         String artifact = store.read(TASKS_PATH).orElseThrow();
         assertTrue(artifact.contains("[x] T-1") && artifact.contains("[x] T-2"),
                 "AC-3.3: each implemented task is marked complete in the artifact; was:\n" + artifact);
+    }
+
+    // --- T-3.9 end-of-phase verify : VERIFIED -> all-implemented terminal (AC-3.2) ----------------
+
+    @Test
+    @DisplayName("AC-3.2: a passing end-of-phase verify (one configured run after the last task) yields the all-implemented success")
+    void endOfPhaseVerifyPassesYieldsAllImplemented(@TempDir Path workspace) {
+        // Oracle: AC-3.2 (amended DCR-7) — when all tasks are implemented the agent verifies them ONCE
+        // at end of phase via the configured build/test command, not per task. With a trivially-passing
+        // configured command ("true", exit 0) the single end-of-phase verify passes, so the run is the
+        // clean ALL_IMPLEMENTED success carrying the verified verify. The expected disposition + verified
+        // verify trace to AC-3.2, not to the loop's code.
+        GreenfieldArtifactStore store = storeWithBreakdown(workspace, TWO_TASK_BREAKDOWN);
+        ScriptedLoop loop = new ScriptedLoop().thenCompleted("did T-1").thenCompleted("did T-2");
+        ResolvedConfig config = configWith(new Commands(null, "true", null), 5);
+        GreenfieldImplementLoop implementLoop = GreenfieldImplementLoop.overConfig(
+                loop, new CommandExecutor(workspace), config, store);
+
+        ImplementOutcome outcome = implementLoop.run(IMPLEMENT_PROMPT);
+
+        assertEquals(ImplementOutcome.Disposition.ALL_IMPLEMENTED, outcome.disposition(),
+                "AC-3.2: a passing end-of-phase verify is the clean phase success");
+        assertEquals(List.of("T-1", "T-2"), outcome.implementedTasks(),
+                "AC-3.2: every task was implemented in breakdown order before the one end verify");
+        assertTrue(outcome.verifyOutcomeIfPresent().orElseThrow().verified(),
+                "AC-3.2: the single end-of-phase verify passed");
+        assertEquals(2, loop.runs(),
+                "AC-3.2: exactly one turn per task ran; the passing end verify drove no remedy turn");
+    }
+
+    @Test
+    @DisplayName("AC-3.2: the end-of-phase verify runs ONCE over the whole phase, not once per task")
+    void endOfPhaseVerifyRunsOnceNotPerTask(@TempDir Path workspace) {
+        // Oracle: AC-3.2 — "verify them once at the end of the phase ... not after each individual
+        // task." The verify boundary is end-of-phase. With a configured command that always fails
+        // ("false") and a bound of 1, the verify is attempted exactly ONCE (one end-of-phase verify of
+        // bound 1), NOT once per task (which would be two attempts for two tasks). Asserting iterations
+        // == 1 (the bound), not == task count, pins "once at end of phase, not per task".
+        GreenfieldArtifactStore store = storeWithBreakdown(workspace, TWO_TASK_BREAKDOWN);
+        ScriptedLoop loop = new ScriptedLoop().thenCompleted("did T-1").thenCompleted("did T-2");
+        ResolvedConfig config = configWith(new Commands(null, "false", null), 1);
+        GreenfieldImplementLoop implementLoop = GreenfieldImplementLoop.overConfig(
+                loop, new CommandExecutor(workspace), config, store);
+
+        ImplementOutcome outcome = implementLoop.run(IMPLEMENT_PROMPT);
+
+        assertEquals(ImplementOutcome.Disposition.VERIFY_FAILED, outcome.disposition(),
+                "AC-3.2/AC-3.4: the always-failing end verify did not pass within the bound");
+        assertEquals(1, outcome.verifyOutcome().iterations(),
+                "AC-3.2: the end verify ran ONCE (bound 1) over the whole phase — not once per task");
+    }
+
+    // --- CT-GF-7 : end-of-phase verify failure retries bounded then stop-and-surface --------------
+
+    @Test
+    @DisplayName("CT-GF-7/AC-3.4/AC-20.5: an end-of-phase verify that never passes retries bounded by NFR-VERIFY-MAX-ITERATIONS then stops and surfaces")
+    void endOfPhaseVerifyFailureBoundedThenSurface(@TempDir Path workspace) {
+        // Oracle: CT-GF-7 + AC-3.4/AC-20.5 + NFR-VERIFY-MAX-ITERATIONS — when the END-OF-PHASE verify
+        // fails, the agent retries bounded by NFR-VERIFY-MAX-ITERATIONS and then stops and surfaces, and
+        // the bound applies to the SINGLE end-of-phase verify (not a per-task verify). With an
+        // always-failing configured command ("false") and a bound of 3, the end verify is attempted
+        // EXACTLY 3 times then surfaces VERIFY_FAILED carrying the failing run's output (AC-20.5). The
+        // bound (3) and the surfaced disposition trace to CT-GF-7/AC-3.4, not to the loop's code.
+        GreenfieldArtifactStore store = storeWithBreakdown(workspace, TWO_TASK_BREAKDOWN);
+        ScriptedLoop loop = new ScriptedLoop().autoCompleting();
+        ResolvedConfig config = configWith(new Commands(null, "false", null), 3);
+        GreenfieldImplementLoop implementLoop = GreenfieldImplementLoop.overConfig(
+                loop, new CommandExecutor(workspace), config, store);
+
+        ImplementOutcome outcome = implementLoop.run(IMPLEMENT_PROMPT);
+
+        assertEquals(ImplementOutcome.Disposition.VERIFY_FAILED, outcome.disposition(),
+                "CT-GF-7/AC-3.4: an end verify that never passes stops and surfaces (not all-implemented)");
+        assertEquals(List.of("T-1", "T-2"), outcome.implementedTasks(),
+                "CT-GF-7: every task was implemented; only the end-of-phase verify did not pass");
+        assertEquals(3, outcome.verifyOutcome().iterations(),
+                "CT-GF-7/NFR-VERIFY-MAX-ITERATIONS: the end verify retried up to exactly the configured "
+                        + "bound (3) before stopping — the bound is on the single end-of-phase verify");
+        assertFalse(outcome.verifyOutcome().verified(),
+                "AC-3.4: the surfaced verify never passed");
+        assertTrue(outcome.verifyOutcome().resultIfPresent().isPresent(),
+                "AC-20.5: the surfaced outcome carries the failing run's relevant output");
+    }
+
+    @Test
+    @DisplayName("CT-GF-7/AC-20.3: a failing end-of-phase verify drives a bounded remedy turn between attempts, then surfaces")
+    void endOfPhaseVerifyFailureDrivesBoundedRemedyTurns(@TempDir Path workspace) {
+        // Oracle: CT-GF-7 + AC-20.3 + NFR-VERIFY-MAX-ITERATIONS — the end-of-phase verify's bounded
+        // retry feeds each failure back into a remedy turn (AC-20.3) between attempts; with a bound of 3
+        // and an always-failing command, the verify is attempted 3 times and the remedy drives a turn
+        // between attempts (2 remedy turns for 3 attempts, never after the last). Counting the loop's
+        // total turns (2 per-task + 2 remedy = 4) pins that the remedy drove additional turns and the
+        // retry is bounded (it did not loop forever). The 2-task + 2-remedy split traces to AC-20.3 +
+        // the bound, not to the loop's code.
+        GreenfieldArtifactStore store = storeWithBreakdown(workspace, TWO_TASK_BREAKDOWN);
+        ScriptedLoop loop = new ScriptedLoop().autoCompleting();
+        ResolvedConfig config = configWith(new Commands(null, "false", null), 3);
+        GreenfieldImplementLoop implementLoop = GreenfieldImplementLoop.overConfig(
+                loop, new CommandExecutor(workspace), config, store);
+
+        ImplementOutcome outcome = implementLoop.run(IMPLEMENT_PROMPT);
+
+        assertEquals(ImplementOutcome.Disposition.VERIFY_FAILED, outcome.disposition());
+        assertEquals(4, loop.runs(),
+                "AC-20.3: 2 per-task implementation turns + 2 remedy turns (one between each of the 3 "
+                        + "bounded end-verify attempts, never after the last) = 4 turns; the bounded retry "
+                        + "does not loop forever");
+    }
+
+    // --- CT-GF-5 : no configured test command -> COMPLETE_WITH_WARNING terminal (AC-3.6) ----------
+
+    @Test
+    @DisplayName("CT-GF-5/AC-3.6: no configured test command skips the end verify with a warning and terminates as complete-with-warning")
+    void noTestCommandSkipsEndVerifyCompleteWithWarning(@TempDir Path workspace) {
+        // Oracle: CT-GF-5 + AC-3.6 (new, DCR-7) — with no configured test command the agent skips the
+        // end-of-phase verification, having implemented and marked complete every task, and terminates
+        // the phase deterministically as a complete-with-warning terminal success (NOT a hard-stop, NOT
+        // a re-loop). With a null test command, every task is still implemented and marked complete, and
+        // the outcome is COMPLETE_WITH_WARNING carrying the NO_TEST_COMMAND verify (nothing ran). Traced
+        // to AC-3.6/CT-GF-5, not to the loop's code.
+        GreenfieldArtifactStore store = storeWithBreakdown(workspace, TWO_TASK_BREAKDOWN);
+        ScriptedLoop loop = new ScriptedLoop().thenCompleted("did T-1").thenCompleted("did T-2");
+        ResolvedConfig config = configWith(new Commands(null, null, null), 5);
+        GreenfieldImplementLoop implementLoop = GreenfieldImplementLoop.overConfig(
+                loop, new CommandExecutor(workspace), config, store);
+
+        ImplementOutcome outcome = implementLoop.run(IMPLEMENT_PROMPT);
+
+        assertEquals(ImplementOutcome.Disposition.COMPLETE_WITH_WARNING, outcome.disposition(),
+                "AC-3.6: no test command -> the end verify is skipped and the phase completes-with-warning");
+        assertEquals(List.of("T-1", "T-2"), outcome.implementedTasks(),
+                "AC-3.6: every task was implemented and marked complete before the skipped verify");
+        assertEquals(com.srk.codingagent.loop.VerifyOutcome.Kind.NO_TEST_COMMAND,
+                outcome.verifyOutcome().kind(),
+                "AC-3.6: no command ran — the skipped (no-test-command) verify outcome is carried");
+        assertEquals(2, loop.runs(),
+                "AC-3.6: only the 2 per-task turns ran — the skipped end verify drove no remedy turn");
+        String artifact = store.read(TASKS_PATH).orElseThrow();
+        assertTrue(artifact.contains("[x] T-1") && artifact.contains("[x] T-2"),
+                "AC-3.6/CT-GF-5: every task was marked complete on implementation; was:\n" + artifact);
+    }
+
+    @Test
+    @DisplayName("CT-GF-5/AC-3.6: the no-test-command run is a terminal COMPLETED loop outcome (exit 0) — not a hard-stop, not a re-loop")
+    void noTestCommandIsTerminalCompletedLoopOutcome(@TempDir Path workspace) {
+        // Oracle: CT-GF-5 + AC-3.6 — the no-test-command outcome is TERMINAL (exit 0, complete-with-
+        // warning); the driver/REPL must NOT re-prompt into a fresh implement attempt (the D1 livelock
+        // fix). The IMPLEMENT-phase LoopTurn the driver runs must therefore map the no-test-command run
+        // to a COMPLETED LoopOutcome (so the driver's COMPLETED mapping treats it as a finished turn),
+        // whose final text carries the single warning. Asserting completed() + the warning in the text
+        // pins "terminal complete-with-warning", traced to AC-3.6, not the loop's code.
+        GreenfieldArtifactStore store = storeWithBreakdown(workspace, TWO_TASK_BREAKDOWN);
+        ScriptedLoop loop = new ScriptedLoop().thenCompleted("did T-1").thenCompleted("did T-2");
+        ResolvedConfig config = configWith(new Commands(null, null, null), 5);
+        GreenfieldDriver.LoopTurn turn = GreenfieldImplementLoop.overConfig(
+                loop, new CommandExecutor(workspace), config, store).asLoopTurn();
+
+        LoopOutcome outcome = turn.run(IMPLEMENT_PROMPT);
+
+        assertTrue(outcome.completed(),
+                "AC-3.6: a no-test-command run is a terminal COMPLETED loop outcome (exit 0), so the "
+                        + "driver/REPL treats it as a finished turn and does not re-enter implement");
+        String text = outcome.finalTextIfPresent().orElse("").toLowerCase(java.util.Locale.ROOT);
+        assertTrue(text.contains("no test command") && text.contains("warning"),
+                "AC-3.6: the terminal text carries the single warning that the verify was skipped; was: "
+                        + text);
+    }
+
+    @Test
+    @DisplayName("CT-GF-7/G4: a verify-failed run surfaces the failure in a COMPLETED loop outcome (exit 0, verification signal distinct from process exit)")
+    void verifyFailedSurfacesInCompletedLoopOutcome(@TempDir Path workspace) {
+        // Oracle: CT-GF-7 + AC-20.5 + exit-code contract G4 — when the end-of-phase verify fails the
+        // agent stops and surfaces the failure WITH the relevant output, but the verification signal is
+        // distinct from the agent-process exit (G4), the same stance the brownfield verify-exhaustion
+        // takes. So the IMPLEMENT-phase LoopTurn maps a VERIFY_FAILED run to a COMPLETED LoopOutcome
+        // (exit 0) whose final text surfaces the verification failure and its output. Traced to
+        // CT-GF-7/AC-20.5/G4, not the loop's code.
+        GreenfieldArtifactStore store = storeWithBreakdown(workspace, TWO_TASK_BREAKDOWN);
+        ScriptedLoop loop = new ScriptedLoop().autoCompleting();
+        ResolvedConfig config = configWith(new Commands(null, "false", null), 2);
+        GreenfieldDriver.LoopTurn turn = GreenfieldImplementLoop.overConfig(
+                loop, new CommandExecutor(workspace), config, store).asLoopTurn();
+
+        LoopOutcome outcome = turn.run(IMPLEMENT_PROMPT);
+
+        assertTrue(outcome.completed(),
+                "G4: the verification failure is surfaced in a COMPLETED outcome (exit 0); the "
+                        + "verification signal is distinct from the agent-process exit");
+        String text = outcome.finalTextIfPresent().orElse("").toLowerCase(java.util.Locale.ROOT);
+        assertTrue(text.contains("verification"),
+                "AC-20.5: the surfaced text reports the end-of-phase verification did not pass; was: "
+                        + text);
     }
 
     // --- CompletionStamp : the marker names the task id ------------------------------------------
