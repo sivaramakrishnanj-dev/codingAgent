@@ -9,7 +9,7 @@ approved_by_user_at: 2026-06-25T00:00:00+00:00
 artifact: design/00-requirements.md, design/adr/0012-greenfield-workflow-formality.md, design/06-formal/contract-tests.md, design/07-tasks.md
 reviewer: user (approved via coordinator preview)
 status: approved
-approved_in: pending
+approved_in: 4667724
 ---
 
 # Amendment review — DCR-7 greenfield IMPLEMENT-phase verify-at-end / testable-only verification model (ac-update + adr-clarification) (r1)
