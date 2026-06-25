@@ -31,34 +31,32 @@ import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
 
 /**
- * The greenfield <b>implement-loop reachability</b> contract test (T-3.3), pinned at the gate-covered
- * composition seam ({@link ToolRegistryComposer}) — the analogue of
+ * The greenfield <b>implement-loop reachability</b> contract test (T-3.3, reworked by T-3.8/DCR-7),
+ * pinned at the gate-covered composition seam ({@link ToolRegistryComposer}) — the analogue of
  * {@link LiveGreenfieldRegistryCompositionTest} / {@link GreenfieldArtifactCompositionTest} for the
- * T-3.3 implement loop. It is the test that catches a live-only regression where the
- * implement-one-task-at-a-time loop was built but never reachable from the composition root (the
- * built-but-not-wired defect class), or where the per-task verify step was not wired to the configured
- * test command.
+ * implement loop. It is the test that catches a live-only regression where the implement-loop was
+ * built but never reachable from the composition root (the built-but-not-wired defect class).
+ *
+ * <p><b>DCR-7 (resolves D3) — verify at end of phase, mark complete on implementation.</b> The
+ * greenfield IMPLEMENT phase is a flat task list with no milestone substructure, so the verify
+ * boundary is end-of-phase (AC-3.2), not per task. The composition-root implement loop therefore
+ * implements <em>every</em> task in breakdown order and marks each complete <em>as it is
+ * implemented</em> (AC-3.3) with no per-task verify in the loop body. The end-of-phase verify that
+ * gates the phase (AC-3.2/AC-3.4) is wired by T-3.9; this test asserts what T-3.8 delivers — the
+ * implement loop is reachable from the composition root and implements-and-marks each task.
  *
  * <p><b>Why the gate-covered seam.</b> The implement loop's orchestration — read the approved
- * breakdown, implement one task at a time, verify each (reusing the T-1.4 verify loop) before the
- * next, mark each verified task complete (reusing the T-3.2 artifact store), stop on a failure
- * (AC-3.1/3.2/3.3/3.4) — is the load-bearing T-3.3 enforcement. It is assembled in
- * {@link ToolRegistryComposer#greenfieldImplementLoopTurn} (NOT the JaCoCo-excluded
- * {@link AgentLoopFactory}/{@link Main}), so a unit test pins under the coverage gate that the
- * implement loop is constructed and reachable, with the verify step wired to the configured test
- * command. This test drives the SAME composer the factory drives, over stores rooted at a
- * {@link TempDir} and a never-called Bedrock client (assembling the loop turn makes no Converse call).
+ * breakdown, implement every task one at a time, mark each complete on implementation (reusing the
+ * T-3.2 artifact store), no per-task hard-stop (AC-3.2/3.3, DCR-7) — is the load-bearing enforcement.
+ * It is assembled in {@link ToolRegistryComposer#greenfieldImplementLoopTurn} (NOT the
+ * JaCoCo-excluded {@link AgentLoopFactory}/{@link Main}), so a unit test pins under the coverage gate
+ * that the implement loop is constructed and reachable from the composition root. This test drives the
+ * SAME composer the factory drives, over stores rooted at a {@link TempDir} and a never-called Bedrock
+ * client (assembling the loop turn makes no Converse call).
  *
- * <p><b>Oracles trace to the spec, not the composer's code:</b>
- * <ul>
- *   <li><b>AC-3.1/3.2/3.3:</b> the composition-root implement loop, driven with a stub
- *       implementation turn over a real configured test command ({@code "true"}), implements each
- *       task in the approved breakdown one at a time, verifies it (the reused verify loop), and marks
- *       it complete in the task-breakdown artifact.</li>
- *   <li><b>NFR-VERIFY-MAX-ITERATIONS:</b> the per-task verify step is the configured test command
- *       (a failing {@code "false"} command surfaces a verify-exhausted stop bounded by the config),
- *       proving the verify loop is wired to config, not stubbed.</li>
- * </ul>
+ * <p><b>Oracles trace to the spec, not the composer's code:</b> AC-3.2 (one task at a time, in order;
+ * verify once at end of phase, not per task) + AC-3.3 (mark complete on implementation in the
+ * task-breakdown artifact) + ADR-0012/DCR-7.
  */
 class GreenfieldImplementCompositionTest {
 
@@ -98,7 +96,7 @@ class GreenfieldImplementCompositionTest {
         return req -> PermissionDecisionOutcome.APPROVE;
     }
 
-    /** A config whose test command is wired by overConfig into the per-task verify loop. */
+    /** A config whose collaborators overConfig carries for the end-of-phase verify (T-3.9). */
     private static ResolvedConfig config(String testCommand) {
         return new ResolvedConfig(MODEL, PermissionMode.ASK_EVERY_TIME, "us-east-1", null,
                 1, null, new ResolvedConfig.Commands(null, testCommand, null), 0.85, 16384, 3, 300,
@@ -108,8 +106,7 @@ class GreenfieldImplementCompositionTest {
     /**
      * Builds the composer EXACTLY as {@link AgentLoopFactory} builds it for the greenfield path —
      * same collaborator wiring, sessionLineage as both repoKey and originSession — over stores rooted
-     * at the temp dir and a never-called Bedrock client, with the given config (whose test command the
-     * implement loop's per-task verify step is wired to).
+     * at the temp dir and a never-called Bedrock client, with the given config.
      */
     private static ToolRegistryComposer composer(Path workspace, Path storeRoot, ResolvedConfig config) {
         Supplier<String> childIds = () -> CHILD_ID;
@@ -120,27 +117,25 @@ class GreenfieldImplementCompositionTest {
                 LINEAGE, LINEAGE, () -> TS, childIds);
     }
 
-    // --- AC-3.1/3.2/3.3 : the composition-root implement loop runs each task one at a time --------
+    // --- AC-3.2/3.3 : the composition-root implement loop implements every task and marks complete -
 
     @Test
-    @DisplayName("AC-3.1/3.2/3.3: the composition-root implement-phase turn implements each task one at a time, verifies, and marks complete")
-    void compositionRootImplementLoopRunsTasksOneAtATime(@TempDir Path workspace,
+    @DisplayName("AC-3.2/3.3: the composition-root implement-phase turn implements every task one at a time and marks each complete on implementation")
+    void compositionRootImplementLoopImplementsAndMarksEachTask(@TempDir Path workspace,
             @TempDir Path storeRoot) {
-        // Oracle: AC-3.1 (one task at a time, in order) + AC-3.2 (verify via the configured command) +
-        // AC-3.3 (mark complete in the artifact). The implement-phase turn the composition root builds
-        // must, given the approved breakdown in the target repo's design/ dir and a trivially-passing
-        // configured test command ("true"), implement T-1 then T-2 (one stub turn per task), verify
-        // each (the reused verify loop over the configured command), and mark each complete in the
-        // task-breakdown artifact. Proves the implement loop is REACHABLE from the composition root
-        // and wired to the configured test command (not stubbed). The expected per-task turns + the
-        // artifact markers trace to AC-3.1/3.3, not the composer.
+        // Oracle: AC-3.2 (one task at a time, in order; verify once at end of phase, not per task) +
+        // AC-3.3 (mark complete on implementation) + ADR-0012/DCR-7. The implement-phase turn the
+        // composition root builds must, given the approved breakdown in the target repo's design/ dir,
+        // implement T-1 then T-2 (one stub turn per task, no per-task verify) and mark each complete in
+        // the task-breakdown artifact. Proves the implement loop is REACHABLE from the composition
+        // root. The expected per-task turns + the artifact markers trace to AC-3.2/3.3, not the
+        // composer.
         ToolRegistryComposer composer = composer(workspace, storeRoot, config("true"));
         GreenfieldArtifactStore store = new GreenfieldArtifactStore(workspace);
         store.write(TASKS_PATH, TWO_TASK_BREAKDOWN);
 
         // A stub per-task implementation turn that records the task prompts it was driven with. This
-        // stands in for the live IMPLEMENT-phase AgentLoop (the only substituted boundary); the verify
-        // step is the REAL configured-command verify loop the composer wires.
+        // stands in for the live IMPLEMENT-phase AgentLoop (the only substituted boundary).
         List<String> taskPrompts = new ArrayList<>();
         GreenfieldImplementLoop.LoopTurn stubImplementTurn = prompt -> {
             taskPrompts.add(prompt);
@@ -152,50 +147,66 @@ class GreenfieldImplementCompositionTest {
         LoopOutcome outcome = implementPhaseTurn.run(IMPLEMENT_PROMPT);
 
         assertTrue(outcome.completed(),
-                "AC-3.2/RD-10: the passing configured 'true' command verifies each task; the run completes");
+                "AC-3.2/DCR-7: every task is implemented (no per-task verify); the run completes");
         assertEquals(2, taskPrompts.size(),
-                "AC-3.1: one implementation turn ran per task (T-1, T-2), one at a time");
+                "AC-3.2: one implementation turn ran per task (T-1, T-2), one at a time");
         assertTrue(taskPrompts.get(0).contains("T-1") && taskPrompts.get(1).contains("T-2"),
-                "AC-3.1: the tasks are implemented in breakdown order; were: " + taskPrompts);
-        // AC-3.3 oracle: each verified task is "marked complete" in the task-breakdown artifact. The
-        // observable, spec-grounded shape is a completed-checkbox markdown task line naming the id
-        // (the conventional "marked complete" form), so assert each id appears on a "[x]" completion
-        // line — not against any impl-private constant.
+                "AC-3.2: the tasks are implemented in breakdown order; were: " + taskPrompts);
+        // AC-3.3 oracle: each implemented task is "marked complete" in the task-breakdown artifact. The
+        // observable, spec-grounded shape is a completed-checkbox markdown task line naming the id (the
+        // conventional "marked complete" form, read back on resume), so assert each id appears on a
+        // "[x]" completion line — not against any impl-private constant.
         String artifact = store.read(TASKS_PATH).orElseThrow();
         assertTrue(artifact.contains("[x] T-1") && artifact.contains("[x] T-2"),
-                "AC-3.3: each verified task is marked complete in the task-breakdown artifact; was:\n"
-                        + artifact);
+                "AC-3.3: each implemented task is marked complete in the task-breakdown artifact; "
+                        + "was:\n" + artifact);
     }
 
-    // --- NFR-VERIFY-MAX-ITERATIONS : the per-task verify step is the configured command ----------
+    // --- CT-GF-8 : a scaffold-first composition-root run implements all tasks, no hard-stop at T-1 -
 
     @Test
-    @DisplayName("AC-3.4/NFR-VERIFY-MAX-ITERATIONS: the composition-root verify step is the configured test command (a failing command surfaces a bounded stop)")
-    void compositionRootVerifyStepIsConfiguredCommand(@TempDir Path workspace, @TempDir Path storeRoot) {
-        // Oracle: AC-3.2 (verify via the CONFIGURED command) + AC-3.4 (stop and surface on failure) +
-        // NFR-VERIFY-MAX-ITERATIONS (bounded). If the per-task verify step were stubbed rather than
-        // wired to the configured test command, an always-failing command ("false") could not surface
-        // a verify-exhausted stop. With "false" configured and a stub implementation turn, the
-        // composition-root implement loop must surface (the completed text names the stopped task) —
-        // proving the verify loop is wired to config. The bound (3) is the config's; a remedy turn
-        // runs between the bounded attempts.
-        ToolRegistryComposer composer = composer(workspace, storeRoot, config("false"));
+    @DisplayName("CT-GF-8: a scaffold-first breakdown through the composition root implements ALL tasks in order, no hard-stop at the not-yet-buildable T-1")
+    void compositionRootScaffoldFirstImplementsAllTasks(@TempDir Path workspace,
+            @TempDir Path storeRoot) {
+        // Oracle: CT-GF-8 + AC-3.2 + ADR-0012/DCR-7 — a scaffold-first breakdown (T-1 scaffold, T-2
+        // pom, later tasks add testable code) implements ALL tasks in order and does NOT hard-stop at
+        // T-1, because per-task verify is DROPPED (a not-yet-buildable scaffold is implemented without
+        // per-task verification). Through the composition root, the loop must drive a turn for EVERY
+        // task and complete — no per-task verify hard-stop at the unbuildable T-1/T-2. The end verify
+        // itself is T-3.9; the load-bearing T-3.8 assertion is "all tasks implemented, no hard-stop".
+        ToolRegistryComposer composer = composer(workspace, storeRoot, config("true"));
         GreenfieldArtifactStore store = new GreenfieldArtifactStore(workspace);
-        store.write(TASKS_PATH, "- T-1 Build the parser (refs AC-1.2)\n");
+        store.write(TASKS_PATH, """
+                # Tasks
 
-        GreenfieldImplementLoop.LoopTurn stubImplementTurn = prompt -> LoopOutcome.completed("tried");
+                - T-1 Scaffold the project directory layout (AC-2.1)
+                - T-2 Add the build file pom.xml (AC-2.1)
+                - T-3 Implement the parser with its first test (AC-1.2)
+                """);
+
+        List<String> taskPrompts = new ArrayList<>();
+        GreenfieldImplementLoop.LoopTurn stubImplementTurn = prompt -> {
+            taskPrompts.add(prompt);
+            return LoopOutcome.completed("implemented");
+        };
         GreenfieldDriver.LoopTurn implementPhaseTurn =
                 composer.greenfieldImplementLoopTurn(stubImplementTurn);
 
         LoopOutcome outcome = implementPhaseTurn.run(IMPLEMENT_PROMPT);
 
-        String text = outcome.finalTextIfPresent().orElse("");
-        assertTrue(text.contains("T-1"),
-                "AC-3.4: the always-failing CONFIGURED command stops the loop at T-1 and surfaces it; "
-                        + "was: " + text);
-        assertTrue(text.toLowerCase(java.util.Locale.ROOT).contains("verification")
-                        || text.toLowerCase(java.util.Locale.ROOT).contains("did not pass"),
-                "AC-3.4/AC-20.5: the surfaced text reports the verification failure; was: " + text);
+        assertTrue(outcome.completed(),
+                "CT-GF-8: a scaffold-first run implements ALL tasks and completes — no hard-stop at T-1");
+        assertEquals(3, taskPrompts.size(),
+                "CT-GF-8: an implementation turn ran for EVERY task (scaffold, pom, and the testable "
+                        + "task) — no per-task verify hard-stop; were: " + taskPrompts);
+        assertTrue(taskPrompts.get(0).contains("T-1") && taskPrompts.get(1).contains("T-2")
+                        && taskPrompts.get(2).contains("T-3"),
+                "CT-GF-8/AC-3.2: every task implemented in breakdown order; were: " + taskPrompts);
+        String artifact = store.read(TASKS_PATH).orElseThrow();
+        assertTrue(artifact.contains("[x] T-1") && artifact.contains("[x] T-2")
+                        && artifact.contains("[x] T-3"),
+                "AC-3.3: every task — including the not-yet-buildable scaffold and pom — is marked "
+                        + "complete on implementation; was:\n" + artifact);
     }
 
     @Test
