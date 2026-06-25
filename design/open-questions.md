@@ -885,3 +885,126 @@ auto-invokes the designer.
 - budget: amendment #1 of 3 for T-3.6 (creates both task rows); DCR-6, amendment #6 of 10 for milestone M3 (warn threshold 8, not hit)
 - resumed_task_commit: T-3.6 → c6e3a1c, T-3.7 → ae7e624
 - status: closed (DCR-6 amended at e5e9b34 [SHA backfill 4d1879c; OQ-lifecycle commits b534b92 + e0ff953]; both resumed tasks landed under single-agent topology, task-builder round 1 each: T-3.6 [write_artifact containment — strict three-artifact allowlist closing the AC-1.4 design/impl/** source-write hole; CT-GF-4] pushed at c6e3a1c, and T-3.7 [TaskTraceability recognition-COVERAGE hardening — dedup / arrow-skip / range-expand / bold-table-cell, strictness unchanged, same-line-ref holds, block-scan stays rejected; + greenfield TASKS prompt forces single-line rows and forbids range/Refs-block/arrow shapes; CT-GF-3] pushed at ae7e624. mvn clean verify green at each commit (T-3.6: 1100 tests; T-3.7: 1118 tests; JaCoCo 91.13% → 91.16%, gate 0.80). ONE non-blocking ripple_unresolved (02-architecture C3/C7/C9 rows do not yet note the DCR-6 containment + gate-coverage contracts — OUT of the approved scope; same precedent as the still-open DCR-5 C3 ripple; surfaced to the user as a future doc-fold-in candidate, could bundle the two). Shaded codingagent.jar rebuilt carrying both fixes. Bug 3 (live-generated CalculatorTest.java referencing CalcException unqualified — 8 compile errors) DEFERRED per the directive — no code written; the genuine IMPLEMENT-phase verify loop is expected to catch it on a G3 re-run. This only UNBLOCKS the future G3 live greenfield smoke test; G3 milestone gate left OPEN/untouched, NOT marked passed.)
+
+## OQ-design-7 — T-3.8/T-3.9/T-3.10 design-change requested (greenfield IMPLEMENT-phase verification model: verify-at-end / testable-only; no-test-command = complete-with-warning) — 2026-06-25
+
+- kind: ac-update + adr-clarification
+- raised_by: user via main-agent directive (closing three G3-blocking greenfield IMPLEMENT-phase defects D1/D2/D3 found + re-verified by the prior coordinator against the live source)
+- request_id: DCR-7
+- spec_refs_touched: AC-3.2, AC-3.3, AC-3.6 (new), AC-7.6, AC-20.5, AC-20.6 (text unchanged — re-citation only), NFR-VERIFY-MAX-ITERATIONS, ADR-0012 (greenfield workflow formality — implement clause), GreenfieldImplementLoop / GreenfieldDriver / ReplRunner / VerifyLoop (C3/C2), TaskTraceability.tasksInOrder, US-1/2/3, US-7
+- problem_statement: |
+    Three distinct G3-blocking greenfield IMPLEMENT-phase defects, all re-verified against the live source:
+    (D1) NO-TEST-COMMAND LIVELOCK. GreenfieldImplementLoop.run() takes a NO_TEST_COMMAND early-return
+    (:184-188) that asLoopTurn wraps as "completed" (:209-211); GreenfieldDriver.runImplementPhase
+    (:312-323) and ReplRunner keep-alive (:189-196 / :228-232 / :152-155) then re-prompt into a fresh
+    implement attempt — a livelock rather than a terminal outcome. The three sites mis-cite AC-20.6 at
+    VerifyLoop.java:129, GreenfieldImplementLoop.java:186 & :281 (AC-20.6 @ 00-requirements.md:398 is
+    actually "prefer named commands over ad-hoc strings", NOT the no-test-command behavior).
+    (D2) NO IMPLEMENT PROGRESS ON RESUME. GreenfieldDriver.java:211 reconstructs phase-state every turn;
+    GreenfieldPhaseState.reconstruct() (:70-90) lands at IMPLEMENT on the 3 "Approved:" stamps;
+    TaskTraceability.tasksInOrder() (:195-202) does NOT skip completed tasks; markComplete fires only on
+    VERIFIED (:173-177 / :255-260 / :373-386) and is write-only (nothing reads completion lines back), so
+    a greenfield re-entry restarts at T-1 rather than resuming at the first incomplete task.
+    (D3) PER-TASK VERIFY vs SCAFFOLD-FIRST. The loop body verifies per-task (:170-190) with an EXHAUSTED
+    hard-stop (:178-183) bounded by NFR-VERIFY-MAX-ITERATIONS=5 (VerifyLoop.verify() :135 / :160-162);
+    a scaffold-first breakdown (T-1 scaffold, T-2 pom) hard-stops at T-1 because the not-yet-buildable
+    scaffold cannot pass a per-task verify.
+- options_considered:
+  - id: A
+    summary: |
+      VERIFY AT END / TESTABLE-ONLY. The greenfield implement phase implements every task in breakdown
+      order, marks each complete AS IMPLEMENTED (durable on-disk marker, read back on resume to skip
+      completed tasks), and verifies ONCE AT END OF PHASE (testable-only — tasks not independently
+      testable are implemented without per-task verification). Failing end verify retries bounded by
+      NFR-VERIFY-MAX-ITERATIONS then stop-and-surface (AC-3.4/AC-20.5). No configured test command →
+      end verify skipped with ONE warning, all tasks implemented + marked complete, phase terminates
+      deterministically (no re-prompt loop) — COMPLETE-WITH-WARNING (terminal success, exit 0),
+      consistent with the brownfield no-verify precedent. Intra-IMPLEMENT resume skips completed tasks
+      and resumes at the first incomplete one (AC-7.6 extended). New AC-3.6 carries the correct
+      no-test-command behavior the three sites currently mis-cite as AC-20.6.
+    pros: Fixes all three defects with one coherent model; matches how a scaffold-first breakdown actually
+      builds (scaffold → pom → testable code, verified once at the end); durable per-task completion makes
+      resume real; terminal no-test outcome removes the livelock; corrects the AC-20.6 mis-citation.
+    cons: ac-update + adr-clarification touches several design artifacts (00-requirements, ADR-0012,
+      contract-tests, 07-tasks); end-of-phase verify is coarser than per-task (a failure points at the
+      phase, not the single task) — accepted for a flat greenfield task list with no milestone substructure.
+  - id: B
+    summary: |
+      Keep per-task verify; make the no-test-command path a hard-stop and add resume-skip separately.
+    pros: Smaller per-fix changes.
+    cons: Does NOT fix D3 (scaffold-first still hard-stops at T-1 because the scaffold cannot pass a
+      per-task verify); a hard-stop on no-test-command is inconsistent with the brownfield no-verify
+      precedent (complete-with-warning) and would fail a valid greenfield run that simply has no test
+      command configured. Rejected.
+- recommended_option: A
+- chosen_option: A
+- user_decision: approved
+- user_approval:
+    approved_at: 2026-06-25T00:00:00+00:00
+    approver_note: |
+      APPROVED end-to-end — proceed with Option A + DCR-7. Verification model: VERIFY AT END /
+      TESTABLE-ONLY. No-test-command: COMPLETE-WITH-WARNING (terminal success, exit 0; all tasks
+      implemented + marked complete; end verify skipped with ONE warning; phase terminates
+      deterministically — NO re-loop; NOT a hard-stop; consistent with the brownfield no-verify
+      precedent). Verify boundary: END-OF-PHASE (single configured build/test run after the last task;
+      the greenfield implement phase is a flat task list with no milestone substructure). New ACs/CTs/
+      tasks use the next free ids (designer assigns; expected shape T-3.8/T-3.9/T-3.10, AC-3.6, CT-GF-5).
+      Then implement all three tasks to completion: T-3.8 (loop rework — implement every task, mark each
+      complete as implemented, drop per-task verify + per-task EXHAUSTED hard-stop + per-task
+      NO_TEST_COMMAND early return; resolves D3); T-3.9 (end-of-phase / testable-only verify + no-test
+      TERMINAL behavior; fix AC-20.6 mis-citation → AC-3.6 at VerifyLoop:129, GreenfieldImplementLoop:186
+      & :281; resolves D1); T-3.10 (intra-IMPLEMENT resume skips completed tasks; resolves D2). Brownfield
+      no-test sites OUT of scope. This unblocks the future G3 live smoke test; do NOT mark G3 passed.
+      Bug 3 (live-generated CalculatorTest referencing CalcException unqualified) now expected to be
+      caught by the end-of-phase verify rather than separately fixed.
+    revised_from_original: false
+- scope_of_design_edit:
+  - design/00-requirements.md (AC-3.2 → verify ONCE AT END OF PHASE, not per task; tasks not independently testable implemented without per-task verification; keep EARS + refs. AC-3.3 → each task MARKED COMPLETE AS IMPLEMENTED, completion read back on resume to skip completed tasks, end-of-phase verification gates the PHASE not each task; keep EARS + US-3. NEW AC-3.6 [next free id under US-3]: no configured test command → skip end verify with a single warning, having implemented + marked complete every task, terminate deterministically [no re-prompt loop]; this is the correct AC the three sites mis-cite as AC-20.6; trace US-3 + NFR-VERIFY context. AC-7.6 → extend to cover intra-IMPLEMENT resume: re-entry skips completed tasks + resumes at first incomplete, terminating rather than restarting at T-1; keep the pre-approval phase-boundary tradeoff wording. AC-20.6 TEXT UNCHANGED — DCR only records the code re-cites the no-test-command behavior to the new AC-3.6 not AC-20.6.)
+  - design/adr/0012-greenfield-workflow-formality.md (line 48 implement clause rewrite: tasks implemented one at a time in breakdown order, marked complete ON IMPLEMENTATION; verify runs ONCE AT END OF PHASE [testable-only]; failing end verify bounded by NFR-VERIFY-MAX-ITERATIONS then stop-and-surface [AC-3.4]; no test command → end verify skipped with a warning, phase terminates [AC-3.6, replacing the AC-20.6 mis-citation]; intra-IMPLEMENT resume skips completed tasks [AC-7.6]. Add DCR-7 Notes entry + front-matter amended:.)
+  - design/06-formal/contract-tests.md (§7 add CT-GF-5 [designer may split CT-GF-5..8]: (i) no-test-command terminates cleanly — all tasks implemented + marked complete, end verify skipped with warning, terminal outcome [no re-loop]; (ii) resume skips completed tasks — re-entry over a partially-completed breakdown resumes at first incomplete + terminates; (iii) end-verification failure surfaces — failing end verify bounded by NFR-VERIFY-MAX-ITERATIONS then stop-and-surface [AC-3.4]; (iv) scaffold-first breakdown [T-1 scaffold, T-2 pom] implements all tasks then verifies at end, no hard-stop at T-1. Trace AC-3.2/3.3/3.6/7.6 + ADR-0012; update §6 summary.)
+  - design/07-tasks.md (append the three M3 tasks T-3.8/T-3.9/T-3.10 [designer assigns actual next free ids] + task→US mapping US-3.)
+- designer_status: amended
+- amendment_commit: 4667724
+- amendment_summary: |
+    Design-only amendment (no src/ edited). 00-requirements.md: AC-3.2 rewritten (greenfield IMPLEMENT
+    phase verifies ONCE AT END OF PHASE, testable-only — tasks not independently testable implemented
+    without per-task verify); AC-3.3 rewritten (each task MARKED COMPLETE AS IMPLEMENTED — durable marker;
+    completion read back on resume to skip completed tasks; end-of-phase verify gates the PHASE not each
+    task); AC-3.4 scoped to end-of-phase verify; NEW AC-3.6 (EARS Un, US-3 — no configured test command →
+    skip end verify with ONE warning, all tasks implemented + marked complete, terminate deterministically
+    [no re-prompt loop]; the correct AC the three code sites mis-cite as AC-20.6); AC-7.6 extended (intra-
+    IMPLEMENT resume skips completed tasks + resumes at first incomplete, terminating not restarting at T-1;
+    pre-approval phase-boundary tradeoff wording kept; Refs += US-3); 1b symbolic-NFR + 1c NFR→AC coverage
+    rows for NFR-VERIFY-MAX-ITERATIONS += AC-3.6; front-matter amended_by += DCR-7 / review repointed.
+    **AC-20.6 TEXT UNCHANGED** (the DCR only records the re-citation). ADR-0012: Decision "Implementation"
+    bullet rewritten to "Implementation — verify at end / testable-only (DCR-7)" + new Notes entry "Amended
+    2026-06-25 (DCR-7, T-3.8/T-3.9/T-3.10)" + front-matter amended[]/Status/spec_refs (+AC-3.4/AC-3.6/AC-20.5/
+    NFR-VERIFY-MAX-ITERATIONS)/review. contract-tests.md § 7: designer SPLIT the single requested CT-GF-5 into
+    four (per the directive's split permission) — CT-GF-5 (no-test terminal), CT-GF-6 (resume skips completed),
+    CT-GF-7 (end-verify failure surfaces), CT-GF-8 (scaffold-first, no hard-stop at T-1); § 7 heading/intro/
+    closing-note + § 6 traceability summary extended; CT-GF-1..4 intact; front-matter amended_by += DCR-7.
+    07-tasks.md: new M3 tasks T-3.8 (M, deps T-3.3, C3/C2 — implement-loop rework, resolves D3), T-3.9 (M,
+    deps T-3.8, C3/C2 — end-of-phase/testable-only verify + no-test TERMINAL + AC-20.6→AC-3.6 mis-citation fix,
+    resolves D1), T-3.10 (M, deps T-3.9, C3/C15 — intra-IMPLEMENT resume skips completed tasks, resolves D2);
+    § 6 US-1/2/3 row += T-3.8/T-3.9/T-3.10, US-7 row += T-3.10; front-matter amended_by += DCR-7; G-gate table
+    untouched. design-progress.md flip-and-return + § 1/§ 3/§ 5 (Landed 4667724). Review:
+    design/reviews/2026-06-25-amendment-greenfield-implement-verify-model-r1.md. SHA-backfill commit beb563e
+    (design-progress § 5 + review approved_in), mirroring the DCR-3/DCR-4/DCR-6 backfill precedent. NO milestone
+    gate touched; G3 stays OPEN.
+- ripple_unresolved: |
+    1 item, NON-BLOCKING, OUTSIDE the approved four-file scope (same precedent as the still-open DCR-5 C3 and
+    DCR-6 C3/C7/C9 ripples): design/02-architecture.md C3 (Workflow drivers, line 91) / C15 (Session/Lineage
+    store, line 103) rows record the DCR-1/2/3 greenfield contracts but do not yet note the DCR-7 IMPLEMENT-
+    phase verify-at-end / testable-only model (mark-complete-on-implementation, end-of-phase verify, no-test
+    complete-with-warning, intra-IMPLEMENT resume skipping completed tasks). Semantic addition (judgment), not
+    a mechanical cross-reference; deliberately OUT of the approved scope_of_design_edit. ADR-0012 carries the
+    architecture's greenfield-implement semantics and IS updated; T-3.8/T-3.9/T-3.10 cite ADR-0012 +
+    AC-3.2/AC-3.3/AC-3.6/AC-7.6 directly, so the missing C3/C15 notes do NOT block any task. Surfaced to the
+    user as a candidate for a future tiny doc-fold-in — could bundle the three open C3 ripples (DCR-5, DCR-6,
+    DCR-7) into one. Not a new ambiguity, not scope creep. (Designer inspected-and-dismissed several other
+    sites — 02-architecture failure matrix, 05-operations, 04-apis + ADR-0003 AC-20.6 prefer-named-commands,
+    01-overview, 03-data-model — all generic/unrelated and still correct.)
+- assigned_ids: { new_tasks: [T-3.8, T-3.9, T-3.10], new_ac: AC-3.6, new_cts: [CT-GF-5, CT-GF-6, CT-GF-7, CT-GF-8] }
+- budget: amendment #1 of 3 for T-3.8 (creates all three task rows); DCR-7, amendment #6 of 10 for milestone M3 (warn threshold 8, not hit)
+- resumed_task_commit: (pending — T-3.8/T-3.9/T-3.10 driven in sequence after this amendment)
+- status: open (DCR-7 amended at 4667724 [backfill beb563e]; resuming — coordinator drives T-3.8 → T-3.9 → T-3.10 under single-agent topology, each follow-on code commit carrying "Spec amendment: 4667724 (DCR-7)" per shared.md § 7.3; will close with the three resolution SHAs)

@@ -1,6 +1,6 @@
 ---
 doc: tasks-progress
-last_updated: 2026-06-24
+last_updated: 2026-06-25
 last_updated_at_commit: pending
 total_resolved_count: 42
 
@@ -8,12 +8,46 @@ last_resolved:
   task: T-3.7
   title: "Harden TaskTraceability against real-breakdown miscounting + extend the greenfield TASKS prompt (DCR-6): (gate) recognition-COVERAGE-only hardening — dedup repeated untraced ids, skip arrow/sequencing-diagram lines (T-1 -> T-2 / T-1 → T-2), expand range headings (T-3 through T-8 -> each individually recognized + correctly flagged if untraced), recognize bold-wrapped ids in table rows (| **T-1** |) — STRICTNESS unchanged (which ids/refs count not relaxed; same-line-ref rule holds; NO block scan; DCR-5 Option b stays rejected); check()/tasksInOrder() share one recognizeTaskIds(line) source of truth. (prompt) GreenfieldPlaybook TASKS arm now forces a single canonical single-line task row and forbids range headings / multi-line **Refs:** blocks / arrow-diagram-as-task-list. CT-GF-3 + a full Sonnet-style breakdown that now passes; GreenfieldPlaybookTest asserts the forbiddances"
   resolved_at: 2026-06-24
-  commit: pending
+  commit: ae7e624
   iterations: { task_builder: 1 }
   dcrs_consumed: [DCR-6]
 
-in_flight: null
+in_flight:
+  task: T-3.8
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: DESIGNER-AMENDMENT-HANDOFF-v1
+  last_handoff_status: amended
+  last_review_file: null
+  started_at: 2026-06-25T00:00:00+00:00
+  last_updated_at: 2026-06-25T00:01:00+00:00
 ---
+
+## In-flight
+
+- task: T-3.8
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: DESIGNER-AMENDMENT-HANDOFF-v1
+  last_handoff_status: amended
+  last_review_file: null
+  open_action_items_for_implementer: []
+  open_action_items_for_tester: []
+  files_in_working_tree: []
+  dcrs_consumed:
+    - DCR-7
+  started_at: 2026-06-25T00:00:00+00:00
+  last_updated_at: 2026-06-25T00:01:00+00:00
+  note: |
+    DCR-7 amended at 4667724 (backfill beb563e), pushed. Greenfield IMPLEMENT-phase verification
+    model: VERIFY AT END / TESTABLE-ONLY; no-test-command = COMPLETE-WITH-WARNING (terminal, exit 0,
+    no re-loop); verify boundary END-OF-PHASE. Designer assigned T-3.8/T-3.9/T-3.10, AC-3.6,
+    CT-GF-5..8. Resume drives T-3.8 (resolves D3, deps T-3.3) → T-3.9 (resolves D1, deps T-3.8) →
+    T-3.10 (resolves D2, deps T-3.9), single-agent topology, each code commit carrying
+    "Spec amendment: 4667724 (DCR-7)". One non-blocking ripple (02-architecture C3/C15 — future
+    doc-fold-in, could bundle DCR-5/DCR-6/DCR-7 C3 ripples). G3 stays OPEN.
 
 ### G0 (after M0 — Walking skeleton) — ✅ PASSED 2026-06-22
 - Auto checks: `mvn clean verify` green (424 tests, JaCoCo ≥0.80); shaded `codingagent.jar` builds; G0 contract tests (CT-SCH-1..4/9/10/13/14, CT-INV-1/7/8/9, CT-EX-1..4/6) green.
