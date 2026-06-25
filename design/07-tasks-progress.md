@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-25
-last_updated_at_commit: pending
+last_updated_at_commit: 566521b
 total_resolved_count: 44
 
 last_resolved:
   task: T-3.9
   title: "End-of-phase / testable-only verification + no-test-command TERMINAL behavior (DCR-7, resolves D1): the greenfield IMPLEMENT phase now runs the configured build/test ONCE at end of phase via the reused VerifyLoop (over the implemented phase, testable-only — AC-3.2); fail → bounded retry (NFR-VERIFY-MAX-ITERATIONS) then stop-and-surface (AC-3.4/AC-20.5); no test command → skip end verify with ONE warning + terminate deterministically (AC-3.6) — COMPLETE_WITH_WARNING, exit 0, NO re-prompt loop (kills the D1 livelock). ImplementOutcome += {VERIFY_FAILED, COMPLETE_WITH_WARNING} carrying the VerifyOutcome; all three terminal dispositions map (asLoopTurn) to a COMPLETED LoopOutcome with the surfaced failure / single warning in the final text (verification signal distinct from process exit, G4). AC-20.6 mis-citation corrected → AC-3.6 (VerifyLoop's generic no-test-command site dropped the wrong AC-20.6; the new greenfield consumer cites AC-3.6). VerifyFailureReport extracted (shared loop pkg). No composition-root wiring change (overConfig already passes executor+config). CT-GF-5 + CT-GF-7."
   resolved_at: 2026-06-25
-  commit: pending
+  commit: 566521b
   iterations: { task_builder: 1 }
   dcrs_consumed: [DCR-7]
 
@@ -481,7 +481,7 @@ in_flight: null
 - notes: >>> DCR-7 (T-3.8, implement-loop rework) under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main): GreenfieldImplementLoop.run(String) reworked to implement every task in TaskTraceability.tasksInOrder order, marking each complete on implementation via store.appendLine(...) before the next; the per-task verify cycle REMOVED — dropped implementAndVerify, remedyFeedingFailureBack, the Verifier/VerifierFactory seams, the per-task EXHAUSTED hard-stop, and the per-task NO_TEST_COMMAND early-return. ImplementOutcome reshaped from {ALL_VERIFIED, VERIFY_EXHAUSTED, NO_TEST_COMMAND, NO_TASKS} (with completedTasks/stoppedTask/verifyOutcome) to {ALL_IMPLEMENTED, NO_TASKS} (with implementedTasks); removed allVerified(List,VerifyOutcome)/verifyExhausted/noTestCommand/stoppedTaskIfPresent/verifyOutcomeIfPresent, added allImplemented(List)/allImplemented(). CompletionStamp re-worded "Implemented and verified (verified on attempt N)" → "- [x] <taskId> Implemented" (records implementation, keeps the greppable token + the checkbox shape T-3.10 reads back). overConfig's 4-arg signature kept (CommandExecutor+ResolvedConfig now reserved fields for T-3.9's end-of-phase verify, so no churn to ToolRegistryComposer/Main). asLoopTurn unregressed (all-implemented/no-tasks → completed LoopOutcome → driver COMPLETED). VerifyLoop/VerifyOutcome left UNCHANGED (still used by BrownfieldDriver; T-3.9 reuses VerifyLoop for the end verify). The VerifyLoop.java:129 AC-20.6→AC-3.6 mis-citation site left for T-3.9. Phase B (CT-GF-8): GreenfieldImplementLoopTest reworked to the no-per-task-verify model + the scaffold-first regression (T-1 scaffold, T-2 pom implements ALL tasks, no hard-stop at T-1) + a durable-marker read-back test; ImplementOutcomeTest updated for the reshaped Disposition; GreenfieldImplementCompositionTest (cli/) updated at the composition seam. Oracles trace to AC-3.2/AC-3.3/ADR-0012/CT-GF-8, never to impl behaviour. mvn clean verify GREEN (1107 tests, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met at 0.9106; reworked classes 100% line). Test count moved 1118→1107: the rework removed the per-task EXHAUSTED + per-task NO_TEST_COMMAND test cases that no longer apply (the loop no longer hard-stops per task) and replaced them with the all-implemented + scaffold-first cases — not a regression (full verify BUILD SUCCESS). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker / 0 Major / 0 Minor / 1 Nit (the intentional reserved-for-T-3.9 executor+config fields, disclosed). One stated_assumption (defensible): completion-marker wording = "Implemented" + the `- [x] <taskId>` checkbox shape, minimal-viable for T-3.10's read-back. No AWS/Bedrock calls (scripted seams + scripted verifier). G3 stays OPEN.
 
 ## T-3.9 — End-of-phase / testable-only verification + no-test-command TERMINAL behavior (DCR-7, resolves D1): the second of three DCR-7 IMPLEMENT-phase tasks; the configured build/test now runs ONCE at end of phase, and the no-test-command path is a genuine terminal complete-with-warning (the D1 livelock fix)
-- commit: pending
+- commit: 566521b
 - review: design/reviews/code/T-3.9-r1.md
 - resolved: 2026-06-25
 - context_mode: narrow

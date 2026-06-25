@@ -1008,3 +1008,23 @@ auto-invokes the designer.
 - budget: amendment #1 of 3 for T-3.8 (creates all three task rows); DCR-7, amendment #6 of 10 for milestone M3 (warn threshold 8, not hit)
 - resumed_task_commit: (pending — T-3.8/T-3.9/T-3.10 driven in sequence after this amendment)
 - status: open (DCR-7 amended at 4667724 [backfill beb563e]; resuming — coordinator drives T-3.8 → T-3.9 → T-3.10 under single-agent topology, each follow-on code commit carrying "Spec amendment: 4667724 (DCR-7)" per shared.md § 7.3; will close with the three resolution SHAs)
+
+## Discussion items from T-3.9 — 2026-06-25
+
+### D1 — VerifyFailureReport (new, shared loop pkg) is a near-twin of BrownfieldRunner.verifyFailureReport (suggested: none)
+- task: T-3.9
+- spec_refs: AC-20.5 (verify-failure surfacing)
+- suggested_amendment_kind: none
+- finding: T-3.9 extracted a `VerifyFailureReport.forExhaustedVerify(...)` helper into the shared
+  `com.srk.codingagent.loop` package so the new greenfield end-of-phase verify-failure surface does
+  not duplicate BrownfieldRunner's existing verify-failure-report logic. The task-builder's reuse
+  sweep found that `BrownfieldRunner.verifyFailureReport` is a PRE-EXISTING near-twin of the new
+  shared helper — i.e. the brownfield side could now also call the shared `VerifyFailureReport` instead
+  of its own private method. The task-builder did NOT refactor BrownfieldRunner (out of T-3.9 scope —
+  brownfield is explicitly out of scope for DCR-7) and left the brownfield private helper in place to
+  keep the change surface tight.
+- coordinator note: non-blocking; T-3.9 resolved cleanly (0 Blocker/Major/Minor). This is a small,
+  defensible scoping choice — consolidating BrownfieldRunner's verify-failure-report onto the shared
+  VerifyFailureReport is a pure-refactor candidate for a future brownfield task (suggested_amendment_kind
+  = none — no spec change; it is a code-consolidation, not a contract gap). No action required to proceed.
+- status: open (informational; no action required to proceed)
