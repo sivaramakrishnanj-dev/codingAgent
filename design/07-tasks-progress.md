@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
-last_updated: 2026-06-25
-last_updated_at_commit: 77010b4
+last_updated: 2026-06-29
+last_updated_at_commit: pending
 total_resolved_count: 45
 
 last_resolved:
@@ -45,6 +45,15 @@ in_flight: null
   - **D4** (T-2.8-RD-D4): budget guard evaluated before the tool_result was appended → compaction summarized a dangling tool_use → 400; fixed by deferring the COMPACT check to a paired boundary (commit 1fc2709).
   - **D5** (T-2.4-RD-D5): memory INDEX never injected into the live system prompt → fresh session couldn't recall (guessed slugs); fixed by loading both-tier index into the prompt at session start (commit 88ea49b).
 - Verdict: **M2 truly complete; G2 passed** (compact+continue, sub-agent summary, propose→approve→recall all proven live). Cleared to proceed to M3 on user direction.
+
+### G3 (after M3 — Greenfield) — ✅ PASSED 2026-06-29
+- Auto checks (boolean-checkable G3 criteria, all green from the prior G3 gate stop): `mvn clean verify` green (1135 tests at T-3.10, JaCoCo ≥0.80); shaded `codingagent.jar` builds (17 MB). G3 contract assertions green — the greenfield-phase-gating CT (closes the §6 gap), CT-GF-1 (mid-flow resume from a stamped requirements artifact, no restart) + CT-GF-2 (no-clobber of a stamped artifact) per the G3 checklist (DCR-3), plus CT-GF-3..CT-GF-8 (DCR-5/6/7 greenfield containment, gate-coverage hardening, and the IMPLEMENT-phase verify-at-end / testable-only / no-test-terminal / intra-IMPLEMENT-resume model). M3 fully resolved: T-3.1..T-3.10 all resolved (HEAD 618424b). Seven amendments (DCR-1/2/3/5/6/7 greenfield + DCR-4 Bedrock timeout) landed and confirmed working live.
+- **Manual real-Bedrock LIVE greenfield smoke test (main agent), 2026-06-29, against the disposable target repo `/Users/sivarj/ca-greenfield-tryit`; the full idea→requirements→design→tasks→implement arc ran clean end-to-end:**
+  - **Phase gating proven live**: requirements → design → tasks each gated per phase (multi-turn dialogue, approve=finalize, DCR-2); the three approval-stamped design-doc artifacts written to the target repo (`design/00-requirements.md`, `design/01-design.md`, `design/02-tasks.md`) — driver-authored persistence (DCR-1), AC-1.5 stamps present.
+  - **Tasks-gate traceability passed live**: the model designed an 8-task breakdown, each task tracing to a requirement; the strict `TaskTraceability` gate accepted it (DCR-5 prompt-emits-the-vocabulary + DCR-6 recognition-coverage hardening both worked on real Sonnet-style output).
+  - **DCR-7 verify-at-end / testable-only IMPLEMENT model worked live**: all 8 tasks implemented one at a time, each marked complete ON IMPLEMENTATION (no per-task verify — D3 fixed); then the end-of-phase `mvn -q test` failed initially and **SELF-REPAIRED via the bounded remedy loop to green on attempt 4 of 5** — this is where the deferred DCR-6 "Bug 3" non-compiling-test class (`CalculatorTest` referencing `CalcException` unqualified) was caught and fixed, exactly as DCR-7 intended. Clean terminal state, no livelock (D1 fixed).
+  - **Independently re-verified by the main agent** (claims not hallucinated): re-ran `mvn test` in the target repo (exit 0) and ran the produced jar — `3+4`→`7`, `10-25`→`-15`, `3 x 4`→stderr `unsupported operator 'x'` exit 1 — a real, working, tested Maven project written end-to-end by the greenfield workflow.
+- Verdict: **M3 truly complete; G3 passed** (greenfield idea→implement arc, phase-gated, artifacts written to the target repo, end-of-phase verify self-repaired to green — all proven live). Cleared to proceed to M4 on user direction.
 
 ## Resolved tasks
 
