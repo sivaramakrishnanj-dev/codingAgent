@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-29
-last_updated_at_commit: pending
+last_updated_at_commit: 8db9cd0
 total_resolved_count: 47
 
 last_resolved:
   task: T-4.2
   title: "Multimodal attachments (C1, C4): --attach (one-shot) / /attach (REPL) → ContentBlock.Image/Document. New sealed Image (kind=image, format∈png/jpeg/gif/webp, bytesRef) + Document (kind=document, neutral name, format∈9 doc formats, bytesRef) variants; ConverseWireMapper input-only mapping to Converse image{}/document{} (bytes read from bytesRef at send, SDK base64-encodes); ModelCapabilityProfile gains supportsImageInput/supportsDocumentInput (Claude true, conservative-default false). AttachmentResolver pipeline: extension→format inference, INV-18 name sanitization (alphanumeric/space/hyphen/parens/brackets, ≤200 chars, neutral fallback), INV-19 capability gate (decline-with-message when unsupported, not sent). CT-SCH-5/6/7/8 + CT-INV-15/16. Scope boundary (defensible, surfaced): /attach resolves+gates+reports but the live REPL turn-threading of the admitted block is left to the C3 runner seams (out of the C1+C4 scope); the full attach→request path is wired+tested on the one-shot --attach path + at the AgentLoop seam."
   resolved_at: 2026-06-29
-  commit: pending
+  commit: 8db9cd0
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -525,7 +525,7 @@ in_flight: null
 - notes: >>> M4 (T-4.1, web delegate) under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main): new WebLookupBackend interface (the ADR-0008 swappable seam) + WebLookupRequest (search(query)/fetch(url) factory + Kind) + WebLookupResult (success(text)/failure(reason), report-not-fabricate shape) + ClaudeCliWebLookupBackend (v1 impl — shells out via the REUSED CommandExecutor/ADR-0003 subprocess machinery, NOT a raw ProcessBuilder; rooted at a fresh scratch temp dir not the workspace per ADR-0008's no-repo-write property; 120 s timeout injected as a Duration) + WebSearchTool (NAME=web_search) + WebFetchTool (NAME=web_fetch); ToolSchemas extended with the web_search `query` / web_fetch `url` inputSchemas; ToolRegistryComposer registers both tools into the LIVE registry (the T-2.7 lesson: implemented-but-unregistered = invisible at runtime). Web tools declare SIDE_EFFECTING and route through the existing PermissionGate, so READ_ONLY denial (AC-11.2/RD-6) needs NO new gate path; web tools deliberately NOT added to the greenfield pre-approval registry (Class X stays out of that read-only surface). Failure (AC-11.3) modelled as a returned WebLookupResult.failure — absent-on-PATH / error / timeout all report, never fabricate, never crash. Logging (AC-11.4) via the loop's existing TOOL_USE/TOOL_RESULT event path (no duplicate per-tool logging). Phase B: 38 new web-delegate tests across WebSearchToolTest(6)/WebFetchToolTest(6)/ClaudeCliWebLookupBackendTest(7)/WebLookupRequestTest(4)/WebLookupResultTest(3)/permission.WebLookupGatingTest(5) + LiveToolRegistryCompositionTest(+web Class-X registration asserts). The Verify column's "CT (Class X gating)" — no dedicated CT-* exists for the web delegate in 06-formal/contract-tests.md (confirmed) — is realized as the gating tests (READ_ONLY deny / asking-mode prompt) + the live-registry Class-X assertions. Subprocess tested WITHOUT a real `claude` binary: WebLookupBackend is an injectable seam (fake backend for success), and absent-on-PATH + timeout failure paths exercised deterministically (no live network). Oracles trace to AC-11.1/11.2/11.3/11.4 + RD-6 + ADR-0008, never to impl behaviour. mvn clean verify GREEN (1166 tests, +31 over the 1135 baseline, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met at 0.9132; new C11 classes 85–100% line). Self-checks: oracle-traceability=passed, reuse=passed (reused CommandExecutor + the existing gate path, no duplication). 0 Blocker / 0 Major / 0 Minor / 1 Nit / 0 Discussion. One load-bearing stated_assumption (defensible, coordinator-surfaced): NFR-NET-WEBLOOKUP-TIMEOUT (120 s default, configurable) is carried as an injectable Duration (composer constant WEB_LOOKUP_TIMEOUT) rather than a new ResolvedConfig key — a new key would require editing design/06-formal/resolved-config.schema.json (additionalProperties:false), which is under design/ and would force a design-change-needed (schema-update); the injection seam keeps it config-drivable later without a schema change. A future small schema-update DCR could promote it to a real config key (`webLookupTimeoutSeconds`) for true runtime configurability — non-blocking, surfaced. No AWS/Bedrock calls (the delegate is a local claude -p subprocess, not Bedrock).
 
 ## T-4.2 — Multimodal attachments (C1, C4): --attach / /attach → Image/Document blocks, sanitized name, capability-gated
-- commit: PENDING_T42
+- commit: 8db9cd0
 - review: design/reviews/code/T-4.2-r1.md
 - resolved: 2026-06-29
 - context_mode: narrow
