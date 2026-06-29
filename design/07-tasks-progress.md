@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-29
-last_updated_at_commit: 972ed1d
+last_updated_at_commit: pending
 total_resolved_count: 45
 
 last_resolved:
@@ -12,8 +12,31 @@ last_resolved:
   iterations: { task_builder: 1 }
   dcrs_consumed: [DCR-7]
 
-in_flight: null
+in_flight:
+  task: T-4.1
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  started_at: 2026-06-29T00:00:00+00:00
+  last_updated_at: 2026-06-29T00:00:00+00:00
 ---
+
+## In-flight
+
+- task: T-4.1
+  phase: TASK_BUILDER
+  loop_iter: 1
+  round: null
+  last_handoff_kind: null
+  last_handoff_status: null
+  last_review_file: null
+  files_in_working_tree: []
+  dcrs_consumed: []
+  started_at: 2026-06-29T00:00:00+00:00
+  last_updated_at: 2026-06-29T00:00:00+00:00
 
 ### G0 (after M0 — Walking skeleton) — ✅ PASSED 2026-06-22
 
