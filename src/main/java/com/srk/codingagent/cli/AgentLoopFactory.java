@@ -157,6 +157,25 @@ public final class AgentLoopFactory {
     }
 
     /**
+     * Resolves the active model's capability profile for a config (ADR-0002, C5) — the same
+     * resolution the loop's budget guard uses (the live default {@code us.anthropic.claude-opus-4-8}
+     * resolves to the Claude profile; an unknown id degrades to the conservative default). Exposed
+     * so the launcher can build the {@code AttachmentResolver} the {@code --attach}/{@code /attach}
+     * pipeline gates against (INV-19 — multimodal input is sent only when the profile reports the
+     * matching {@code supportsImageInput}/{@code supportsDocumentInput}), single-sourcing the
+     * conservative fallback window with the loop's wiring.
+     *
+     * @param config the resolved configuration; must not be {@code null}.
+     * @return the active model's capability profile; never {@code null}.
+     * @throws NullPointerException if {@code config} is {@code null}.
+     */
+    public ModelCapabilityProfile capabilityProfile(ResolvedConfig config) {
+        Objects.requireNonNull(config, "config");
+        return ModelCapabilityProfile.forModelId(
+                config.modelId(), CONSERVATIVE_DEFAULT_CONTEXT_WINDOW_TOKENS);
+    }
+
+    /**
      * Builds the production greenfield phase-loop factory (C3, ADR-0012): the
      * {@link GreenfieldDriver.PhaseLoopFactory} the {@link GreenfieldDriver} runs each
      * {@link com.srk.codingagent.workflow.GreenfieldPhase} through. The one un-coverable step

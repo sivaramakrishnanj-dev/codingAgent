@@ -4,6 +4,9 @@ import com.srk.codingagent.persistence.ContentBlock;
 import com.srk.codingagent.persistence.ModelResponsePayload;
 import com.srk.codingagent.persistence.ModelUsagePayload;
 import com.srk.codingagent.persistence.StopReason;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -13,6 +16,10 @@ import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
+import software.amazon.awssdk.services.bedrockruntime.model.DocumentBlock;
+import software.amazon.awssdk.services.bedrockruntime.model.DocumentSource;
+import software.amazon.awssdk.services.bedrockruntime.model.ImageBlock;
+import software.amazon.awssdk.services.bedrockruntime.model.ImageSource;
 import software.amazon.awssdk.services.bedrockruntime.model.InferenceConfiguration;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
 import software.amazon.awssdk.services.bedrockruntime.model.ReasoningContentBlock;
@@ -40,7 +47,24 @@ import software.amazon.awssdk.services.bedrockruntime.model.ToolUseBlock;
  *   <li>{@link ContentBlock.ToolResult} &rarr; {@code toolResult{toolUseId,content,status}}</li>
  *   <li>{@link ContentBlock.Reasoning} &rarr; {@code reasoningContent{reasoningText{text,signature}}}
  *       or {@code reasoningContent{redactedContent}}</li>
+ *   <li>{@link ContentBlock.Image} &rarr; {@code image{format, source{bytes}}} (input only,
+ *       § 2.3; the SDK base64-encodes the bytes the mapper reads from the block's
+ *       {@code bytesRef})</li>
+ *   <li>{@link ContentBlock.Document} &rarr; {@code document{name, format, source{bytes}}}
+ *       (input only, § 2.3; neutral {@code name} per INV-18)</li>
  * </ul>
+ *
+ * <p><b>Multimodal attachments (T-4.2; § 2.3 multimodal input).</b> An {@link ContentBlock.Image}
+ * / {@link ContentBlock.Document} carries its bytes <em>by reference</em> ({@code bytesRef}, a
+ * path) rather than inline, so a persisted/replayed block does not bloat the JSONL log with
+ * base64. On the request path the mapper reads the referenced file to raw bytes and wraps them in
+ * the Converse {@code image.source.bytes} / {@code document.source.bytes} member; the SDK
+ * base64-encodes at send (§ 2.3 "sourced as raw bytes (the SDK base64-encodes)"). These are
+ * INPUT-ONLY (us &rarr; request) — a model turn never emits them, so there is no response-direction
+ * mapping. A {@code bytesRef} that cannot be read is surfaced as an {@link IllegalArgumentException}
+ * naming the reference rather than sending an empty/partial attachment. The capability gate
+ * (INV-19) lives upstream in the attachment pipeline (C1) — by the time a block reaches this
+ * boundary it has already been admitted; the mapper is the wire translation, not the gate.
  *
  * <p><b>INV-7 reasoning-signature replay.</b> A {@link ContentBlock.Reasoning} block
  * carries a {@code signature} (a tamper-check hash over the conversation). On the request
@@ -75,10 +99,11 @@ import software.amazon.awssdk.services.bedrockruntime.model.ToolUseBlock;
  * {@code toolResult} block in the transcript must carry a {@code toolUseId} produced by
  * an earlier {@code toolUse} block in the same transcript. A {@code toolResult} with no
  * prior {@code toolUse} is rejected with a {@link ToolProtocolException} before any
- * request leaves the boundary (CT-INV-5, the negative test). Image, document, and
- * cachePoint blocks remain out of scope (deferred to the tasks that need them — see the
- * handoff's {@code stated_assumptions}); the text, toolUse, toolResult, and reasoning
- * kinds are mapped.
+ * request leaves the boundary (CT-INV-5, the negative test). The text, toolUse, toolResult,
+ * reasoning, image, and document kinds are mapped on the request path; image/document are
+ * input-only (T-4.2 — a model turn never emits them, so they have no response-direction
+ * mapping). The cachePoint block remains out of scope (deferred to the task that needs it —
+ * see the handoff's {@code stated_assumptions}).
  *
  * <p><b>Greenfield output-token budget (DCR-2 — D1 follow-on, ADR-0012; {@code 02-architecture.md}
  * § 2.1).</b> The mapper optionally carries an output-token cap. When constructed with one
@@ -340,7 +365,57 @@ public final class ConverseWireMapper {
             case ContentBlock.Reasoning reasoning ->
                     software.amazon.awssdk.services.bedrockruntime.model.ContentBlock
                             .fromReasoningContent(toWireReasoning(reasoning));
+            case ContentBlock.Image image ->
+                    software.amazon.awssdk.services.bedrockruntime.model.ContentBlock
+                            .fromImage(toWireImage(image));
+            case ContentBlock.Document document ->
+                    software.amazon.awssdk.services.bedrockruntime.model.ContentBlock
+                            .fromDocument(toWireDocument(document));
         };
+    }
+
+    /**
+     * Maps a domain {@link ContentBlock.Image} to a wire {@link ImageBlock} (§ 2.3 /
+     * § 7 — {@code image{format, source{bytes}}}). The {@code format} is carried verbatim (the
+     * domain block already constrained it to the Converse {@code png|jpeg|gif|webp} set), and the
+     * raw bytes read from the block's {@code bytesRef} are wrapped in {@code source.bytes}; the
+     * SDK base64-encodes them at send.
+     */
+    private ImageBlock toWireImage(ContentBlock.Image image) {
+        return ImageBlock.builder()
+                .format(image.format())
+                .source(ImageSource.fromBytes(readBytes(image.bytesRef())))
+                .build();
+    }
+
+    /**
+     * Maps a domain {@link ContentBlock.Document} to a wire {@link DocumentBlock} (§ 2.3 /
+     * § 7 — {@code document{name, format, source{bytes}}}). The neutral {@code name} (INV-18,
+     * already sanitized by the domain block) and the {@code format} are carried verbatim, and the
+     * raw bytes read from {@code bytesRef} are wrapped in {@code source.bytes} for the SDK to
+     * base64-encode at send.
+     */
+    private DocumentBlock toWireDocument(ContentBlock.Document document) {
+        return DocumentBlock.builder()
+                .name(document.name())
+                .format(document.format())
+                .source(DocumentSource.fromBytes(readBytes(document.bytesRef())))
+                .build();
+    }
+
+    /**
+     * Reads the raw bytes a multimodal attachment references at send time (§ 2.3 — "sourced as
+     * raw bytes (the SDK base64-encodes)"). Surfaces an unreadable reference as an
+     * {@link IllegalArgumentException} naming it, so a missing/unreadable attachment fails the
+     * request build rather than sending an empty or partial block.
+     */
+    private static SdkBytes readBytes(String bytesRef) {
+        try {
+            return SdkBytes.fromByteArray(Files.readAllBytes(Path.of(bytesRef)));
+        } catch (IOException e) {
+            throw new IllegalArgumentException(
+                    "could not read attachment bytes from bytesRef '" + bytesRef + "'", e);
+        }
     }
 
     /**

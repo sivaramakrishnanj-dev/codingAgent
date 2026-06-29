@@ -11,6 +11,7 @@ import com.srk.codingagent.loop.AgentLoop;
 import com.srk.codingagent.loop.BudgetGuard;
 import com.srk.codingagent.loop.LoopOutcome;
 import com.srk.codingagent.model.converse.ModelBackendException;
+import com.srk.codingagent.model.ModelCapabilityProfile;
 import com.srk.codingagent.model.converse.ModelClient;
 import com.srk.codingagent.model.credentials.CredentialResolutionException;
 import com.srk.codingagent.permission.Approver;
@@ -108,10 +109,20 @@ class ReplRunnerTest {
 
     private static final BooleanSupplier NEVER_INTERRUPTED = () -> false;
 
+    /**
+     * A capability profile that accepts both image and document input, so the {@code /attach}
+     * tests that assert "attached" are gated open; the INV-19 decline tests build their own
+     * no-multimodal resolver. The window value is irrelevant to the REPL's /attach behaviour.
+     */
+    private static final ModelCapabilityProfile MULTIMODAL_PROFILE =
+            new ModelCapabilityProfile(200_000, true, true);
+
+    private final AttachmentResolver attachmentResolver = new AttachmentResolver(MULTIMODAL_PROFILE);
+
     private ReplRunner runner(ReplRunner.ReplLoop loop, Supplier<String> lineSource,
             BooleanSupplier interrupted) {
         return new ReplRunner(loop, lineSource, interrupted, PermissionMode.ASK_EVERY_TIME,
-                out, err);
+                attachmentResolver, out, err);
     }
 
     // --- /exit and EOF : clean exit 0 -----------------------------------------------
@@ -240,7 +251,8 @@ class ReplRunnerTest {
         // Oracle: 04-apis § 1.4 "/mode ... show ... current settings" (US-8/9). The configured
         // mode is reported; the session continues to a clean EOF exit.
         ReplRunner repl = new ReplRunner(prompt -> LoopOutcome.completed("x"),
-                lines("/mode"), NEVER_INTERRUPTED, PermissionMode.READ_ONLY, out, err);
+                lines("/mode"), NEVER_INTERRUPTED, PermissionMode.READ_ONLY, attachmentResolver,
+                out, err);
 
         int exitCode = repl.run();
 
@@ -255,7 +267,7 @@ class ReplRunnerTest {
         // Oracle: 04-apis § 1.4 "/permission ... show ... current settings" (US-8/9).
         ReplRunner repl = new ReplRunner(prompt -> LoopOutcome.completed("x"),
                 lines("/permission"), NEVER_INTERRUPTED, PermissionMode.ASK_ONCE_THEN_REMEMBER,
-                out, err);
+                attachmentResolver, out, err);
 
         int exitCode = repl.run();
 
@@ -284,6 +296,89 @@ class ReplRunnerTest {
         assertTrue(stdout().contains("/compact"),
                 "the unrecognized command is named in the report (not silently ignored); was: "
                         + stdout());
+    }
+
+    // --- /attach : multimodal attachment, capability-gated (T-4.2, § 2.3) -----------
+
+    @Test
+    @DisplayName("T-4.2: /attach <path> for a supported image on a multimodal model reports attached")
+    void slashAttachSupportedImageReportsAttached() {
+        // Oracle: § 2.3 multimodal input + INV-19 — when the active capability profile supports
+        // image input, an /attach of an image file is admitted (not declined). The resolver is
+        // built over MULTIMODAL_PROFILE (supports image + document). /attach is a slash-command:
+        // it runs no agent-loop turn and the session continues to a clean EOF exit.
+        AtomicInteger turns = new AtomicInteger(0);
+        ReplRunner repl = runner(prompt -> {
+            turns.incrementAndGet();
+            return LoopOutcome.completed("x");
+        }, lines("/attach diagram.png"), NEVER_INTERRUPTED);
+
+        int exitCode = repl.run();
+
+        assertEquals(0, exitCode, "after /attach the session continues to a clean EOF exit");
+        assertEquals(0, turns.get(), "a slash-command never runs an agent-loop turn");
+        assertTrue(stdout().contains("attached"),
+                "§ 2.3: a supported image attachment is admitted; was: " + stdout());
+    }
+
+    @Test
+    @DisplayName("CT-INV-16 / INV-19: /attach is declined with a message when the model lacks image support")
+    void slashAttachDeclinedWhenModelLacksImageSupport() {
+        // Oracle: INV-19 — "ImageBlock/DocumentBlock are attached only when the active
+        // ModelCapabilityProfile reports the corresponding input support; otherwise the attachment
+        // is declined with a message, not sent." A profile with NO multimodal support must decline
+        // an image /attach with a message. Built with the conservative default (flags false, § 2.6).
+        AttachmentResolver noMultimodal =
+                new AttachmentResolver(new ModelCapabilityProfile(100_000, false, false));
+        ReplRunner repl = new ReplRunner(prompt -> LoopOutcome.completed("x"),
+                lines("/attach diagram.png"), NEVER_INTERRUPTED, PermissionMode.ASK_EVERY_TIME,
+                noMultimodal, out, err);
+
+        int exitCode = repl.run();
+
+        assertEquals(0, exitCode, "a declined attachment does not end the session (continues to EOF)");
+        assertFalse(stdout().contains("attached"),
+                "INV-19: a declined attachment is NOT sent; was: " + stdout());
+        assertTrue(stdout().toLowerCase(java.util.Locale.ROOT).contains("does not support"),
+                "INV-19: the decline carries a message naming the missing support; was: " + stdout());
+    }
+
+    @Test
+    @DisplayName("T-4.2: /attach with an unsupported file type is declined with a message")
+    void slashAttachUnsupportedTypeDeclined() {
+        // Oracle: § 2.3 — only the listed image/document formats are supported; an extension
+        // outside both sets maps to no format, so the attachment is declined with a message
+        // rather than silently dropped (the resolver supports multimodal, so this is the
+        // unsupported-type decline, not the INV-19 capability decline).
+        ReplRunner repl = runner(prompt -> LoopOutcome.completed("x"),
+                lines("/attach archive.zip"), NEVER_INTERRUPTED);
+
+        int exitCode = repl.run();
+
+        assertEquals(0, exitCode, "a declined attachment continues the session to a clean EOF");
+        assertFalse(stdout().contains("attached"),
+                "§ 2.3: an unsupported file type is not attached; was: " + stdout());
+        assertTrue(stdout().toLowerCase(java.util.Locale.ROOT).contains("unsupported"),
+                "the decline names the unsupported file type; was: " + stdout());
+    }
+
+    @Test
+    @DisplayName("T-4.2: /attach with no path reports a usage message and runs no turn")
+    void slashAttachNoPathReportsUsage() {
+        // Oracle: the /attach command takes a path argument; a bare /attach is a usage error
+        // reported to the developer (not silently ignored), and no agent-loop turn runs.
+        AtomicInteger turns = new AtomicInteger(0);
+        ReplRunner repl = runner(prompt -> {
+            turns.incrementAndGet();
+            return LoopOutcome.completed("x");
+        }, lines("/attach"), NEVER_INTERRUPTED);
+
+        int exitCode = repl.run();
+
+        assertEquals(0, exitCode, "after the usage message the session continues to a clean EOF");
+        assertEquals(0, turns.get(), "a bare /attach runs no agent-loop turn");
+        assertTrue(stdout().contains("usage"),
+                "a /attach with no path reports a usage message; was: " + stdout());
     }
 
     // --- SIGINT : exit 130, precedence, resumability --------------------------------
@@ -494,7 +589,7 @@ class ReplRunnerTest {
                         .then(textTurn("I won't run it then.", "end_turn")),
                 ToolRegistry.of(List.of(tool)), PermissionMode.ASK_EVERY_TIME, approver);
         ReplRunner repl = new ReplRunner(loop::run, input, NEVER_INTERRUPTED,
-                PermissionMode.ASK_EVERY_TIME, out, err);
+                PermissionMode.ASK_EVERY_TIME, attachmentResolver, out, err);
 
         int exitCode = repl.run();
 
@@ -509,24 +604,29 @@ class ReplRunnerTest {
     // --- construction ---------------------------------------------------------------
 
     @Test
-    @DisplayName("the runner requires its loop, line source, interrupt signal, mode, and streams")
+    @DisplayName("the runner requires its loop, line source, interrupt signal, mode, resolver, and streams")
     void constructorRejectsNull() {
         assertThrows(NullPointerException.class, () -> new ReplRunner(
-                null, lines(), NEVER_INTERRUPTED, PermissionMode.ASK_EVERY_TIME, out, err));
+                null, lines(), NEVER_INTERRUPTED, PermissionMode.ASK_EVERY_TIME,
+                attachmentResolver, out, err));
         assertThrows(NullPointerException.class, () -> new ReplRunner(
                 prompt -> LoopOutcome.completed("x"), null, NEVER_INTERRUPTED,
-                PermissionMode.ASK_EVERY_TIME, out, err));
+                PermissionMode.ASK_EVERY_TIME, attachmentResolver, out, err));
         assertThrows(NullPointerException.class, () -> new ReplRunner(
                 prompt -> LoopOutcome.completed("x"), lines(), null,
-                PermissionMode.ASK_EVERY_TIME, out, err));
+                PermissionMode.ASK_EVERY_TIME, attachmentResolver, out, err));
         assertThrows(NullPointerException.class, () -> new ReplRunner(
-                prompt -> LoopOutcome.completed("x"), lines(), NEVER_INTERRUPTED, null, out, err));
-        assertThrows(NullPointerException.class, () -> new ReplRunner(
-                prompt -> LoopOutcome.completed("x"), lines(), NEVER_INTERRUPTED,
-                PermissionMode.ASK_EVERY_TIME, null, err));
+                prompt -> LoopOutcome.completed("x"), lines(), NEVER_INTERRUPTED, null,
+                attachmentResolver, out, err));
         assertThrows(NullPointerException.class, () -> new ReplRunner(
                 prompt -> LoopOutcome.completed("x"), lines(), NEVER_INTERRUPTED,
-                PermissionMode.ASK_EVERY_TIME, out, null));
+                PermissionMode.ASK_EVERY_TIME, null, out, err));
+        assertThrows(NullPointerException.class, () -> new ReplRunner(
+                prompt -> LoopOutcome.completed("x"), lines(), NEVER_INTERRUPTED,
+                PermissionMode.ASK_EVERY_TIME, attachmentResolver, null, err));
+        assertThrows(NullPointerException.class, () -> new ReplRunner(
+                prompt -> LoopOutcome.completed("x"), lines(), NEVER_INTERRUPTED,
+                PermissionMode.ASK_EVERY_TIME, attachmentResolver, out, null));
     }
 
     // --- helpers: a scriptable step seam and the scripted Bedrock double -------------

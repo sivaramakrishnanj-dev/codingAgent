@@ -9,14 +9,24 @@ import java.util.Optional;
  * The parsed command-line arguments this task's CLI scope understands: the one-shot
  * prompt ({@code -p} / {@code --prompt}), the working-mode selection
  * ({@code --mode greenfield|brownfield}), the two standard informational flags
- * ({@code --help}, {@code --version}), and the session subcommands {@code resume
+ * ({@code --help}, {@code --version}), the {@code --attach <path>} multimodal attachment
+ * flag (T-4.2), and the session subcommands {@code resume
  * [<session-id>]} and {@code sessions} (04-apis § 1.2). Parsing is deliberately narrow —
  * the rest of the proposed flag set ({@code --model} / {@code --permission-mode}
- * / {@code --profile} / {@code --region} / {@code --attach} / {@code --debug}) and the
+ * / {@code --profile} / {@code --region} / {@code --debug}) and the
  * other subcommands ({@code memory}, {@code config}) belong to later tasks — but an
  * unrecognized flag or an unexpected positional is rejected as a usage error so a bad
  * invocation fails fast with exit {@code 2} (04-apis § 1.1, cli-exit-codes {@code 2})
  * rather than being silently ignored.
+ *
+ * <p><b>Attachments (T-4.2; § 2.3 multimodal input).</b> The {@code --attach <path>} flag
+ * supplies a one-shot multimodal attachment (an image or document the developer shares with the
+ * model). Like {@code --mode}, it is orthogonal to {@link Kind} — it continues the scan rather
+ * than selecting a kind — and applies to the agent-running shapes ({@link Kind#ONE_SHOT},
+ * {@link Kind#INTERACTIVE}). {@link #attachPath()} reports the supplied path; the launcher hands
+ * it to the {@link AttachmentResolver} (format inference, INV-18 sanitization, INV-19 capability
+ * gate). A {@code --attach} with no value is a fail-fast usage error (exit {@code 2}); the
+ * REPL's {@code /attach <path>} slash-command is the interactive counterpart.
  *
  * <p>The result is one of five shapes, distinguished by {@link #kind()}:
  * <ul>
@@ -65,6 +75,9 @@ public final class CliArguments {
     /** The {@code --mode} value selecting the brownfield workflow driver (the default). */
     static final String MODE_BROWNFIELD = "brownfield";
 
+    /** The flag that supplies a one-shot multimodal attachment path (T-4.2, § 2.3). */
+    static final String ATTACH = "--attach";
+
     /** The flag that requests usage help. */
     static final String HELP = "--help";
 
@@ -101,14 +114,16 @@ public final class CliArguments {
     private final String infoFlag;
     private final String sessionId;
     private final SessionMode mode;
+    private final String attachPath;
 
-    private CliArguments(
-            Kind kind, String prompt, String infoFlag, String sessionId, SessionMode mode) {
+    private CliArguments(Kind kind, String prompt, String infoFlag, String sessionId,
+            SessionMode mode, String attachPath) {
         this.kind = kind;
         this.prompt = prompt;
         this.infoFlag = infoFlag;
         this.sessionId = sessionId;
         this.mode = mode;
+        this.attachPath = attachPath;
     }
 
     /**
@@ -119,14 +134,16 @@ public final class CliArguments {
      *             signature stays robust.
      * @return the parsed arguments; never {@code null}.
      * @throws UsageException if {@code -p} / {@code --prompt} is given without a (non-blank)
-     *                        value, {@code --mode} is given without a recognized value, an
+     *                        value, {@code --mode} is given without a recognized value,
+     *                        {@code --attach} is given without a (non-blank) path, an
      *                        unrecognized flag is supplied, the {@code sessions} subcommand is
      *                        given an unexpected extra argument, or the {@code resume} subcommand
      *                        is given a blank id (bad invocation → exit {@code 2}).
      */
     public static CliArguments parse(String[] args) {
         if (args == null || args.length == 0) {
-            return new CliArguments(Kind.INTERACTIVE, null, null, null, SessionMode.BROWNFIELD);
+            return new CliArguments(
+                    Kind.INTERACTIVE, null, null, null, SessionMode.BROWNFIELD, null);
         }
         // The session subcommands are bare leading words (not flags); recognize them in the
         // subcommand position before the flag scan, which rejects bare positionals.
@@ -136,10 +153,11 @@ public final class CliArguments {
         if (SESSIONS.equals(args[0])) {
             return parseSessions(args);
         }
-        // The flag scan: --mode sets the working mode and continues scanning (it is orthogonal to
-        // the kind); -p / --help / --version are terminal kind selectors. brownfield is the
-        // implicit default when --mode is absent.
+        // The flag scan: --mode sets the working mode and --attach sets the attachment path; both
+        // continue scanning (they are orthogonal to the kind). -p / --help / --version are
+        // terminal kind selectors. brownfield is the implicit default when --mode is absent.
         SessionMode mode = SessionMode.BROWNFIELD;
+        String attachPath = null;
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
             if (MODE.equals(arg)) {
@@ -147,12 +165,18 @@ public final class CliArguments {
                 i++; // consume the mode value as well
                 continue;
             }
+            if (ATTACH.equals(arg)) {
+                attachPath = requireAttachValue(args, i, arg);
+                i++; // consume the attachment path as well
+                continue;
+            }
             if (HELP.equals(arg) || VERSION.equals(arg)) {
-                return new CliArguments(Kind.INFO, null, arg, null, mode);
+                return new CliArguments(Kind.INFO, null, arg, null, mode, attachPath);
             }
             if (PROMPT_SHORT.equals(arg) || PROMPT_LONG.equals(arg)) {
                 return new CliArguments(
-                        Kind.ONE_SHOT, requirePromptValue(args, i, arg), null, null, mode);
+                        Kind.ONE_SHOT, requirePromptValue(args, i, arg), null, null, mode,
+                        attachPath);
             }
             if (arg.startsWith("-")) {
                 throw new UsageException(arg, "unknown flag: " + arg);
@@ -161,15 +185,16 @@ public final class CliArguments {
             // usage error rather than silently dropping it (fail fast, exit 2).
             throw new UsageException(arg, "unexpected argument: " + arg);
         }
-        // No -p among the (mode-only) flags: the interactive REPL shape, in the selected mode.
-        return new CliArguments(Kind.INTERACTIVE, null, null, null, mode);
+        // No -p among the (mode/attach-only) flags: the interactive REPL shape, in the selected
+        // mode, carrying any --attach path supplied.
+        return new CliArguments(Kind.INTERACTIVE, null, null, null, mode, attachPath);
     }
 
     /** Parses {@code resume} / {@code resume <session-id>} (04-apis § 1.2, AC-7.1/7.2/7.4). */
     private static CliArguments parseResume(String[] args) {
         if (args.length == 1) {
             // Bare `resume`: list resumable sessions (most-recent-first), no id selected.
-            return new CliArguments(Kind.RESUME, null, null, null, SessionMode.BROWNFIELD);
+            return new CliArguments(Kind.RESUME, null, null, null, SessionMode.BROWNFIELD, null);
         }
         String id = args[1];
         if (id == null || id.isBlank()) {
@@ -179,7 +204,7 @@ public final class CliArguments {
             // resume takes at most one id; an extra word is a malformed invocation.
             throw new UsageException(args[2], "unexpected argument after resume id: " + args[2]);
         }
-        return new CliArguments(Kind.RESUME, null, null, id, SessionMode.BROWNFIELD);
+        return new CliArguments(Kind.RESUME, null, null, id, SessionMode.BROWNFIELD, null);
     }
 
     /** Parses the {@code sessions} subcommand (04-apis § 1.2, AC-15.2). */
@@ -188,7 +213,7 @@ public final class CliArguments {
             // `sessions` takes no arguments; an extra word is a malformed invocation.
             throw new UsageException(args[1], "unexpected argument after sessions: " + args[1]);
         }
-        return new CliArguments(Kind.SESSIONS, null, null, null, SessionMode.BROWNFIELD);
+        return new CliArguments(Kind.SESSIONS, null, null, null, SessionMode.BROWNFIELD, null);
     }
 
     /**
@@ -222,6 +247,24 @@ public final class CliArguments {
         String value = args[flagIndex + 1];
         if (value == null || value.isBlank()) {
             throw new UsageException(flag, flag + " requires a non-blank prompt value");
+        }
+        return value;
+    }
+
+    /**
+     * Resolves the value of {@code --attach}: the attachment path (T-4.2, § 2.3). A missing or
+     * blank path is a fail-fast usage error naming {@code --attach} (exit {@code 2}, G2); the
+     * path is not otherwise validated here (format inference, INV-18 sanitization, and the INV-19
+     * capability gate are the {@link AttachmentResolver}'s job, applied after config resolves the
+     * model and its capability profile).
+     */
+    private static String requireAttachValue(String[] args, int flagIndex, String flag) {
+        if (flagIndex + 1 >= args.length) {
+            throw new UsageException(flag, flag + " requires a path value");
+        }
+        String value = args[flagIndex + 1];
+        if (value == null || value.isBlank()) {
+            throw new UsageException(flag, flag + " requires a non-blank path value");
         }
         return value;
     }
@@ -277,5 +320,18 @@ public final class CliArguments {
      */
     public SessionMode mode() {
         return mode;
+    }
+
+    /**
+     * The one-shot multimodal attachment path supplied via {@code --attach <path>} (T-4.2,
+     * § 2.3). Present for any kind that scanned a {@code --attach} flag (typically
+     * {@link Kind#ONE_SHOT} or {@link Kind#INTERACTIVE}); absent when {@code --attach} was not
+     * given. The launcher hands the path to the {@link AttachmentResolver}, which infers the
+     * format, sanitizes a document name (INV-18), and applies the capability gate (INV-19).
+     *
+     * @return the attachment path, or {@link Optional#empty()} when no {@code --attach} was given.
+     */
+    public Optional<String> attachPath() {
+        return Optional.ofNullable(attachPath);
     }
 }

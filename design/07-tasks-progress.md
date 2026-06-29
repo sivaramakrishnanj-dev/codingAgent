@@ -2,41 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-29
 last_updated_at_commit: pending
-total_resolved_count: 46
+total_resolved_count: 47
 
 last_resolved:
-  task: T-4.1
-  title: "Web delegate (C11): web_search/web_fetch Class-X tools over a swappable WebLookupBackend (v1 = constrained `claude -p` via the reused CommandExecutor/ADR-0003 subprocess machinery, scratch CWD not the workspace, 120 s NFR-NET-WEBLOOKUP-TIMEOUT). Tools declare SIDE_EFFECTING and route through the existing PermissionGate so READ_ONLY denies them (AC-11.2/RD-6) with no new gate path; success returns summarized text (AC-11.1); absent-on-PATH / error / timeout returns WebLookupResult.failure so the agent reports rather than fabricates (AC-11.3); registered in ToolRegistryComposer so the loop's existing TOOL_USE/TOOL_RESULT event path logs invocations (AC-11.4). NFR-NET-WEBLOOKUP-TIMEOUT carried as an injectable Duration (composer constant WEB_LOOKUP_TIMEOUT default 120 s) — no resolved-config key added (avoids a design/06-formal schema change; injection seam keeps it config-drivable later). ADR-0008."
+  task: T-4.2
+  title: "Multimodal attachments (C1, C4): --attach (one-shot) / /attach (REPL) → ContentBlock.Image/Document. New sealed Image (kind=image, format∈png/jpeg/gif/webp, bytesRef) + Document (kind=document, neutral name, format∈9 doc formats, bytesRef) variants; ConverseWireMapper input-only mapping to Converse image{}/document{} (bytes read from bytesRef at send, SDK base64-encodes); ModelCapabilityProfile gains supportsImageInput/supportsDocumentInput (Claude true, conservative-default false). AttachmentResolver pipeline: extension→format inference, INV-18 name sanitization (alphanumeric/space/hyphen/parens/brackets, ≤200 chars, neutral fallback), INV-19 capability gate (decline-with-message when unsupported, not sent). CT-SCH-5/6/7/8 + CT-INV-15/16. Scope boundary (defensible, surfaced): /attach resolves+gates+reports but the live REPL turn-threading of the admitted block is left to the C3 runner seams (out of the C1+C4 scope); the full attach→request path is wired+tested on the one-shot --attach path + at the AgentLoop seam."
   resolved_at: 2026-06-29
-  commit: 2dad251
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-4.2
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-29T00:00:00+00:00
-  last_updated_at: 2026-06-29T00:00:00+00:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-4.2
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-29T00:00:00+00:00
-  last_updated_at: 2026-06-29T00:00:00+00:00
 
 
 ### G0 (after M0 — Walking skeleton) — ✅ PASSED 2026-06-22
@@ -546,3 +523,13 @@ in_flight:
 - dcrs_consumed: []
 - label: FIRST M4 task (deps T-0.7 permission gate + T-1.1 REPL, both resolved). First task after G3 PASSED. Implements component C11 (web delegate) per ADR-0008: the agent gains current-web lookup via a constrained headless `claude -p` subprocess behind a swappable backend interface, gated Class X and denied in READ_ONLY. No DCR; clean single-agent round 1.
 - notes: >>> M4 (T-4.1, web delegate) under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main): new WebLookupBackend interface (the ADR-0008 swappable seam) + WebLookupRequest (search(query)/fetch(url) factory + Kind) + WebLookupResult (success(text)/failure(reason), report-not-fabricate shape) + ClaudeCliWebLookupBackend (v1 impl — shells out via the REUSED CommandExecutor/ADR-0003 subprocess machinery, NOT a raw ProcessBuilder; rooted at a fresh scratch temp dir not the workspace per ADR-0008's no-repo-write property; 120 s timeout injected as a Duration) + WebSearchTool (NAME=web_search) + WebFetchTool (NAME=web_fetch); ToolSchemas extended with the web_search `query` / web_fetch `url` inputSchemas; ToolRegistryComposer registers both tools into the LIVE registry (the T-2.7 lesson: implemented-but-unregistered = invisible at runtime). Web tools declare SIDE_EFFECTING and route through the existing PermissionGate, so READ_ONLY denial (AC-11.2/RD-6) needs NO new gate path; web tools deliberately NOT added to the greenfield pre-approval registry (Class X stays out of that read-only surface). Failure (AC-11.3) modelled as a returned WebLookupResult.failure — absent-on-PATH / error / timeout all report, never fabricate, never crash. Logging (AC-11.4) via the loop's existing TOOL_USE/TOOL_RESULT event path (no duplicate per-tool logging). Phase B: 38 new web-delegate tests across WebSearchToolTest(6)/WebFetchToolTest(6)/ClaudeCliWebLookupBackendTest(7)/WebLookupRequestTest(4)/WebLookupResultTest(3)/permission.WebLookupGatingTest(5) + LiveToolRegistryCompositionTest(+web Class-X registration asserts). The Verify column's "CT (Class X gating)" — no dedicated CT-* exists for the web delegate in 06-formal/contract-tests.md (confirmed) — is realized as the gating tests (READ_ONLY deny / asking-mode prompt) + the live-registry Class-X assertions. Subprocess tested WITHOUT a real `claude` binary: WebLookupBackend is an injectable seam (fake backend for success), and absent-on-PATH + timeout failure paths exercised deterministically (no live network). Oracles trace to AC-11.1/11.2/11.3/11.4 + RD-6 + ADR-0008, never to impl behaviour. mvn clean verify GREEN (1166 tests, +31 over the 1135 baseline, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met at 0.9132; new C11 classes 85–100% line). Self-checks: oracle-traceability=passed, reuse=passed (reused CommandExecutor + the existing gate path, no duplication). 0 Blocker / 0 Major / 0 Minor / 1 Nit / 0 Discussion. One load-bearing stated_assumption (defensible, coordinator-surfaced): NFR-NET-WEBLOOKUP-TIMEOUT (120 s default, configurable) is carried as an injectable Duration (composer constant WEB_LOOKUP_TIMEOUT) rather than a new ResolvedConfig key — a new key would require editing design/06-formal/resolved-config.schema.json (additionalProperties:false), which is under design/ and would force a design-change-needed (schema-update); the injection seam keeps it config-drivable later without a schema change. A future small schema-update DCR could promote it to a real config key (`webLookupTimeoutSeconds`) for true runtime configurability — non-blocking, surfaced. No AWS/Bedrock calls (the delegate is a local claude -p subprocess, not Bedrock).
+
+## T-4.2 — Multimodal attachments (C1, C4): --attach / /attach → Image/Document blocks, sanitized name, capability-gated
+- commit: PENDING_T42
+- review: design/reviews/code/T-4.2-r1.md
+- resolved: 2026-06-29
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- label: SECOND M4 task (deps T-0.5 Model Client + T-1.1 REPL, both resolved). Adds multimodal image+document INPUT (03 §2.3, ADR-0012 — design diagrams US-1, PDF/Word use-case docs), capability-gated. No DCR; clean single-agent round 1.
+- notes: >>> M4 (T-4.2, multimodal attachments) under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main, 10 files): ContentBlock sealed interface extended with Image (kind=image, format∈png/jpeg/gif/webp, bytesRef) + Document (kind=document, neutral sanitized name, format∈pdf/csv/doc/docx/xls/xlsx/html/txt/md, bytesRef) records following the existing Text/ToolUse/ToolResult/Reasoning style (kind discriminator, compact-ctor validation, image()/document() factories, IMAGE_FORMATS/DOCUMENT_FORMATS/DOCUMENT_NAME_MAX_LENGTH/DOCUMENT_NAME_PATTERN constants; the Document compact ctor enforces the INV-18 name pattern). ConverseWireMapper: input-only Image→image{format,source{bytes}} / Document→document{name,format,source{bytes}} mapping — bytes read from the bytesRef (path) at send, SDK base64-encodes (no response-direction mapping). ModelCapabilityProfile: supportsImageInput/supportsDocumentInput added (Claude/Anthropic profile true; conservative/unknown-model default false → INV-19 graceful decline) with a backward-compatible window-only ctor delegating to (window,false,false) so existing callers/tests are unchanged. New AttachmentResolver (C1 pipeline: extension→format inference [.jpg→jpeg token; unknown ext→Declined-with-message], INV-18 name sanitization with neutral 'document' fallback re-validated by the Document ctor, INV-19 capability gate → Attachment.Attached | Attachment.Declined) + Attachment sealed type. CliArguments: --attach <path> (one-shot) parsed alongside -p/--profile/--region/--debug. ReplRunner: /attach <path> slash-command (resolves+gates+reports). AgentLoop: run(String,List<ContentBlock>) overload threads attachments into the user turn. Main + AgentLoopFactory: wire the one-shot --attach path end-to-end (capabilityProfile(ResolvedConfig) added). Phase B (CT-SCH-5/6/7/8 + CT-INV-15/16): ContentBlockSchemaContractTest +8 (block variants validate against the real content-block.schema.json via networknt validator — CT-SCH-5; disallowed/over-200-char DocumentBlock.name rejected — CT-SCH-6; ImageBlock.format outside enum rejected — CT-SCH-7; DocumentBlock.format outside the 9 rejected — CT-SCH-8) + ContentBlockTest +9 + ModelCapabilityProfileTest +3 + ConverseWireMapperTest +4 + new AttachmentResolverTest(16, incl. CT-INV-15 non-sanitized name rejected before send + CT-INV-16 declined when profile lacks support) + new AttachmentTest(5) + CliArgumentsTest +6 + ReplRunnerTest +4 + AgentLoopTest +3. Oracles trace to content-block.schema.json enums + INV-18 name rule + INV-19 capability rule + the C1 contract, never to impl behaviour. mvn clean verify GREEN (1222 tests, +56 over the 1166 baseline, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met at 0.913; new classes 97.8–100% line). Self-checks: oracle-traceability=passed, reuse=passed (reused ContentBlock/WireMapper/profile conventions; no schema edit — content-block + capability-profile schemas already supported image/document). 0 Blocker / 0 Major / 0 Minor / 2 Nit / 0 Discussion. Three stated_assumptions (all defensible): bytes-by-reference (bytesRef path persisted, raw bytes resolved at send — schema-conformant, avoids base64 bloat in the JSONL log); .jpg→jpeg format token (schema enum is jpeg); and the in-scope boundary that /attach resolves+gates+reports but the live REPL turn-threading of the admitted block is left to the C3 runner seams (BrownfieldRunner/GreenfieldRunner — out of the C1+C4 task scope), with the full attach→request path wired+tested on the one-shot --attach path + at the AgentLoop seam. **Coordinator note (non-gating):** that REPL turn-threading boundary is a natural follow-on if a later M4 polish task or the G4 gate wants `/attach` to deliver the block into a live interactive turn — it is a small C3-runner-seam widening, not a spec gap (reviewer accepted at 0 Blocker/Major). No schema change; no design/ edit except the review file. No AWS/Bedrock calls.

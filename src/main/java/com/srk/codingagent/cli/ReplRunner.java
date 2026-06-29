@@ -32,9 +32,16 @@ import org.slf4j.LoggerFactory;
  *       v1's {@code /mode} is show-only.</li>
  *   <li>{@code /permission} — shows the current permission mode (US-8/9), the authorization
  *       posture inline approvals are evaluated under; show-only for the same reason.</li>
+ *   <li>{@code /attach <path>} — resolves a multimodal attachment (T-4.2, § 2.3 multimodal
+ *       input) through the injected {@link AttachmentResolver}: it infers the format from the
+ *       extension, sanitizes a document name (INV-18), and applies the capability gate (INV-19).
+ *       A supported, capability-admitted attachment is reported as attached; an unsupported file
+ *       type, or a model that does not accept that input, is <em>declined with a message, not
+ *       sent</em> (INV-19 graceful degradation). A {@code /attach} with no path is reported as a
+ *       usage error. The loop continues either way.</li>
  *   <li>any other {@code /command} — reported as unrecognized (04-apis § 1.4's later commands
- *       {@code /compact} / {@code /attach} / {@code /remember} / {@code /model} map to M2/M4),
- *       never silently ignored. The loop continues.</li>
+ *       {@code /compact} / {@code /remember} / {@code /model} map to M2/M4), never silently
+ *       ignored. The loop continues.</li>
  * </ul>
  *
  * <p><b>End-of-session (exit-code contract {@code 0}, guarantee G3).</b> Both {@code /exit}
@@ -74,41 +81,51 @@ public final class ReplRunner {
     /** The prompt marker shown before each developer line. */
     private static final String PROMPT_MARKER = "> ";
 
+    /** The {@code /attach} slash-command prefix (T-4.2, § 2.3 multimodal input). */
+    private static final String ATTACH_COMMAND = "/attach";
+
     private final ReplLoop loop;
     private final Supplier<String> lineSource;
     private final BooleanSupplier interrupted;
     private final PermissionMode permissionMode;
+    private final AttachmentResolver attachmentResolver;
     private final PrintStream out;
     private final PrintStream err;
 
     /**
      * Creates a REPL runner over an agent-loop seam, an input line source, an interrupt
-     * signal, and the user-facing streams.
+     * signal, the attachment resolver, and the user-facing streams.
      *
-     * @param loop           the agent-loop turn seam ({@link com.srk.codingagent.loop.AgentLoop#run(String)}
-     *                       shape); must not be {@code null}.
-     * @param lineSource     the source of developer input lines; each call returns the next
-     *                       line, or {@code null} at end-of-input (Ctrl-D / EOF). Must not be
-     *                       {@code null}.
-     * @param interrupted    the interrupt signal: returns {@code true} once a SIGINT has been
-     *                       observed (set by {@link Main}'s OS signal handler). Polled before
-     *                       reading each line and after each step so a Ctrl-C ends the session
-     *                       with exit {@code 130}. Must not be {@code null}.
-     * @param permissionMode the current authorization mode {@code /mode} / {@code /permission}
-     *                       report (US-8/9); must not be {@code null}.
-     * @param out            the stream assistant output and command responses are written to
-     *                       (the REPL owns user-facing output, 04-apis § 1.6); must not be
-     *                       {@code null}.
-     * @param err            the stream a turn's error line is written to (G2); must not be
-     *                       {@code null}.
+     * @param loop               the agent-loop turn seam
+     *                           ({@link com.srk.codingagent.loop.AgentLoop#run(String)} shape);
+     *                           must not be {@code null}.
+     * @param lineSource         the source of developer input lines; each call returns the next
+     *                           line, or {@code null} at end-of-input (Ctrl-D / EOF). Must not be
+     *                           {@code null}.
+     * @param interrupted        the interrupt signal: returns {@code true} once a SIGINT has been
+     *                           observed (set by {@link Main}'s OS signal handler). Polled before
+     *                           reading each line and after each step so a Ctrl-C ends the session
+     *                           with exit {@code 130}. Must not be {@code null}.
+     * @param permissionMode     the current authorization mode {@code /mode} / {@code /permission}
+     *                           report (US-8/9); must not be {@code null}.
+     * @param attachmentResolver the C1 attachment pipeline {@code /attach <path>} resolves through
+     *                           (format inference, INV-18 sanitization, INV-19 capability gate);
+     *                           must not be {@code null}.
+     * @param out                the stream assistant output and command responses are written to
+     *                           (the REPL owns user-facing output, 04-apis § 1.6); must not be
+     *                           {@code null}.
+     * @param err                the stream a turn's error line is written to (G2); must not be
+     *                           {@code null}.
      * @throws NullPointerException if any argument is {@code null}.
      */
     public ReplRunner(ReplLoop loop, Supplier<String> lineSource, BooleanSupplier interrupted,
-            PermissionMode permissionMode, PrintStream out, PrintStream err) {
+            PermissionMode permissionMode, AttachmentResolver attachmentResolver,
+            PrintStream out, PrintStream err) {
         this.loop = Objects.requireNonNull(loop, "loop");
         this.lineSource = Objects.requireNonNull(lineSource, "lineSource");
         this.interrupted = Objects.requireNonNull(interrupted, "interrupted");
         this.permissionMode = Objects.requireNonNull(permissionMode, "permissionMode");
+        this.attachmentResolver = Objects.requireNonNull(attachmentResolver, "attachmentResolver");
         this.out = Objects.requireNonNull(out, "out");
         this.err = Objects.requireNonNull(err, "err");
     }
@@ -161,6 +178,12 @@ public final class ReplRunner {
      * otherwise {@code null} (the loop continues after showing the command's response).
      */
     private Integer handleCommand(String command) {
+        // /attach carries a path argument, so it is matched by prefix before the exact-match
+        // switch (the others are bare words).
+        if (command.equals(ATTACH_COMMAND) || command.startsWith(ATTACH_COMMAND + " ")) {
+            handleAttach(command);
+            return null;
+        }
         switch (command) {
             case "/exit" -> {
                 LOGGER.info("Interactive session ended by /exit (exit 0)");
@@ -176,6 +199,34 @@ public final class ReplRunner {
             }
         }
         return null;
+    }
+
+    /**
+     * Handles {@code /attach <path>} (T-4.2, § 2.3 multimodal input): resolves the path through
+     * the {@link AttachmentResolver} (format inference + INV-18 sanitization + INV-19 capability
+     * gate) and reports the outcome. An admitted attachment is confirmed; a declined attachment
+     * (unsupported file type, or a model that does not accept that input, INV-19) reports the
+     * decline reason and is not sent. A missing path is a usage error. The loop continues either
+     * way (a slash-command never ends the session except {@code /exit}).
+     */
+    private void handleAttach(String command) {
+        String path = command.length() > ATTACH_COMMAND.length()
+                ? command.substring(ATTACH_COMMAND.length()).strip()
+                : "";
+        if (path.isEmpty()) {
+            LOGGER.info("/attach given with no path");
+            out.println(CLI_PREFIX + "usage: /attach <path>");
+            return;
+        }
+        Attachment attachment = attachmentResolver.resolve(path);
+        if (attachment instanceof Attachment.Declined declined) {
+            // INV-19 (or unsupported type): declined with a message, not sent.
+            LOGGER.info("Attachment declined: {}", declined.message());
+            out.println(CLI_PREFIX + declined.message());
+            return;
+        }
+        LOGGER.info("Attachment accepted for the next turn: {}", path);
+        out.println(CLI_PREFIX + "attached: " + path);
     }
 
     /**

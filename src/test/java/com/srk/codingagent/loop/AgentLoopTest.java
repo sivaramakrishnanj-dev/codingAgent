@@ -12,6 +12,7 @@ import com.srk.codingagent.model.converse.ModelClient;
 import com.srk.codingagent.permission.Approver;
 import com.srk.codingagent.permission.GrantStore;
 import com.srk.codingagent.permission.PermissionGate;
+import com.srk.codingagent.persistence.ContentBlock;
 import com.srk.codingagent.persistence.EventLog;
 import com.srk.codingagent.persistence.OperationClass;
 import com.srk.codingagent.persistence.PermissionDecisionOutcome;
@@ -19,7 +20,9 @@ import com.srk.codingagent.persistence.SessionStore;
 import com.srk.codingagent.persistence.StopReason;
 import com.srk.codingagent.tool.ToolHandler;
 import com.srk.codingagent.tool.ToolRegistry;
+import java.io.IOException;
 import java.io.StringWriter;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -32,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import software.amazon.awssdk.core.document.Document;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
+import software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.Type;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
@@ -523,6 +527,62 @@ class AgentLoopTest {
         assertEquals(LoopOutcome.Kind.COMPLETED, outcome.kind());
         assertEquals("Hello, how can I help?", outcome.finalText(),
                 "§ 3.1: end_turn returns the model's final text");
+    }
+
+    @Test
+    @DisplayName("T-4.2 / § 2.3: run(prompt, attachments) seeds the opening user turn with the prompt then the attachments")
+    void runWithAttachmentsSeedsTurn(@TempDir Path dir) throws IOException {
+        // Oracle: § 2.3 multimodal input — admitted attachment blocks join the opening user turn
+        // (after the prompt text), so the wire mapper renders them into the first request. Assert
+        // the first Converse call's user message carries the prompt text block then the image block,
+        // in order — the attachment-to-user-turn path the C1 pipeline feeds.
+        Path png = dir.resolve("diagram.png");
+        Files.write(png, new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+        ToolRegistry tools = ToolRegistry.of(List.of());
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(textTurn("looking at it", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysApprove(), EventLog.over(new StringWriter(), "t"));
+
+        loop.run("review this diagram", List.of(ContentBlock.image("png", png.toString())));
+
+        var content = bedrock.requests.get(0).messages().get(0).content();
+        assertEquals(2, content.size(),
+                "§ 2.3: the opening user turn carries the prompt text and the attachment");
+        assertEquals(Type.TEXT, content.get(0).type(), "the prompt text leads the turn");
+        assertEquals(Type.IMAGE, content.get(1).type(),
+                "§ 2.3: the admitted image attachment follows the prompt in the same turn");
+    }
+
+    @Test
+    @DisplayName("T-4.2: run(prompt, emptyAttachments) carries only the prompt (the no-attachment case)")
+    void runWithEmptyAttachmentsCarriesOnlyPrompt() {
+        // Oracle: § 2.3 — with no attachment the opening turn is just the prompt text (the prior
+        // behaviour, unchanged); run(prompt) and run(prompt, List.of()) are equivalent.
+        ToolRegistry tools = ToolRegistry.of(List.of());
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(textTurn("ok", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysApprove(), EventLog.over(new StringWriter(), "t"));
+
+        loop.run("just text", List.of());
+
+        var content = bedrock.requests.get(0).messages().get(0).content();
+        assertEquals(1, content.size(), "with no attachment the turn carries only the prompt text");
+        assertEquals(Type.TEXT, content.get(0).type(), "the only block is the prompt text");
+    }
+
+    @Test
+    @DisplayName("T-4.2: run(prompt, attachments) rejects a null attachments list")
+    void runRejectsNullAttachments() {
+        ToolRegistry tools = ToolRegistry.of(List.of());
+        ScriptedBedrockClient bedrock = new ScriptedBedrockClient()
+                .then(textTurn("ok", "end_turn"));
+        AgentLoop loop = loopWith(bedrock, tools, PermissionMode.ASK_EVERY_TIME,
+                alwaysApprove(), EventLog.over(new StringWriter(), "t"));
+
+        assertThrows(NullPointerException.class, () -> loop.run("x", null),
+                "a null attachments list is a programming error");
     }
 
     @Test

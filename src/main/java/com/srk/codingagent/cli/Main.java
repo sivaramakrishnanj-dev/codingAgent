@@ -7,6 +7,7 @@ import com.srk.codingagent.config.ResolvedConfig;
 import com.srk.codingagent.loop.AgentLoop;
 import com.srk.codingagent.model.credentials.CredentialResolutionException;
 import com.srk.codingagent.permission.Approver;
+import com.srk.codingagent.persistence.ContentBlock;
 import com.srk.codingagent.persistence.EventLog;
 import com.srk.codingagent.persistence.OutcomeRecorder;
 import com.srk.codingagent.persistence.RepoKeyResolver;
@@ -27,6 +28,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -158,7 +160,8 @@ public final class Main {
                 config.modelId(), config.permissionMode());
 
         if (parsed.kind() == CliArguments.Kind.ONE_SHOT) {
-            return runOneShot(config, parsed.prompt().orElseThrow(), parsed.mode());
+            return runOneShot(config, parsed.prompt().orElseThrow(), parsed.mode(),
+                    parsed.attachPath().orElse(null));
         }
         // Interactive REPL shape (no -p): enter the read-eval loop (04-apis § 1.1).
         return runInteractive(config, parsed.mode());
@@ -195,19 +198,44 @@ public final class Main {
      * understand&rarr;change&rarr;verify driver. Both produce the {@code LoopOutcome run(String)}
      * seam {@link OneShotRunner} maps to an exit code, so the exit-code mapping is mode-agnostic.
      */
-    private static int runOneShot(ResolvedConfig config, String prompt, SessionMode mode) {
+    private static int runOneShot(
+            ResolvedConfig config, String prompt, SessionMode mode, String attachPath) {
         Path workspaceRoot = Path.of("").toAbsolutePath();
         // DCR-3 / AC-7.3: scope the session log + grant store + resumable greenfield phase-state to
         // the real repo key for this target project (git remote URL else normalized abs path),
         // replacing the fixed "one-shot" placeholder.
         String lineage = repoKey();
+        List<ContentBlock> attachments = resolveOneShotAttachment(config, attachPath);
         SessionStore sessions = SessionStore.forUserHome();
         try (EventLog log = sessions.openLog(lineage, SESSION_ID)) {
             OneShotRunner.OneShotLoop runLoop = mode == SessionMode.GREENFIELD
                     ? oneShotGreenfield(config, workspaceRoot, lineage, log, sessions)
-                    : oneShotBrownfield(config, workspaceRoot, lineage, log, sessions);
+                    : oneShotBrownfield(config, workspaceRoot, lineage, log, sessions, attachments);
             return new OneShotRunner(runLoop, System.out, System.err).run(prompt);
         }
+    }
+
+    /**
+     * Resolves a one-shot {@code --attach <path>} into the admitted multimodal block(s) for the
+     * opening turn (T-4.2, § 2.3). The {@link AttachmentResolver} infers the format, sanitizes a
+     * document name (INV-18), and applies the capability gate (INV-19): an admitted attachment is
+     * returned for the turn; a declined one (unsupported file type, or a model that does not
+     * accept that input) prints the decline message to stderr and is not sent — the run still
+     * proceeds (graceful degradation). No {@code --attach} yields an empty list.
+     */
+    private static List<ContentBlock> resolveOneShotAttachment(
+            ResolvedConfig config, String attachPath) {
+        if (attachPath == null) {
+            return List.of();
+        }
+        Attachment attachment = new AttachmentResolver(
+                new AgentLoopFactory().capabilityProfile(config)).resolve(attachPath);
+        if (attachment instanceof Attachment.Attached attached) {
+            return List.of(attached.block());
+        }
+        // INV-19 / unsupported type: declined with a message, not sent (graceful degradation).
+        System.err.println("codingagent: " + ((Attachment.Declined) attachment).message());
+        return List.of();
     }
 
     /**
@@ -220,16 +248,23 @@ public final class Main {
      * configured test command (AC-5.3). T-2.6 (US-16): an OUTCOME signal is recorded when the run
      * concludes &mdash; success derived from the verification command's exit status (AC-16.2) and
      * appended to the session log (AC-16.1/AC-16.3). The boundary clock matches the loop's (ADR-0005).
+     *
+     * <p>T-4.2: any admitted {@code --attach} multimodal block(s) join the opening user turn — the
+     * brownfield loop seam is bound to {@link AgentLoop#run(String, List)} carrying them, so the
+     * {@code ConverseWireMapper} renders the attachment into the first request (§ 2.3 multimodal
+     * input). An empty {@code attachments} list is the no-{@code --attach} case (the prior behaviour).
      */
     private static OneShotRunner.OneShotLoop oneShotBrownfield(ResolvedConfig config,
-            Path workspaceRoot, String lineage, EventLog log, SessionStore sessions) {
+            Path workspaceRoot, String lineage, EventLog log, SessionStore sessions,
+            List<ContentBlock> attachments) {
         AgentLoop loop = new AgentLoopFactory().create(
                 config, workspaceRoot, lineage, log, new NonInteractiveApprover(),
                 sessions);
         OutcomeRecorder outcomeRecorder = new OutcomeRecorder(
                 log, () -> Instant.now().toString(), lineage);
         BrownfieldRunner brownfield = new BrownfieldRunner(BrownfieldDriver.overConfig(
-                loop::run, new CommandExecutor(workspaceRoot), config), outcomeRecorder);
+                prompt -> loop.run(prompt, attachments), new CommandExecutor(workspaceRoot), config),
+                outcomeRecorder);
         return brownfield::run;
     }
 
@@ -306,8 +341,12 @@ public final class Main {
                     ? interactiveGreenfield(
                             config, workspaceRoot, lineage, log, approver, sessions, answerSource)
                     : interactiveBrownfield(config, workspaceRoot, lineage, log, approver, sessions);
+            // T-4.2: the REPL's /attach pipeline gates against the active model's capability
+            // profile (INV-19) — resolved via the same factory the loop's budget guard uses.
+            AttachmentResolver attachmentResolver = new AttachmentResolver(
+                    new AgentLoopFactory().capabilityProfile(config));
             ReplRunner runner = new ReplRunner(turnLoop, answerSource, interrupted::get,
-                    config.permissionMode(), System.out, System.err);
+                    config.permissionMode(), attachmentResolver, System.out, System.err);
             return runner.run();
         } catch (CredentialResolutionException noCredentials) {
             // No usable SigV4 credentials means no usable Bedrock — the REPL cannot start

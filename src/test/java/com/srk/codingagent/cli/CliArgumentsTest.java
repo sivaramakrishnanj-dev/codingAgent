@@ -49,6 +49,78 @@ class CliArgumentsTest {
     }
 
     @Test
+    @DisplayName("T-4.2: --attach <path> on a one-shot carries the attachment path")
+    void attachOnOneShotCarriesPath() {
+        // Oracle: § 2.3 multimodal input / T-4.2 — --attach <path> supplies a one-shot attachment
+        // path orthogonal to the kind; the parser carries it alongside the one-shot prompt.
+        CliArguments parsed = CliArguments.parse(
+                new String[] {"--attach", "design/diagram.png", "-p", "review this"});
+
+        assertEquals(CliArguments.Kind.ONE_SHOT, parsed.kind(),
+                "--attach does not change the kind (it is orthogonal, like --mode)");
+        assertEquals("review this", parsed.prompt().orElseThrow(), "the one-shot prompt is parsed");
+        assertEquals("design/diagram.png", parsed.attachPath().orElseThrow(),
+                "T-4.2: --attach carries the attachment path");
+    }
+
+    @Test
+    @DisplayName("T-4.2: --attach <path> with no -p carries the path on the interactive shape")
+    void attachOnInteractiveCarriesPath() {
+        // Oracle: T-4.2 — --attach applies to the agent-running shapes; with no -p the shape is
+        // interactive and still carries the attachment path.
+        CliArguments parsed = CliArguments.parse(new String[] {"--attach", "spec.pdf"});
+
+        assertEquals(CliArguments.Kind.INTERACTIVE, parsed.kind(),
+                "no -p with --attach is the interactive shape");
+        assertEquals("spec.pdf", parsed.attachPath().orElseThrow(),
+                "T-4.2: the interactive shape carries the --attach path");
+    }
+
+    @Test
+    @DisplayName("T-4.2: no --attach means no attachment path")
+    void noAttachMeansEmpty() {
+        // Oracle: T-4.2 — --attach is optional; absent, there is no attachment path.
+        CliArguments parsed = CliArguments.parse(new String[] {"-p", "no attachment here"});
+
+        assertTrue(parsed.attachPath().isEmpty(),
+                "an invocation without --attach carries no attachment path");
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: --attach with no value is a fail-fast usage error")
+    void attachWithoutValueIsUsageError() {
+        // Oracle: cli-exit-codes 2 / § 3.2 — a flag missing its required value is a bad invocation
+        // (exit 2). --attach with no following path is rejected, like -p with no prompt.
+        assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"--attach"}),
+                "--attach requires a path value (exit 2)");
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: --attach with a blank value is a fail-fast usage error")
+    void attachWithBlankValueIsUsageError() {
+        // Oracle: cli-exit-codes 2 — a blank path is not a usable attachment reference; reject it
+        // as a usage error rather than carrying an empty path.
+        assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"--attach", "  ", "-p", "x"}),
+                "--attach requires a non-blank path value (exit 2)");
+    }
+
+    @Test
+    @DisplayName("T-4.2: --attach coexists with --mode (both orthogonal to the kind)")
+    void attachCoexistsWithMode() {
+        // Oracle: T-4.2 / ADR-0012 — both --attach and --mode are orthogonal flags that continue
+        // the scan; they coexist and the kind is still selected by -p.
+        CliArguments parsed = CliArguments.parse(new String[] {
+                "--mode", "greenfield", "--attach", "use-case.pdf", "-p", "build it"});
+
+        assertEquals(CliArguments.Kind.ONE_SHOT, parsed.kind());
+        assertEquals(SessionMode.GREENFIELD, parsed.mode(), "--mode is still parsed");
+        assertEquals("use-case.pdf", parsed.attachPath().orElseThrow(),
+                "--attach is still parsed alongside --mode");
+    }
+
+    @Test
     @DisplayName("04-apis § 1.1: no -p selects the interactive (REPL) shape")
     void noPromptFlagIsInteractive() {
         // Oracle: 04-apis § 1.1 — "Interactive (REPL) = codingagent [options]". No -p means the

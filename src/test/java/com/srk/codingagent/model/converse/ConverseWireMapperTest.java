@@ -1,5 +1,6 @@
 package com.srk.codingagent.model.converse;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -11,17 +12,23 @@ import com.srk.codingagent.persistence.ContentBlock;
 import com.srk.codingagent.persistence.ModelResponsePayload;
 import com.srk.codingagent.persistence.ModelUsagePayload;
 import com.srk.codingagent.persistence.StopReason;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import software.amazon.awssdk.core.document.Document;
 import software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.Type;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
+import software.amazon.awssdk.services.bedrockruntime.model.DocumentFormat;
+import software.amazon.awssdk.services.bedrockruntime.model.ImageFormat;
 import software.amazon.awssdk.services.bedrockruntime.model.InferenceConfiguration;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
 import software.amazon.awssdk.services.bedrockruntime.model.ReasoningContentBlock;
@@ -476,6 +483,97 @@ class ConverseWireMapperTest {
                             null,
                             null),
                     "CT-INV-5: a toolResult preceding its toolUse has no prior toolUse and is rejected");
+        }
+    }
+
+    @Nested
+    @DisplayName("multimodal attachments — Image/Document → image/document (T-4.2, § 2.3 / § 7)")
+    class Multimodal {
+
+        private static final byte[] IMAGE_BYTES = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A};
+        private static final byte[] DOC_BYTES = "PDF-1.7 body".getBytes(
+                java.nio.charset.StandardCharsets.UTF_8);
+
+        @Test
+        @DisplayName("§ 7 / § 2.3: an Image block maps to a Converse image{format, source{bytes}}")
+        void mapsImageBlock(@TempDir Path dir) throws IOException {
+            // Oracle: § 2.3 / § 7 — "ImageBlock → image {format, source{bytes}}" (us → request,
+            // input only). The block's format is carried into the wire image format, and the raw
+            // bytes the bytesRef points to are wrapped in source.bytes (the SDK base64-encodes).
+            Path png = dir.resolve("diagram.png");
+            Files.write(png, IMAGE_BYTES);
+            ContentBlock image = ContentBlock.image("png", png.toString());
+
+            ConverseRequest request = mapper.toRequest(
+                    MODEL_ID, List.of(ConverseMessage.user(List.of(image))), null, null);
+
+            var wireBlock = request.messages().get(0).content().get(0);
+            assertEquals(Type.IMAGE, wireBlock.type(),
+                    "§ 7: an Image block maps to a Converse image block");
+            assertEquals(ImageFormat.PNG, wireBlock.image().format(),
+                    "§ 2.3: the image format is carried to the wire image format");
+            assertArrayEquals(IMAGE_BYTES, wireBlock.image().source().bytes().asByteArray(),
+                    "§ 2.3: the raw bytes from bytesRef are carried into source.bytes");
+        }
+
+        @Test
+        @DisplayName("§ 7 / § 2.3: a Document block maps to a Converse document{name, format, source{bytes}}")
+        void mapsDocumentBlock(@TempDir Path dir) throws IOException {
+            // Oracle: § 2.3 / § 7 — "DocumentBlock → document {name, format, source{bytes}}" (us →
+            // request, input only). The neutral name (INV-18), the format, and the raw bytes are all
+            // carried to the wire document block.
+            Path pdf = dir.resolve("spec.pdf");
+            Files.write(pdf, DOC_BYTES);
+            ContentBlock document = ContentBlock.document("use case spec", "pdf", pdf.toString());
+
+            ConverseRequest request = mapper.toRequest(
+                    MODEL_ID, List.of(ConverseMessage.user(List.of(document))), null, null);
+
+            var wireBlock = request.messages().get(0).content().get(0);
+            assertEquals(Type.DOCUMENT, wireBlock.type(),
+                    "§ 7: a Document block maps to a Converse document block");
+            assertEquals("use case spec", wireBlock.document().name(),
+                    "§ 2.3 / INV-18: the neutral name is carried verbatim to the wire document name");
+            assertEquals(DocumentFormat.PDF, wireBlock.document().format(),
+                    "§ 2.3: the document format is carried to the wire document format");
+            assertArrayEquals(DOC_BYTES, wireBlock.document().source().bytes().asByteArray(),
+                    "§ 2.3: the raw bytes from bytesRef are carried into source.bytes");
+        }
+
+        @Test
+        @DisplayName("§ 2.3: an attachment whose bytesRef cannot be read is rejected naming the reference")
+        void unreadableBytesRefRejected() {
+            // Oracle: § 2.3 — the attachment is "sourced as raw bytes"; if the referenced bytes
+            // cannot be read the request cannot carry a valid attachment, so it is rejected (rather
+            // than sending an empty/partial block). The rejection names the offending reference.
+            ContentBlock image = ContentBlock.image("png", "/no/such/file/diagram.png");
+
+            IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                    () -> mapper.toRequest(
+                            MODEL_ID, List.of(ConverseMessage.user(List.of(image))), null, null),
+                    "§ 2.3: an unreadable attachment bytesRef must be rejected");
+            assertTrue(thrown.getMessage().contains("/no/such/file/diagram.png"),
+                    "the rejection names the unreadable reference; was: " + thrown.getMessage());
+        }
+
+        @Test
+        @DisplayName("§ 2.3: a prompt text block and an image attachment coexist on one user turn")
+        void promptAndImageCoexistOnTurn(@TempDir Path dir) throws IOException {
+            // Oracle: § 2.3 — a multimodal turn carries the prompt text plus the attachment; the
+            // mapper renders both blocks of the one user turn (the C1→C4 path's shape).
+            Path png = dir.resolve("x.png");
+            Files.write(png, IMAGE_BYTES);
+            ConverseRequest request = mapper.toRequest(
+                    MODEL_ID,
+                    List.of(ConverseMessage.user(List.of(
+                            ContentBlock.text("review this diagram"),
+                            ContentBlock.image("png", png.toString())))),
+                    null, null);
+
+            var content = request.messages().get(0).content();
+            assertEquals(2, content.size(), "§ 2.3: the prompt text and the image are both rendered");
+            assertEquals(Type.TEXT, content.get(0).type(), "the prompt text leads the turn");
+            assertEquals(Type.IMAGE, content.get(1).type(), "the image attachment follows it");
         }
     }
 

@@ -1,6 +1,7 @@
 package com.srk.codingagent.model;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -128,6 +129,60 @@ class ModelCapabilityProfileTest {
 
             assertEquals(DISTINCT_FALLBACK_WINDOW, profile.contextWindowTokens(),
                     "an anthropic non-claude id is not a populated v1 profile (ADR-0002)");
+        }
+    }
+
+    @Nested
+    @DisplayName("§ 2.6: multimodal input flags (supportsImageInput / supportsDocumentInput, INV-19)")
+    class MultimodalFlags {
+
+        @Test
+        @DisplayName("a Claude id resolves to a profile that supports BOTH image and document input "
+                + "(§ 2.3 / § 2.6)")
+        void claudeId_supportsImageAndDocumentInput() {
+            // Oracle: 03-data-model § 2.3 — "Claude ... Word/Excel attach natively" and image input
+            // is load-bearing for design diagrams (US-1); § 2.6 — the Claude profile reports
+            // supportsImageInput/supportsDocumentInput true so the attachment pipeline sends the
+            // multimodal blocks (INV-19). Resolved via forModelId on the live default id.
+            ModelCapabilityProfile profile = ModelCapabilityProfile.forModelId(
+                    ConfigDefaults.MODEL_ID, DISTINCT_FALLBACK_WINDOW);
+
+            assertTrue(profile.supportsImageInput(),
+                    "§ 2.6: the Claude profile accepts image input (multimodal)");
+            assertTrue(profile.supportsDocumentInput(),
+                    "§ 2.6: the Claude profile accepts document input (multimodal)");
+        }
+
+        @Test
+        @DisplayName("an unknown id resolves to a conservative profile with NO image/document input "
+                + "(§ 2.6)")
+        void unknownId_noMultimodalInput() {
+            // Oracle: § 2.6 — "Unknown modelId → a conservative default profile (... no
+            // image/document input ...)". The conservative profile reports both multimodal flags
+            // false so an attachment to an unknown model is declined, not sent (INV-19).
+            ModelCapabilityProfile profile = ModelCapabilityProfile.forModelId(
+                    "meta.llama3-70b-instruct-v1:0", DISTINCT_FALLBACK_WINDOW);
+
+            assertFalse(profile.supportsImageInput(),
+                    "§ 2.6: the conservative default has no image input");
+            assertFalse(profile.supportsDocumentInput(),
+                    "§ 2.6: the conservative default has no document input");
+        }
+
+        @Test
+        @DisplayName("the window-only constructor defaults both multimodal flags to false "
+                + "(conservative, § 2.6)")
+        void windowOnlyConstructor_defaultsFlagsFalse() {
+            // Oracle: § 2.6 — the conservative default has no image/document input. The
+            // backward-compatible window-only constructor must default both flags to the
+            // conservative false (a caller that only needs the window does not silently opt into
+            // multimodal support).
+            ModelCapabilityProfile profile = new ModelCapabilityProfile(50_000);
+
+            assertFalse(profile.supportsImageInput(),
+                    "§ 2.6: the window-only constructor defaults supportsImageInput to false");
+            assertFalse(profile.supportsDocumentInput(),
+                    "§ 2.6: the window-only constructor defaults supportsDocumentInput to false");
         }
     }
 

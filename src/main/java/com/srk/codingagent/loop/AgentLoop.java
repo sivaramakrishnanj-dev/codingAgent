@@ -220,16 +220,44 @@ public final class AgentLoop {
      * @throws IllegalArgumentException if {@code userPrompt} is blank.
      */
     public LoopOutcome run(String userPrompt) {
+        return run(userPrompt, List.of());
+    }
+
+    /**
+     * Runs the tool-use cycle from an initial user prompt plus any multimodal attachment blocks
+     * (T-4.2, § 2.3 multimodal input), until the model ends its turn (or an edge stop reason is
+     * surfaced), and returns the terminal {@link LoopOutcome}. The attachment blocks (already
+     * resolved and capability-gated by the C1 pipeline — only admitted {@code ImageBlock}/
+     * {@code DocumentBlock}s reach here, INV-19) join the opening user turn after the prompt
+     * text, so the {@link com.srk.codingagent.model.converse.ConverseWireMapper} renders them into
+     * the request alongside the prompt.
+     *
+     * @param userPrompt  the developer's prompt that starts the turn; non-blank.
+     * @param attachments the admitted multimodal attachment blocks to add to the user turn (after
+     *                    the prompt text), or an empty list when there are none; must not be
+     *                    {@code null}.
+     * @return the terminal outcome; never {@code null}.
+     * @throws NullPointerException     if {@code userPrompt} or {@code attachments} is
+     *                                  {@code null}.
+     * @throws IllegalArgumentException if {@code userPrompt} is blank.
+     */
+    public LoopOutcome run(String userPrompt, List<ContentBlock> attachments) {
         if (Objects.requireNonNull(userPrompt, "userPrompt").isBlank()) {
             throw new IllegalArgumentException("userPrompt must be non-blank");
         }
+        Objects.requireNonNull(attachments, "attachments");
         // T1 (S0 -> S1): record the user turn, then seed the transcript with it. The event
-        // is appended (and flushed) before the first model call acts on it (INV-2).
-        List<ContentBlock> promptBlocks = List.of(ContentBlock.text(userPrompt));
-        append(new UserMessagePayload(promptBlocks));
+        // is appended (and flushed) before the first model call acts on it (INV-2). The prompt
+        // text leads; admitted attachment blocks (T-4.2) follow it in the same user turn.
+        List<ContentBlock> promptBlocks = new ArrayList<>(1 + attachments.size());
+        promptBlocks.add(ContentBlock.text(userPrompt));
+        promptBlocks.addAll(attachments);
+        List<ContentBlock> turn = List.copyOf(promptBlocks);
+        append(new UserMessagePayload(turn));
         List<ConverseMessage> transcript = new ArrayList<>();
-        transcript.add(ConverseMessage.user(promptBlocks));
-        LOGGER.info("Agent loop started: modelId={}, tools={}", modelId, tools.toolNames());
+        transcript.add(ConverseMessage.user(turn));
+        LOGGER.info("Agent loop started: modelId={}, tools={}, attachments={}",
+                modelId, tools.toolNames(), attachments.size());
 
         return drive(transcript);
     }
