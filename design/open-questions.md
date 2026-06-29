@@ -1028,3 +1028,29 @@ auto-invokes the designer.
   VerifyFailureReport is a pure-refactor candidate for a future brownfield task (suggested_amendment_kind
   = none — no spec change; it is a code-consolidation, not a contract gap). No action required to proceed.
 - status: open (informational; no action required to proceed)
+
+## Discussion items from T-4.3 — 2026-06-29
+
+### D1 — conservative-default context window is a compiled-in constant, not a config key (suggested: schema-update; closes the deferred T-2.1 D2)
+- task: T-4.3
+- spec_refs: NFR-MODEL-CONTEXT-WINDOW, ADR-0002 ("conservative default profile ... safe minimum context window read from config NFR-MODEL-CONTEXT-WINDOW")
+- suggested_amendment_kind: schema-update
+- finding: ADR-0002 says the conservative-default (unknown-modelId) context window should be read from
+  config (NFR-MODEL-CONTEXT-WINDOW). T-4.3 built the full ModelCapabilityRegistry but kept the
+  safe-minimum window as a documented compiled-in constant (option a per the coordinator's task brief),
+  rather than adding a `defaultModelContextWindowTokens` config key — because that key would require
+  editing `design/06-formal/resolved-config.schema.json` (`additionalProperties:false`), which is under
+  `design/` and the designer's lane. The live default model resolves to a real Claude window via the
+  registry, so the constant is OFF the production happy path (it only governs an unknown/unvalidated
+  modelId). This is the SAME deferral the T-2.1 D2 open-question flagged ("conservative-default window
+  read-from-config deferred to T-4.3") — T-4.3 carried it forward as a documented constant + this
+  Discussion rather than minting the config key, keeping T-4.3 design/-clean.
+- coordinator note: non-blocking; T-4.3 resolved cleanly (0 Blocker/0 Major; 1 Minor [stale
+  AgentLoopFactory Javadoc forward-reference, JaCoCo-excluded wiring]; 1 Discussion = this). If the user
+  wants the conservative-default window config-sourced per ADR-0002 (closing both T-2.1 D2 and T-4.3 D1),
+  that is a small schema-update amendment: add `defaultModelContextWindowTokens` (int, min 1, default the
+  current safe-minimum constant) to resolved-config.schema.json + ConfigKeys/ConfigDefaults/ResolvedConfig,
+  and pass it as the registry's fallbackWindowTokens. The injection seam already exists
+  (`ModelCapabilityRegistry.resolve(modelId, fallbackWindowTokens)` takes the window as a parameter), so
+  the code change is small once the schema key lands — user's call. No action required to proceed.
+- status: open (informational; no action required to proceed)

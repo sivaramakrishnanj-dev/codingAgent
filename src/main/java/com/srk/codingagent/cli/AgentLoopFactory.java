@@ -9,6 +9,7 @@ import com.srk.codingagent.loop.CompactionSeam;
 import com.srk.codingagent.loop.TokenBudgetGuard;
 import com.srk.codingagent.memory.MemoryStore;
 import com.srk.codingagent.model.ModelCapabilityProfile;
+import com.srk.codingagent.model.ModelCapabilityRegistry;
 import com.srk.codingagent.model.converse.ModelClient;
 import com.srk.codingagent.model.credentials.BedrockClientFactory;
 import com.srk.codingagent.model.credentials.BedrockCredentials;
@@ -171,7 +172,7 @@ public final class AgentLoopFactory {
      */
     public ModelCapabilityProfile capabilityProfile(ResolvedConfig config) {
         Objects.requireNonNull(config, "config");
-        return ModelCapabilityProfile.forModelId(
+        return ModelCapabilityRegistry.resolve(
                 config.modelId(), CONSERVATIVE_DEFAULT_CONTEXT_WINDOW_TOKENS);
     }
 
@@ -412,7 +413,7 @@ public final class AgentLoopFactory {
         // then fires COMPACT when measured usage.inputTokens >= 0.85 x window (AC-18.1). The
         // guard arithmetic + profile resolution are tested units (TokenBudgetGuard /
         // ModelCapabilityProfile); this composition root only wires them.
-        ModelCapabilityProfile profile = ModelCapabilityProfile.forModelId(
+        ModelCapabilityProfile profile = ModelCapabilityRegistry.resolve(
                 config.modelId(), CONSERVATIVE_DEFAULT_CONTEXT_WINDOW_TOKENS);
         // ADR-0012: the loop carries the system-prompt blocks the caller assembled in the
         // gate-covered ToolRegistryComposer — the brownfield playbook + memory index for a

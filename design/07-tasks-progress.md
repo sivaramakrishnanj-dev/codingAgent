@@ -2,41 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-29
 last_updated_at_commit: pending
-total_resolved_count: 47
+total_resolved_count: 48
 
 last_resolved:
-  task: T-4.2
-  title: "Multimodal attachments (C1, C4): --attach (one-shot) / /attach (REPL) → ContentBlock.Image/Document. New sealed Image (kind=image, format∈png/jpeg/gif/webp, bytesRef) + Document (kind=document, neutral name, format∈9 doc formats, bytesRef) variants; ConverseWireMapper input-only mapping to Converse image{}/document{} (bytes read from bytesRef at send, SDK base64-encodes); ModelCapabilityProfile gains supportsImageInput/supportsDocumentInput (Claude true, conservative-default false). AttachmentResolver pipeline: extension→format inference, INV-18 name sanitization (alphanumeric/space/hyphen/parens/brackets, ≤200 chars, neutral fallback), INV-19 capability gate (decline-with-message when unsupported, not sent). CT-SCH-5/6/7/8 + CT-INV-15/16. Scope boundary (defensible, surfaced): /attach resolves+gates+reports but the live REPL turn-threading of the admitted block is left to the C3 runner seams (out of the C1+C4 scope); the full attach→request path is wired+tested on the one-shot --attach path + at the AgentLoop seam."
+  task: T-4.3
+  title: "Capability profiles (C5): completed the ModelCapabilityProfile to the full ADR-0002/§2.6 shape (added ProviderFamily enum, supportsExtendedThinking + thinkingBudgetConfigurable, supportsToolUse, PromptCacheCaps [minTokensPerCheckpoint/maxCheckpoints/ttls, null=unsupported], inferenceParamPassthrough; preserved contextWindowTokens + supportsImage/DocumentInput + backward-compatible window-only/3-arg ctors). New prefix-keyed ModelCapabilityRegistry.resolve(modelId, fallbackWindow) — Claude (ANTHROPIC) profiles populated [opus checkpoint-min 4096, other Claude 1024, maxCheckpoints 4, image/doc/thinking/tool-use all true], unknown id → conservative default (OTHER, no thinking, null promptCache, tool-use true, no image/doc, safe-minimum window). AgentLoopFactory's inline resolution refactored to delegate to the registry (resolution logic moved OUT of the JaCoCo-excluded composition root into a coverage-counted class). CT-SCH-15 (Claude profile + conservative default both validate against model-capability-profile.schema.json via the networknt validator). Non-default model swap resolves independently (NFR-MODEL-SUBAGENT/AC-8.3). Conservative-default window kept as a compiled-in constant (option a — config-key promotion deferred as a non-blocking Discussion, closes T-2.1 D2)."
   resolved_at: 2026-06-29
-  commit: 8db9cd0
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-4.3
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-29T00:00:00+00:00
-  last_updated_at: 2026-06-29T00:00:00+00:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-4.3
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-29T00:00:00+00:00
-  last_updated_at: 2026-06-29T00:00:00+00:00
 
 
 
@@ -557,3 +534,13 @@ in_flight:
 - dcrs_consumed: []
 - label: SECOND M4 task (deps T-0.5 Model Client + T-1.1 REPL, both resolved). Adds multimodal image+document INPUT (03 §2.3, ADR-0012 — design diagrams US-1, PDF/Word use-case docs), capability-gated. No DCR; clean single-agent round 1.
 - notes: >>> M4 (T-4.2, multimodal attachments) under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main, 10 files): ContentBlock sealed interface extended with Image (kind=image, format∈png/jpeg/gif/webp, bytesRef) + Document (kind=document, neutral sanitized name, format∈pdf/csv/doc/docx/xls/xlsx/html/txt/md, bytesRef) records following the existing Text/ToolUse/ToolResult/Reasoning style (kind discriminator, compact-ctor validation, image()/document() factories, IMAGE_FORMATS/DOCUMENT_FORMATS/DOCUMENT_NAME_MAX_LENGTH/DOCUMENT_NAME_PATTERN constants; the Document compact ctor enforces the INV-18 name pattern). ConverseWireMapper: input-only Image→image{format,source{bytes}} / Document→document{name,format,source{bytes}} mapping — bytes read from the bytesRef (path) at send, SDK base64-encodes (no response-direction mapping). ModelCapabilityProfile: supportsImageInput/supportsDocumentInput added (Claude/Anthropic profile true; conservative/unknown-model default false → INV-19 graceful decline) with a backward-compatible window-only ctor delegating to (window,false,false) so existing callers/tests are unchanged. New AttachmentResolver (C1 pipeline: extension→format inference [.jpg→jpeg token; unknown ext→Declined-with-message], INV-18 name sanitization with neutral 'document' fallback re-validated by the Document ctor, INV-19 capability gate → Attachment.Attached | Attachment.Declined) + Attachment sealed type. CliArguments: --attach <path> (one-shot) parsed alongside -p/--profile/--region/--debug. ReplRunner: /attach <path> slash-command (resolves+gates+reports). AgentLoop: run(String,List<ContentBlock>) overload threads attachments into the user turn. Main + AgentLoopFactory: wire the one-shot --attach path end-to-end (capabilityProfile(ResolvedConfig) added). Phase B (CT-SCH-5/6/7/8 + CT-INV-15/16): ContentBlockSchemaContractTest +8 (block variants validate against the real content-block.schema.json via networknt validator — CT-SCH-5; disallowed/over-200-char DocumentBlock.name rejected — CT-SCH-6; ImageBlock.format outside enum rejected — CT-SCH-7; DocumentBlock.format outside the 9 rejected — CT-SCH-8) + ContentBlockTest +9 + ModelCapabilityProfileTest +3 + ConverseWireMapperTest +4 + new AttachmentResolverTest(16, incl. CT-INV-15 non-sanitized name rejected before send + CT-INV-16 declined when profile lacks support) + new AttachmentTest(5) + CliArgumentsTest +6 + ReplRunnerTest +4 + AgentLoopTest +3. Oracles trace to content-block.schema.json enums + INV-18 name rule + INV-19 capability rule + the C1 contract, never to impl behaviour. mvn clean verify GREEN (1222 tests, +56 over the 1166 baseline, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met at 0.913; new classes 97.8–100% line). Self-checks: oracle-traceability=passed, reuse=passed (reused ContentBlock/WireMapper/profile conventions; no schema edit — content-block + capability-profile schemas already supported image/document). 0 Blocker / 0 Major / 0 Minor / 2 Nit / 0 Discussion. Three stated_assumptions (all defensible): bytes-by-reference (bytesRef path persisted, raw bytes resolved at send — schema-conformant, avoids base64 bloat in the JSONL log); .jpg→jpeg format token (schema enum is jpeg); and the in-scope boundary that /attach resolves+gates+reports but the live REPL turn-threading of the admitted block is left to the C3 runner seams (BrownfieldRunner/GreenfieldRunner — out of the C1+C4 task scope), with the full attach→request path wired+tested on the one-shot --attach path + at the AgentLoop seam. **Coordinator note (non-gating):** that REPL turn-threading boundary is a natural follow-on if a later M4 polish task or the G4 gate wants `/attach` to deliver the block into a live interactive turn — it is a small C3-runner-seam widening, not a spec gap (reviewer accepted at 0 Blocker/Major). No schema change; no design/ edit except the review file. No AWS/Bedrock calls.
+
+## T-4.3 — Capability profiles (C5): registry, feature detection, graceful degradation; non-default model swap
+- commit: PENDING_T43
+- review: design/reviews/code/T-4.3-r1.md
+- resolved: 2026-06-29
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- label: THIRD M4 task (deps T-0.5, resolved). Completes the C5 capability layer (ADR-0002, OQ-J): the full ModelCapabilityProfile shape + a prefix-keyed registry + feature-detection / graceful degradation + non-default model swap. CT-SCH-15. Resolving T-4.3 UNBLOCKS T-4.4 (prompt-cache placement, deps T-2.4 + T-4.3). No DCR; clean single-agent round 1.
+- notes: >>> M4 (T-4.3, capability profiles) under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main): ModelCapabilityProfile COMPLETED to the full ADR-0002/§2.6 shape — added ProviderFamily enum (ANTHROPIC/AMAZON/META/MISTRAL/OTHER), supportsExtendedThinking + thinkingBudgetConfigurable, supportsToolUse, PromptCacheCaps (record: minTokensPerCheckpoint/maxCheckpoints/ttls with a TimeToLive enum FIVE_MINUTES/ONE_HOUR whose @JsonValue wireToken() serializes "5m"/"1h" per the schema; null = unsupported), inferenceParamPassthrough; PRESERVED the prior fields (contextWindowTokens, supportsImage/DocumentInput) and the backward-compatible window-only + 3-arg ctors as delegating ctors so TokenBudgetGuard/AttachmentResolver/ReplRunner/AgentLoopFactory + their tests are unchanged. New ModelCapabilityRegistry.resolve(modelId, fallbackWindowTokens): prefix-keyed static registry — Claude (ANTHROPIC) profiles populated (opus → checkpoint-min 4096, other Claude → 1024, maxCheckpoints 4, supportsExtendedThinking/ToolUse/Image/Document all true), unknown modelId → conservative default (OTHER, no extended thinking, null promptCache, tool-use assumed true, no image/doc, safe-minimum window). AgentLoopFactory's inline resolution refactored to DELEGATE to the registry — the resolution logic moved OUT of the JaCoCo-excluded composition root into a coverage-counted class (forModelId(String,int) retained as a thin delegate so there is ONE resolution path). Feature-detection is by profile.supportsX(), never modelId.contains("claude"). Phase B (CT-SCH-15): new ModelCapabilityProfileSchemaContractTest +8 (a Claude profile AND the conservative default profile both validate against model-capability-profile.schema.json via the networknt validator — the CT-SCH-15 positive; schema copied into src/test/resources/schemas/ as the oracle fixture, mirroring the content-block/event schema-contract-test pattern) + new ModelCapabilityRegistryTest +13 (prefix resolution; Claude families; unknown→conservative default reports false for optional caps but still tool-use=true [graceful-degrade]; non-default model swap resolves independently — NFR-MODEL-SUBAGENT/AC-8.3) + new PromptCacheCapsTest +5 + ModelCapabilityProfileTest extended to 16. Oracles trace to model-capability-profile.schema.json + ADR-0002 + NFR-MODEL-PROVIDER/SUBAGENT, never to impl behaviour (maxCheckpoints=4 carried as a registry datum, deliberately NOT asserted as an oracle since no spec symbol pins it). mvn clean verify GREEN (1253 tests, +31 over the 1222 baseline, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met at 0.9136; new classes 100% line each). Self-checks: oracle-traceability=passed, reuse=passed (extended the existing profile + unified the resolution path; no duplicate resolution). 0 Blocker / 0 Major / 1 Minor / 0 Nit / 1 Discussion. The 1 Minor (m1): AgentLoopFactory:79-82 Javadoc (a prior task's forward-reference) now mis-states T-4.3 sources the conservative-default window from config — comment-accuracy in JaCoCo-excluded wiring, left for a follow-on touch rather than re-opening Phase A; non-gating. One Discussion (D1, suggested_amendment_kind=schema-update): the conservative-default context window is still a compiled-in constant, not a config key — promoting it to resolved-config (defaultModelContextWindowTokens) closes the deferred T-2.1 D2; chosen option (a) keeps T-4.3 design/-clean (the config key would edit design/06-formal/resolved-config.schema.json, the designer's lane); NON-BLOCKING, user's call (logged to open-questions.md). No AWS/Bedrock calls (static offline registry by design — ADR-0002 rejected runtime capability queries).

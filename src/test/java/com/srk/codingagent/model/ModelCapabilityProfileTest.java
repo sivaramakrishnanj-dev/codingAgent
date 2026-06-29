@@ -3,10 +3,13 @@ package com.srk.codingagent.model;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.srk.codingagent.config.ConfigDefaults;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -226,6 +229,98 @@ class ModelCapabilityProfileTest {
             assertThrows(NullPointerException.class,
                     () -> ModelCapabilityProfile.forModelId(null, DISTINCT_FALLBACK_WINDOW),
                     "a null model id cannot be resolved");
+        }
+    }
+
+    @Nested
+    @DisplayName("§ 2.6: the full-shape canonical constructor (providerFamily + promptCache + "
+            + "passthrough)")
+    class FullShapeConstructor {
+
+        @Test
+        @DisplayName("a null providerFamily is rejected (§ 2.6 providerFamily is required)")
+        void nullProviderFamily_rejected() {
+            // Oracle: 03-data-model § 2.6 / schema required providerFamily — a profile must carry a
+            // family tag; null is a programming error.
+            assertThrows(NullPointerException.class,
+                    () -> new ModelCapabilityProfile(
+                            null, 200_000, true, true, true, true, true, null, List.of()),
+                    "providerFamily is required (§ 2.6)");
+        }
+
+        @Test
+        @DisplayName("a null inferenceParamPassthrough is rejected (use empty for none)")
+        void nullPassthrough_rejected() {
+            // Oracle: § 2.6 — inferenceParamPassthrough is a string[]; the record requires a
+            // non-null list (callers pass an empty list when a model has no valid passthrough keys).
+            assertThrows(NullPointerException.class,
+                    () -> new ModelCapabilityProfile(
+                            ProviderFamily.OTHER, 100_000, false, false, true, false, false,
+                            null, null),
+                    "inferenceParamPassthrough is required (empty for none)");
+        }
+
+        @Test
+        @DisplayName("the inferenceParamPassthrough list is defensively copied (EJ Item 17)")
+        void passthroughList_isDefensivelyCopied() {
+            // Oracle: EJ Item 17 — an immutable value object must not let a caller mutate its state.
+            List<String> source = new ArrayList<>();
+            source.add("top_k");
+            ModelCapabilityProfile profile = new ModelCapabilityProfile(
+                    ProviderFamily.ANTHROPIC, 200_000, true, true, true, true, true, null, source);
+
+            source.add("top_p");
+            assertEquals(1, profile.inferenceParamPassthrough().size(),
+                    "mutating the source list must not change the profile (defensive copy)");
+            assertThrows(UnsupportedOperationException.class,
+                    () -> profile.inferenceParamPassthrough().add("x"),
+                    "the accessor returns an unmodifiable list (EJ Item 17)");
+        }
+
+        @Test
+        @DisplayName("the three-arg ctor takes the conservative-default shape (OTHER, no thinking, "
+                + "tool-use assumed, no cache, empty passthrough) — backward compatible")
+        void threeArgCtor_takesConservativeDefaultShape() {
+            // Oracle: § 2.6 — a window+multimodal-only profile is the conservative-default shape:
+            // provider OTHER, no extended thinking, tool-use assumed true, no prompt cache, empty
+            // passthrough. The T-4.2-era three-arg ctor (still used by the attachment tests) must
+            // keep producing that shape so existing callers are unbroken.
+            ModelCapabilityProfile profile = new ModelCapabilityProfile(50_000, true, false);
+
+            assertEquals(ProviderFamily.OTHER, profile.providerFamily(),
+                    "§ 2.6: the three-arg ctor defaults the family to OTHER");
+            assertFalse(profile.supportsExtendedThinking(),
+                    "§ 2.6: the three-arg ctor has no extended thinking");
+            assertTrue(profile.supportsToolUse(),
+                    "§ 2.6: the three-arg ctor assumes tool use");
+            assertNull(profile.promptCache(),
+                    "§ 2.6: the three-arg ctor has no prompt cache");
+            assertTrue(profile.inferenceParamPassthrough().isEmpty(),
+                    "§ 2.6: the three-arg ctor has an empty inference-param passthrough");
+            assertEquals(50_000, profile.contextWindowTokens(),
+                    "the three-arg ctor carries the supplied window");
+            assertTrue(profile.supportsImageInput(),
+                    "the three-arg ctor carries the supplied image flag");
+            assertFalse(profile.supportsDocumentInput(),
+                    "the three-arg ctor carries the supplied document flag");
+        }
+
+        @Test
+        @DisplayName("the window-only ctor takes the fully-conservative shape (no multimodal input)")
+        void windowOnlyCtor_takesFullyConservativeShape() {
+            // Oracle: § 2.6 — the window-only ctor is the most conservative shape: OTHER, no
+            // thinking, no cache, no image/document input, tool-use assumed. Backward compatible
+            // with the T-2.1-era window-only callers.
+            ModelCapabilityProfile profile = new ModelCapabilityProfile(70_000);
+
+            assertEquals(ProviderFamily.OTHER, profile.providerFamily(),
+                    "§ 2.6: the window-only ctor defaults the family to OTHER");
+            assertFalse(profile.supportsImageInput(),
+                    "§ 2.6: the window-only ctor has no image input");
+            assertFalse(profile.supportsDocumentInput(),
+                    "§ 2.6: the window-only ctor has no document input");
+            assertTrue(profile.supportsToolUse(),
+                    "§ 2.6: the window-only ctor assumes tool use");
         }
     }
 }

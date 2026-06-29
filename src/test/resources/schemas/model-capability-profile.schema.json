@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codingagent.srk/schemas/model-capability-profile.schema.json",
+  "title": "ModelCapabilityProfile",
+  "description": "Feature-detected capabilities for a modelId (ADR-0002, 03-data-model.md § 2.6). Unknown modelId resolves to a conservative default (all optional capabilities false/absent, tool-use assumed, safe window from config).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["providerFamily", "contextWindowTokens", "supportsExtendedThinking", "supportsToolUse", "supportsImageInput", "supportsDocumentInput"],
+  "properties": {
+    "providerFamily": { "enum": ["ANTHROPIC", "AMAZON", "META", "MISTRAL", "OTHER"] },
+    "contextWindowTokens": { "type": "integer", "minimum": 1, "description": "Drives NFR-CONTEXT-COMPACT-THRESHOLD (0.85 × this)." },
+    "supportsExtendedThinking": { "type": "boolean" },
+    "thinkingBudgetConfigurable": { "type": "boolean", "description": "Only meaningful when supportsExtendedThinking is true." },
+    "supportsToolUse": { "type": "boolean" },
+    "supportsImageInput": { "type": "boolean" },
+    "supportsDocumentInput": { "type": "boolean" },
+    "promptCache": {
+      "description": "Null/absent = unsupported.",
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "minTokensPerCheckpoint": { "type": "integer", "minimum": 1 },
+        "maxCheckpoints": { "type": "integer", "minimum": 1 },
+        "ttls": { "type": "array", "items": { "enum": ["5m", "1h"] } }
+      }
+    },
+    "inferenceParamPassthrough": { "type": "array", "items": { "type": "string" }, "description": "Valid additionalModelRequestFields keys for this model (e.g. top_k)." }
+  }
+}
