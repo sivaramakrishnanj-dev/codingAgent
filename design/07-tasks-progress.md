@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-29
-last_updated_at_commit: pending
+last_updated_at_commit: 9cb2ca5
 total_resolved_count: 50
 
 last_resolved:
   task: T-4.5
   title: "sessions/memory/config subcommands + --debug + SLF4J log levels (C1). resume/sessions pre-existed (T-1.2) and were NOT rebuilt. NET-NEW: MemoryCommand (memory list|show <slug>|edit <slug>|rm <slug> over MemoryStore — added MemoryStore.delete + entryPath for rm/edit; AC-14.1/14.3, US-14) + ConfigCommand (config show|path — resolve+print / file locations via ConfigResolver+ConfigLocations; US-8). --debug parsed in CliArguments (via a new internal Builder) and realized as a slf4j-simple defaultLogLevel=debug system property set in a NEW no-logger Launcher (manifest Main-Class changed Main→Launcher) BEFORE any logger binds — empirically slf4j-simple reads the property once at first-logger-bind, so setting it inside Main.run would no-op. Default INFO; --debug raises to DEBUG (NFR-LOG, 05 §3 levels). 04-apis § 1.2/1.3. Jar-launch + Launcher→Main delegation smoke-verified by the coordinator (--version/--help/config-path all exit 0)."
   resolved_at: 2026-06-29
-  commit: pending
+  commit: 9cb2ca5
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -558,7 +558,7 @@ in_flight: null
 - notes: >>> M4 (T-4.4, prompt-cache placement) under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main, 3 files): ConverseWireMapper.toRequest now places a SINGLE Converse cachePoint (SDK SystemContentBlock.fromCachePoint(CachePointBlock DEFAULT)) appended to the END of the system[] content list — because the cached region is everything BEFORE the breakpoint and Converse cache order is tools→system→messages, the end-of-system position makes tools+system+memory-index the cached stable prefix and leaves the variable messages tail uncached (exactly ADR-0006's "after the stable prefix tools→system→memory-index"). Realized at the WIRE layer (SDK CachePointBlock), NOT as a domain ContentBlock (cachePoint is a wire-format breakpoint, not domain content — ContentBlock deliberately leaves it unmodelled). Capability-gate (both ADR-0006 conditions): profile.promptCache() != null (prompt-cache supported) AND a documented conservative ~chars/4 build-time estimate of the system-block char length ≥ promptCache().minTokensPerCheckpoint() (Opus ≥4096); capability-absent OR prefix-below-minimum → NO cachePoint, request still builds + is valid (graceful degradation, loop unaffected). PromptCacheCaps threaded via a new ConverseWireMapper(Integer maxOutputTokens, PromptCacheCaps) ctor (mirroring the DCR-2 maxOutputTokens seam — toRequest's signature + every existing caller untouched) + new ModelClient(BedrockRuntimeClient, PromptCacheCaps) / forGreenfield(BedrockRuntimeClient, PromptCacheCaps) overloads, wired by AgentLoopFactory (the existing no-caps forms retained + delegating). Single breakpoint per ADR-0006 conservatism (no multi-checkpoint management). Phase B (the unit-testable contract; the Verify column is "(manual)" so NO numbered CT): ConverseWireMapperTest + a PromptCachePlacement nested class (+9: cachePoint placed at end-of-system when promptCache supported AND estimate≥min; NO cachePoint when promptCache null [graceful no-op, request still valid]; NO cachePoint when supported-but-prefix-below-minimum; placement does not disturb tools/messages/inferenceConfig) + ModelClientTest (+2 caps-threading). Assertions inspect the BUILT ConverseRequest (no Bedrock call). Oracles trace to ADR-0006 placement rule + the capability gate (profile.promptCache()/minTokensPerCheckpoint), never to impl behaviour. mvn clean verify GREEN (1264 tests, +11 over the 1253 baseline, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met; ConverseWireMapper 97% line / 90% branch). Self-checks: oracle-traceability=passed, reuse=passed (reused the maxOutputTokens ctor seam; cachePoint at the wire layer not duplicated as domain content). 0 Blocker / 0 Major / 0 Minor / 1 Nit / 1 Discussion. Two stated_assumptions (both defensible): build-time prefix token estimate = conservative ~chars/4 (Bedrock returns exact usage only post-call; the estimate under-counts so it errs toward NOT placing a borderline cachePoint — the safe direction; honours BOTH ADR-0006 gate conditions rather than the weaker capability-only reading; exact tokenizer out of v1 scope); single-breakpoint position = end-of-system[] (the tools→system→memory-index boundary; the SDK exposes no "between tools and system" seam and the memory-index is the tail of the system content). One Discussion (D1, suggested_amendment_kind=NONE — informational, NOT an amendment candidate): the token-minimum gate uses the ~chars/4 build-time estimate and the live cache write/read-token observation is the future on-Bedrock manual verification step (the Verify column's "(manual)"), not a spec gap. No AWS/Bedrock calls.
 
 ## T-4.5 — sessions/memory/config subcommands; --debug; SLF4J log levels (C1)
-- commit: PENDING_T45
+- commit: 9cb2ca5
 - review: design/reviews/code/T-4.5-r1.md
 - resolved: 2026-06-29
 - context_mode: narrow
