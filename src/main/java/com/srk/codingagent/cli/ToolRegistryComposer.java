@@ -13,6 +13,7 @@ import com.srk.codingagent.persistence.EventLog;
 import com.srk.codingagent.persistence.SessionStore;
 import com.srk.codingagent.subagent.ChildAgentLoopFactory;
 import com.srk.codingagent.subagent.SubAgentOrchestrator;
+import com.srk.codingagent.tool.ClaudeCliWebLookupBackend;
 import com.srk.codingagent.tool.CommandExecutor;
 import com.srk.codingagent.tool.EditFileTool;
 import com.srk.codingagent.tool.GlobTool;
@@ -24,6 +25,9 @@ import com.srk.codingagent.tool.RunCommandTool;
 import com.srk.codingagent.tool.SpawnSubAgentTool;
 import com.srk.codingagent.tool.ToolHandler;
 import com.srk.codingagent.tool.ToolRegistry;
+import com.srk.codingagent.tool.WebFetchTool;
+import com.srk.codingagent.tool.WebLookupBackend;
+import com.srk.codingagent.tool.WebSearchTool;
 import com.srk.codingagent.tool.WriteArtifactTool;
 import com.srk.codingagent.tool.WriteFileTool;
 import com.srk.codingagent.tool.memory.ReadMemoryTool;
@@ -68,7 +72,7 @@ import java.util.function.Supplier;
  * that index content reaches the prompt; the factory now only carries the assembled blocks to the
  * loop.
  *
- * <p><b>The ten production tools.</b> read/grep/glob/list (Class R), write/edit (Class X),
+ * <p><b>The twelve production tools.</b> read/grep/glob/list (Class R), write/edit (Class X),
  * run_command (Class X) — the existing seven — plus:
  * <ul>
  *   <li><b>{@code read_memory}</b> (Class R, ADR-0007/C12) over the two-tier {@link MemoryStore}
@@ -76,6 +80,11 @@ import java.util.function.Supplier;
  *   <li><b>{@code write_memory}</b> (Class X, ADR-0007/C12) over the same store, the session
  *       {@link EventLog} (the {@code MEMORY_WRITE} provenance event, AC-12.4), the boundary clock,
  *       the origin session, and the repo key;</li>
+ *   <li><b>{@code web_search}</b> and <b>{@code web_fetch}</b> (Class X, ADR-0008/C11) over a
+ *       swappable {@link WebLookupBackend} whose v1 implementation
+ *       ({@link ClaudeCliWebLookupBackend}) spawns a constrained headless Claude CLI delegate via a
+ *       scratch-rooted {@link CommandExecutor} with a 120 s timeout (NFR-NET-WEBLOOKUP-TIMEOUT) —
+ *       Class X, so denied in {@code READ_ONLY} (RD-6, AC-11.2);</li>
  *   <li><b>{@code spawn_subagent}</b> (Class X, ADR-0010/C13) over a {@link SubAgentOrchestrator}
  *       whose {@link ChildAgentLoopFactory} runs each child as its OWN nested {@link AgentLoop}
  *       over the SAME {@link ModelClient} wire path the parent uses (D2-safe by construction), with
@@ -91,6 +100,13 @@ import java.util.function.Supplier;
  * unless the spawn overrides it, AC-17.2).
  */
 final class ToolRegistryComposer {
+
+    /**
+     * The hard web-lookup delegate timeout (NFR-NET-WEBLOOKUP-TIMEOUT, 120 s default). Distinct from
+     * the per-command timeout ({@code commandTimeoutSeconds}, 300 s) the NFR pins separately for web
+     * lookup; carried as a constant (not a resolved-config key) so this task adds no config-schema key.
+     */
+    private static final java.time.Duration WEB_LOOKUP_TIMEOUT = java.time.Duration.ofSeconds(120);
 
     private final ModelClient modelClient;
     private final ModelClient greenfieldModelClient;
@@ -293,7 +309,47 @@ final class ToolRegistryComposer {
         handlers.add(new ReadMemoryTool(memoryStore, repoKey));
         handlers.add(new WriteMemoryTool(memoryStore, log, clock, originSession, repoKey));
         handlers.add(new SpawnSubAgentTool(orchestrator()));
+        WebLookupBackend webBackend = webLookupBackend();
+        handlers.add(new WebSearchTool(webBackend));
+        handlers.add(new WebFetchTool(webBackend));
         return ToolRegistry.of(handlers);
+    }
+
+    /**
+     * Builds the v1 web-lookup backend (C11, ADR-0008) the {@code web_search}/{@code web_fetch} tools
+     * share: a constrained headless Claude CLI delegate spawned via a {@link CommandExecutor} rooted at
+     * a SCRATCH directory (NOT the workspace, ADR-0008 — so the delegate cannot touch the repo), with a
+     * hard {@code WEB_LOOKUP_TIMEOUT} (NFR-NET-WEBLOOKUP-TIMEOUT, 120 s default).
+     *
+     * <p><b>Why a scratch executor, not the workspace one.</b> ADR-0008's load-bearing safety property
+     * is that the headless delegate runs with a scratch/temp CWD so nothing it does reaches our repo or
+     * event log except the summarized text we capture — a headless agent with repo write access would
+     * bypass our permission gate entirely. So the backend gets its own {@link CommandExecutor} rooted
+     * at a fresh temp directory, distinct from the workspace executor the file/run tools use.
+     *
+     * <p><b>Why a distinct 120 s timeout, not {@code commandTimeoutSeconds}.</b> NFR-NET-WEBLOOKUP-TIMEOUT
+     * names a distinct 120 s default for web lookup, separate from the 300 s per-command timeout
+     * ({@code commandTimeoutSeconds}). The timeout is carried as the {@link #WEB_LOOKUP_TIMEOUT}
+     * constant rather than a new {@code ResolvedConfig} key so this task adds no resolved-config-schema
+     * key (the schema enforces {@code additionalProperties:false}); the backend interface keeps the
+     * door open for a future config-driven value without a schema change being in scope here.
+     */
+    private WebLookupBackend webLookupBackend() {
+        return new ClaudeCliWebLookupBackend(
+                new CommandExecutor(webScratchDir()), WEB_LOOKUP_TIMEOUT);
+    }
+
+    /**
+     * Creates the scratch/temp directory the web-lookup delegate runs in (ADR-0008 — CWD must NOT be
+     * the workspace). A fresh temp directory per composition keeps the delegate confined away from the
+     * repo.
+     */
+    private static Path webScratchDir() {
+        try {
+            return java.nio.file.Files.createTempDirectory("codingagent-web-lookup");
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("failed to create web-lookup scratch directory", e);
+        }
     }
 
     /**

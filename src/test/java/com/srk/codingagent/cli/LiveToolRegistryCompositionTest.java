@@ -174,13 +174,13 @@ class LiveToolRegistryCompositionTest {
     // --- The wiring contract: all ten tools register, render, report classes -------------
 
     @Test
-    @DisplayName("C7/ADR-0007/ADR-0010: the live registry contains all ten tools (the 7 + spawn_subagent + read/write_memory)")
-    void liveRegistryContainsAllTenTools(@TempDir Path workspace, @TempDir Path storeRoot) {
+    @DisplayName("C7/ADR-0007/ADR-0010/ADR-0008: the live registry contains all twelve tools (the 7 + memory + spawn + web)")
+    void liveRegistryContainsAllTwelveTools(@TempDir Path workspace, @TempDir Path storeRoot) {
         // Oracle: C7 (02-architecture § 1.2 — the registry holds the tool definitions a live run
-        // offers) + ADR-0007 (read_memory/write_memory exist) + ADR-0010 (spawn_subagent exists).
-        // The factory's registry must expose all three M2 tools alongside the seven; the gap was
-        // their absence. The registry rejects duplicate names, so a clean composition proves the
-        // ten names coexist.
+        // offers) + ADR-0007 (read_memory/write_memory exist) + ADR-0010 (spawn_subagent exists) +
+        // ADR-0008 (web_search/web_fetch exist). The factory's registry must expose every tool a live
+        // run offers; the T-2.7 lesson is that an implemented-but-unregistered tool is invisible at
+        // runtime. The registry rejects duplicate names, so a clean composition proves the names coexist.
         var registry = composer(new ScriptedBedrockClient(), workspace, storeRoot,
                 EventLog.over(new StringWriter(), "parent")).parentRegistry();
 
@@ -188,23 +188,25 @@ class LiveToolRegistryCompositionTest {
         expected.add("read_memory");
         expected.add("write_memory");
         expected.add("spawn_subagent");
+        expected.add("web_search");
+        expected.add("web_fetch");
         assertTrue(registry.toolNames().containsAll(expected),
-                "the live registry offers all ten tools: " + registry.toolNames());
-        assertEquals(10, registry.toolNames().size(),
-                "exactly the ten production tools register (no more, no fewer): " + registry.toolNames());
+                "the live registry offers all twelve tools: " + registry.toolNames());
+        assertEquals(12, registry.toolNames().size(),
+                "exactly the twelve production tools register (no more, no fewer): " + registry.toolNames());
     }
 
     @Test
     @DisplayName("C7: every tool the live registry holds renders a Converse toolSpec the model sees")
     void liveRegistryRendersToolSpecForEveryTool(@TempDir Path workspace, @TempDir Path storeRoot) {
         // Oracle: C7 — "render to Converse toolConfig". A tool not rendered is a tool the model
-        // never sees; the gap is exactly that the M2 tools were not offered. Every registered tool
-        // must render a toolSpec carrying a JSON inputSchema (the schema⇄handler-agree invariant).
+        // never sees. Every registered tool must render a toolSpec carrying a JSON inputSchema (the
+        // schema⇄handler-agree invariant).
         var registry = composer(new ScriptedBedrockClient(), workspace, storeRoot,
                 EventLog.over(new StringWriter(), "parent")).parentRegistry();
 
         ToolConfiguration toolConfig = registry.toToolConfiguration();
-        assertEquals(10, toolConfig.tools().size(),
+        assertEquals(12, toolConfig.tools().size(),
                 "every registered tool renders a toolSpec (C7)");
         toolConfig.tools().forEach(tool ->
                 assertNotNull(tool.toolSpec().inputSchema().json(),
@@ -227,6 +229,22 @@ class LiveToolRegistryCompositionTest {
                 "ADR-0007: write_memory is Class X (a write is gated)");
         assertEquals(Optional.of(OperationClass.SIDE_EFFECTING), registry.operationClass("spawn_subagent"),
                 "ADR-0010: spawn_subagent is Class X (gated)");
+    }
+
+    @Test
+    @DisplayName("ADR-0008/RD-6/AC-11.2: the live registry reports web_search and web_fetch as Class X (so READ_ONLY denies them)")
+    void liveRegistryReportsWebLookupClassX(@TempDir Path workspace, @TempDir Path storeRoot) {
+        // Oracle: ADR-0008 / 04-apis § 3 — web_search/web_fetch are Class X; RD-6 / AC-11.2 — Class X
+        // is denied in READ_ONLY. The registry is the single source the loop's gate keys on, so the
+        // web tools MUST report SIDE_EFFECTING for the READ_ONLY denial to hold on a live run. The
+        // T-2.7 lesson: the tools must actually be registered in the live composer to be reachable.
+        var registry = composer(new ScriptedBedrockClient(), workspace, storeRoot,
+                EventLog.over(new StringWriter(), "parent")).parentRegistry();
+
+        assertEquals(Optional.of(OperationClass.SIDE_EFFECTING), registry.operationClass("web_search"),
+                "ADR-0008/RD-6: web_search is Class X (gated; denied in READ_ONLY)");
+        assertEquals(Optional.of(OperationClass.SIDE_EFFECTING), registry.operationClass("web_fetch"),
+                "ADR-0008/RD-6: web_fetch is Class X (gated; denied in READ_ONLY)");
     }
 
     // --- The sub-agent path's REAL wire contract -----------------------------------------

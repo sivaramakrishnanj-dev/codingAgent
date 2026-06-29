@@ -2,41 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-29
 last_updated_at_commit: pending
-total_resolved_count: 45
+total_resolved_count: 46
 
 last_resolved:
-  task: T-3.10
-  title: "Intra-IMPLEMENT resume skips completed tasks (DCR-7, resolves D2): on a greenfield re-entry whose reconstructed phase is IMPLEMENT, GreenfieldImplementLoop reads back the per-task completion markers (T-3.8's `- [x] <taskId> Implemented` lines via CompletionStamp.isCompletionLine/taskIdOf) and skips already-completed tasks, resuming at the first incomplete one and terminating instead of restarting at T-1. markComplete is now write+read; readPlannedTasksInOrder() strips marker lines before reusing TaskTraceability.tasksInOrder() so the planned enumeration is not double-counted; tasksInOrder()/check() stay marker-unaware + backward-compatible. A fully-already-complete re-entry implements nothing but still runs the end-of-phase verify once over the whole phase (ALL_IMPLEMENTED, full completed set). Extends AC-7.6 (IMPLEMENT-phase facet). CT-GF-6."
-  resolved_at: 2026-06-25
-  commit: 77010b4
-  iterations: { task_builder: 1 }
-  dcrs_consumed: [DCR-7]
-
-in_flight:
   task: T-4.1
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-29T00:00:00+00:00
-  last_updated_at: 2026-06-29T00:00:00+00:00
----
-
-## In-flight
-
-- task: T-4.1
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
+  title: "Web delegate (C11): web_search/web_fetch Class-X tools over a swappable WebLookupBackend (v1 = constrained `claude -p` via the reused CommandExecutor/ADR-0003 subprocess machinery, scratch CWD not the workspace, 120 s NFR-NET-WEBLOOKUP-TIMEOUT). Tools declare SIDE_EFFECTING and route through the existing PermissionGate so READ_ONLY denies them (AC-11.2/RD-6) with no new gate path; success returns summarized text (AC-11.1); absent-on-PATH / error / timeout returns WebLookupResult.failure so the agent reports rather than fabricates (AC-11.3); registered in ToolRegistryComposer so the loop's existing TOOL_USE/TOOL_RESULT event path logs invocations (AC-11.4). NFR-NET-WEBLOOKUP-TIMEOUT carried as an injectable Duration (composer constant WEB_LOOKUP_TIMEOUT default 120 s) — no resolved-config key added (avoids a design/06-formal schema change; injection seam keeps it config-drivable later). ADR-0008."
+  resolved_at: 2026-06-29
+  commit: pending
+  iterations: { task_builder: 1 }
   dcrs_consumed: []
-  started_at: 2026-06-29T00:00:00+00:00
-  last_updated_at: 2026-06-29T00:00:00+00:00
+
+in_flight: null
+---
 
 ### G0 (after M0 — Walking skeleton) — ✅ PASSED 2026-06-22
 
@@ -535,3 +512,13 @@ in_flight:
 - amendments: DCR-7 (4667724)
 - label: M3 task, born from DCR-7 (deps T-3.9). THIRD and FINAL of the three DCR-7 IMPLEMENT-phase tasks (resolves D2 — no implement progress on resume). Re-verified by the coordinator against the live source: GreenfieldDriver reconstructs phase-state every turn and GreenfieldPhaseState.reconstruct lands at IMPLEMENT on the 3 pre-approval "Approved:" stamps, but TaskTraceability.tasksInOrder() did NOT skip completed tasks and T-3.8's per-task completion markers (`- [x] <taskId> Implemented`) were write-only (nothing read them back) — so a greenfield re-entry to IMPLEMENT re-ran ALL tasks from T-1. T-3.10 makes the implement loop read the markers back and skip already-completed tasks, resuming at the first incomplete one (terminating instead of restarting at T-1), extending AC-7.6 with the IMPLEMENT-phase facet. This only UNBLOCKS the future G3 live greenfield smoke test; G3 milestone gate left OPEN/untouched.
 - notes: >>> DCR-7 (T-3.10, intra-IMPLEMENT resume) under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main, GreenfieldImplementLoop only): markComplete() is now write-paired-with-read — it appends the `- [x] <taskId> Implemented` marker AND a new readCompletedTaskIds() reads the same shape back on a resumed run. The CRITICAL subtlety (the markers live in the SAME 02-tasks.md artifact and are themselves checkbox lines TASK_LINE would recognize) is handled by recognizing the completion marker via its WHOLE CompletionStamp shape — checked `- [x]` box PLUS the trailing `Implemented` MARKER token as the line's final content (CompletionStamp.isCompletionLine/taskIdOf, package-private, no public-API change; a round-trip test pins writer↔reader agreement) — NOT by the `[x]` checkbox alone. readPlannedTasksInOrder() strips the marker lines BEFORE reusing TaskTraceability.tasksInOrder(), so the planned enumeration is never double-counted by the marker lines; tasksInOrder()/check() stay marker-UNAWARE and backward-compatible (the skip logic lives in the loop, not the gate — per directive). run() now: read planned tasks in order, read completed-marker ids, implement only the not-yet-completed tasks in order (resume at first incomplete), then run the T-3.9 end-of-phase verify. A fully-already-complete re-entry implements nothing this run but STILL runs the end-of-phase verify once over the whole phase (AC-3.2 gates the PHASE) and reports ALL_IMPLEMENTED carrying the full completed phase in breakdown order (no new disposition added — reuses ALL_IMPLEMENTED). Phase B (CT-GF-6): GreenfieldImplementLoopTest +8 (6 resume-skip tests — partial breakdown resumes at first incomplete, completed skipped, terminates, does NOT restart at T-1; + 2 CompletionStamp read-back parser tests) + GreenfieldResumeContractTest +1 (CT-GF-6 contract-level: reconstruct→IMPLEMENT over a temp disk repo with a partially-completed breakdown, the real implement loop resumes at the first incomplete task). Oracles trace to AC-7.6/AC-3.3 + ADR-0012 + CT-GF-6, never to impl behaviour. mvn clean verify GREEN (1135 tests, +9 over the 1126 baseline, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met at 0.9129). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker / 0 Major / 0 Minor / 0 Nit / 0 Discussion. Two stated_assumptions (both defensible): marker-vs-planned-task distinction = WHOLE CompletionStamp shape (not the `[x]` checkbox alone, since a real planned task may itself be a checkbox line); end-of-phase verify on a fully-already-complete re-entry = still runs once over the whole phase (AC-3.2 gates the PHASE), terminal ALL_IMPLEMENTED with the full completed set. No AWS/Bedrock calls (scripted seams + temp-disk store). With T-3.8 + T-3.9 + T-3.10 landed, ALL THREE DCR-7 IMPLEMENT-phase defects (D1 no-test livelock, D2 no-progress-on-resume, D3 per-task-verify-vs-scaffold-first) are resolved; the shaded codingagent.jar is rebuilt by the coordinator (Phase 3) carrying all three. This only UNBLOCKS the future G3 live greenfield smoke test; G3 stays OPEN. Bug 3 (live-generated CalculatorTest referencing CalcException unqualified) is now expected to be caught by the end-of-phase verify (T-3.9), not separately fixed.
+
+## T-4.1 — Web delegate (C11): web_search/web_fetch via constrained `claude -p`, swappable backend, denied in READ_ONLY
+- commit: PENDING_T41
+- review: design/reviews/code/T-4.1-r1.md
+- resolved: 2026-06-29
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- label: FIRST M4 task (deps T-0.7 permission gate + T-1.1 REPL, both resolved). First task after G3 PASSED. Implements component C11 (web delegate) per ADR-0008: the agent gains current-web lookup via a constrained headless `claude -p` subprocess behind a swappable backend interface, gated Class X and denied in READ_ONLY. No DCR; clean single-agent round 1.
+- notes: >>> M4 (T-4.1, web delegate) under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main): new WebLookupBackend interface (the ADR-0008 swappable seam) + WebLookupRequest (search(query)/fetch(url) factory + Kind) + WebLookupResult (success(text)/failure(reason), report-not-fabricate shape) + ClaudeCliWebLookupBackend (v1 impl — shells out via the REUSED CommandExecutor/ADR-0003 subprocess machinery, NOT a raw ProcessBuilder; rooted at a fresh scratch temp dir not the workspace per ADR-0008's no-repo-write property; 120 s timeout injected as a Duration) + WebSearchTool (NAME=web_search) + WebFetchTool (NAME=web_fetch); ToolSchemas extended with the web_search `query` / web_fetch `url` inputSchemas; ToolRegistryComposer registers both tools into the LIVE registry (the T-2.7 lesson: implemented-but-unregistered = invisible at runtime). Web tools declare SIDE_EFFECTING and route through the existing PermissionGate, so READ_ONLY denial (AC-11.2/RD-6) needs NO new gate path; web tools deliberately NOT added to the greenfield pre-approval registry (Class X stays out of that read-only surface). Failure (AC-11.3) modelled as a returned WebLookupResult.failure — absent-on-PATH / error / timeout all report, never fabricate, never crash. Logging (AC-11.4) via the loop's existing TOOL_USE/TOOL_RESULT event path (no duplicate per-tool logging). Phase B: 38 new web-delegate tests across WebSearchToolTest(6)/WebFetchToolTest(6)/ClaudeCliWebLookupBackendTest(7)/WebLookupRequestTest(4)/WebLookupResultTest(3)/permission.WebLookupGatingTest(5) + LiveToolRegistryCompositionTest(+web Class-X registration asserts). The Verify column's "CT (Class X gating)" — no dedicated CT-* exists for the web delegate in 06-formal/contract-tests.md (confirmed) — is realized as the gating tests (READ_ONLY deny / asking-mode prompt) + the live-registry Class-X assertions. Subprocess tested WITHOUT a real `claude` binary: WebLookupBackend is an injectable seam (fake backend for success), and absent-on-PATH + timeout failure paths exercised deterministically (no live network). Oracles trace to AC-11.1/11.2/11.3/11.4 + RD-6 + ADR-0008, never to impl behaviour. mvn clean verify GREEN (1166 tests, +31 over the 1135 baseline, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met at 0.9132; new C11 classes 85–100% line). Self-checks: oracle-traceability=passed, reuse=passed (reused CommandExecutor + the existing gate path, no duplication). 0 Blocker / 0 Major / 0 Minor / 1 Nit / 0 Discussion. One load-bearing stated_assumption (defensible, coordinator-surfaced): NFR-NET-WEBLOOKUP-TIMEOUT (120 s default, configurable) is carried as an injectable Duration (composer constant WEB_LOOKUP_TIMEOUT) rather than a new ResolvedConfig key — a new key would require editing design/06-formal/resolved-config.schema.json (additionalProperties:false), which is under design/ and would force a design-change-needed (schema-update); the injection seam keeps it config-drivable later without a schema change. A future small schema-update DCR could promote it to a real config key (`webLookupTimeoutSeconds`) for true runtime configurability — non-blocking, surfaced. No AWS/Bedrock calls (the delegate is a local claude -p subprocess, not Bedrock).

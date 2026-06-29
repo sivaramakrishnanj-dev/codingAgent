@@ -175,6 +175,32 @@ final class ToolSchemas {
     }
 
     /**
+     * The {@code web_search} input schema: required {@code query} (the free-text search query)
+     * (04-apis § 3, ADR-0008).
+     *
+     * @return the input-schema document for {@code web_search}.
+     */
+    static Document webSearch() {
+        return objectSchema(
+                Map.of("query", stringProperty(
+                        "The free-text query to search the web for and summarize.")),
+                List.of("query"));
+    }
+
+    /**
+     * The {@code web_fetch} input schema: required {@code url} (the URL to fetch) (04-apis § 3,
+     * ADR-0008).
+     *
+     * @return the input-schema document for {@code web_fetch}.
+     */
+    static Document webFetch() {
+        return objectSchema(
+                Map.of("url", stringProperty(
+                        "The URL to fetch from the web and summarize.")),
+                List.of("url"));
+    }
+
+    /**
      * The {@code spawn_subagent} input schema: required {@code prompt} (the scoped task the
      * child performs), optional {@code model} (a cheaper/different model the child runs;
      * defaults to the parent's), and optional {@code budgetSeconds} (the child's wall-clock
