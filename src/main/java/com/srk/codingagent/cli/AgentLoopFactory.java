@@ -10,6 +10,7 @@ import com.srk.codingagent.loop.TokenBudgetGuard;
 import com.srk.codingagent.memory.MemoryStore;
 import com.srk.codingagent.model.ModelCapabilityProfile;
 import com.srk.codingagent.model.ModelCapabilityRegistry;
+import com.srk.codingagent.model.PromptCacheCaps;
 import com.srk.codingagent.model.converse.ModelClient;
 import com.srk.codingagent.model.credentials.BedrockClientFactory;
 import com.srk.codingagent.model.credentials.BedrockCredentials;
@@ -358,12 +359,20 @@ public final class AgentLoopFactory {
         // timeouts). Both budgets come from the resolved config (defaults 10 / 300).
         BedrockRuntimeClient bedrock = clientFactory.create(credentials, config.region(),
                 config.bedrockCallConnectTimeoutSeconds(), config.bedrockCallResponseTimeoutSeconds());
-        ModelClient modelClient = new ModelClient(bedrock);
+        // T-4.4 (ADR-0006, OQ-I): thread the active model's prompt-cache capabilities (ADR-0002 / C5)
+        // into the wire path so the mapper places the single stable-prefix cachePoint (tools->system
+        // ->memory-index) when the model supports prompt caching, and places none (graceful
+        // degradation) when it does not. A null promptCache() on the profile means unsupported
+        // (§ 2.6). The placement + capability gate themselves are the coverage-counted
+        // ConverseWireMapper logic; this excluded factory only resolves the caps and threads them.
+        PromptCacheCaps promptCacheCaps = capabilityProfile(config).promptCache();
+        ModelClient modelClient = new ModelClient(bedrock, promptCacheCaps);
         // DCR-2 (D1, ADR-0012 § 2.1): the greenfield phase loops use a ModelClient over the SAME
         // Bedrock wire path whose requests carry inferenceConfig.maxTokens = 16384, so a full
         // requirements/design/tasks deliverable is not truncated at the backend's default 4096
-        // output cap. The brownfield/one-shot loops keep the uncapped client.
-        ModelClient greenfieldModelClient = ModelClient.forGreenfield(bedrock);
+        // output cap. The brownfield/one-shot loops keep the uncapped client. Both carry the same
+        // prompt-cache caps (T-4.4) so the stable-prefix cachePoint is placed on both paths.
+        ModelClient greenfieldModelClient = ModelClient.forGreenfield(bedrock, promptCacheCaps);
         GrantStore parentGrants = GrantStore.forSession(sessionLineage);
         MemoryStore memoryStore = MemoryStore.forUserHome();
         Supplier<String> clock = () -> Instant.now().toString();

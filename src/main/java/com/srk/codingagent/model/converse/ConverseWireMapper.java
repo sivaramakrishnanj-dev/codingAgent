@@ -12,7 +12,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import com.srk.codingagent.model.PromptCacheCaps;
 import software.amazon.awssdk.core.SdkBytes;
+import software.amazon.awssdk.services.bedrockruntime.model.CachePointBlock;
+import software.amazon.awssdk.services.bedrockruntime.model.CachePointType;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
@@ -102,8 +105,29 @@ import software.amazon.awssdk.services.bedrockruntime.model.ToolUseBlock;
  * request leaves the boundary (CT-INV-5, the negative test). The text, toolUse, toolResult,
  * reasoning, image, and document kinds are mapped on the request path; image/document are
  * input-only (T-4.2 — a model turn never emits them, so they have no response-direction
- * mapping). The cachePoint block remains out of scope (deferred to the task that needs it —
- * see the handoff's {@code stated_assumptions}).
+ * mapping).
+ *
+ * <p><b>Prompt-cache placement (T-4.4 — ADR-0006, OQ-I; § 6.A.1).</b> The mapper optionally
+ * places a single {@code cachePoint} breakpoint after the STABLE PREFIX — tools &rarr; system
+ * &rarr; memory-index — which are static across a session (cache order is tools&rarr;system&rarr;
+ * messages). Because the cached region is everything <em>before</em> the breakpoint, appending one
+ * {@link CachePointBlock} (kind {@code default}) to the end of the {@code system} content array
+ * marks tools + system (the memory-index forms the tail of the system content, § 7) as the cached
+ * prefix, while the variable {@code messages} tail stays uncached — the largest-static-region
+ * placement ADR-0006 specifies. ADR-0006's "simplified single-breakpoint" conservatism means ONE
+ * breakpoint, never multiple checkpoints, and no explicit TTL micro-management (the model's
+ * default window applies).
+ *
+ * <p><b>Capability-gated (ADR-0006).</b> A breakpoint is placed ONLY when the resolved model's
+ * {@link PromptCacheCaps} (ADR-0002 / C5) reports prompt-cache support AND the stable-prefix
+ * estimate meets the model's per-checkpoint token minimum
+ * ({@link PromptCacheCaps#minTokensPerCheckpoint()}; Opus 4.5/4.6 &ge; 4096). The mapper carries
+ * the caps by construction ({@link #ConverseWireMapper(Integer, PromptCacheCaps)}); a {@code null}
+ * caps (prompt-cache unsupported, § 2.6 "null = unsupported") OR a sub-minimum prefix &rArr; NO
+ * {@code cachePoint} — the request still builds and is valid, the loop is unaffected (graceful
+ * degradation). Bedrock returns exact {@code usage} token counts only after a call, so at
+ * request-build time the prefix size is a documented char-based estimate (&asymp; chars/4 across
+ * the system blocks); see the T-4.4 handoff {@code stated_assumptions}.
  *
  * <p><b>Greenfield output-token budget (DCR-2 — D1 follow-on, ADR-0012; {@code 02-architecture.md}
  * § 2.1).</b> The mapper optionally carries an output-token cap. When constructed with one
@@ -129,21 +153,35 @@ public final class ConverseWireMapper {
      */
     public static final int GREENFIELD_MAX_OUTPUT_TOKENS = 16384;
 
+    /**
+     * The divisor of the char-based stable-prefix token estimate (T-4.4 — ADR-0006 gate): roughly
+     * one token per four characters of prefix text. Bedrock returns exact {@code usage} token
+     * counts only <em>after</em> a call (§ 6.A.1), so at request-build time the prefix size cannot
+     * be measured exactly; this conservative heuristic (the common ~4-chars-per-token rule of
+     * thumb) lets the capability gate honour ADR-0006's "the prefix meets the model's token
+     * minimum" condition without an embedded tokenizer (out of scope for v1; see the T-4.4 handoff
+     * {@code stated_assumptions}). It under-estimates rather than over-estimates token count, so it
+     * errs toward NOT placing a cachePoint on a borderline prefix — the conservative direction.
+     */
+    private static final int ESTIMATED_CHARS_PER_TOKEN = 4;
+
     private final Integer maxOutputTokens;
+    private final PromptCacheCaps promptCacheCaps;
 
     /**
-     * Creates a mapper that sets no {@code inferenceConfig.maxTokens} on the requests it builds, so
-     * the Bedrock backend applies its default output-token cap (the prior behaviour — used on the
-     * brownfield/one-shot path).
+     * Creates a mapper that sets no {@code inferenceConfig.maxTokens} on the requests it builds (so
+     * the Bedrock backend applies its default output-token cap — the brownfield/one-shot path) and
+     * places no prompt-cache breakpoint (prompt caching off — the prior behaviour).
      */
     public ConverseWireMapper() {
-        this(null);
+        this(null, null);
     }
 
     /**
-     * Creates a mapper that sets {@code inferenceConfig.maxTokens} to {@code maxOutputTokens} on
-     * every {@link ConverseRequest} it builds (DCR-2 — D1; the greenfield path uses
-     * {@link #GREENFIELD_MAX_OUTPUT_TOKENS}).
+     * Creates a mapper with an output-token cap but no prompt-cache breakpoint (DCR-2 — D1; the
+     * greenfield path uses {@link #GREENFIELD_MAX_OUTPUT_TOKENS}). Kept for callers that thread only
+     * the output budget; equivalent to {@link #ConverseWireMapper(Integer, PromptCacheCaps)} with a
+     * {@code null} {@code promptCacheCaps}.
      *
      * @param maxOutputTokens the output-token cap to set on the request's {@code inferenceConfig},
      *                        or {@code null} to set none (backend default applies). When non-null it
@@ -151,11 +189,34 @@ public final class ConverseWireMapper {
      * @throws IllegalArgumentException if {@code maxOutputTokens} is non-null and not positive.
      */
     public ConverseWireMapper(Integer maxOutputTokens) {
+        this(maxOutputTokens, null);
+    }
+
+    /**
+     * Creates a mapper carrying both the optional output-token cap (DCR-2 — D1) and the optional
+     * prompt-cache capabilities (T-4.4 — ADR-0006). When {@code promptCacheCaps} is non-null
+     * (the resolved model reports prompt-cache support, ADR-0002 / C5) the mapper places a single
+     * {@code cachePoint} after the stable prefix (tools &rarr; system &rarr; memory-index) on every
+     * request whose stable-prefix estimate meets {@code promptCacheCaps.minTokensPerCheckpoint()};
+     * a {@code null} {@code promptCacheCaps} (prompt caching unsupported) places no breakpoint
+     * (graceful degradation — ADR-0006).
+     *
+     * @param maxOutputTokens  the output-token cap to set on the request's {@code inferenceConfig},
+     *                         or {@code null} to set none (backend default applies). When non-null
+     *                         it must be positive.
+     * @param promptCacheCaps  the resolved model's prompt-cache capabilities (ADR-0002 / C5), or
+     *                         {@code null} when prompt caching is unsupported (§ 2.6
+     *                         "null = unsupported"). When non-null it gates and sizes the single
+     *                         stable-prefix {@code cachePoint} (ADR-0006).
+     * @throws IllegalArgumentException if {@code maxOutputTokens} is non-null and not positive.
+     */
+    public ConverseWireMapper(Integer maxOutputTokens, PromptCacheCaps promptCacheCaps) {
         if (maxOutputTokens != null && maxOutputTokens <= 0) {
             throw new IllegalArgumentException(
                     "maxOutputTokens must be positive when set, was: " + maxOutputTokens);
         }
         this.maxOutputTokens = maxOutputTokens;
+        this.promptCacheCaps = promptCacheCaps;
     }
 
     /**
@@ -473,11 +534,49 @@ public final class ConverseWireMapper {
     }
 
     private List<SystemContentBlock> toSystemBlocks(List<String> system) {
-        List<SystemContentBlock> blocks = new ArrayList<>(system.size());
+        List<SystemContentBlock> blocks = new ArrayList<>(system.size() + 1);
         for (String text : system) {
             blocks.add(SystemContentBlock.fromText(text));
         }
+        if (shouldPlaceCachePoint(system)) {
+            // T-4.4 (ADR-0006, OQ-I): append the single cachePoint AFTER the stable prefix.
+            // Cache order is tools->system->messages (§ 6.A.1), so a breakpoint at the END of the
+            // system content array marks tools + system (the memory-index is the tail of the system
+            // content, § 7) as the cached prefix, leaving the variable messages tail uncached. The
+            // model's "simplified single-breakpoint" management means exactly ONE cachePoint
+            // (default kind, no explicit TTL).
+            blocks.add(SystemContentBlock.fromCachePoint(
+                    CachePointBlock.builder().type(CachePointType.DEFAULT).build()));
+        }
         return blocks;
+    }
+
+    /**
+     * The ADR-0006 prompt-cache gate: place a {@code cachePoint} after the stable prefix ONLY when
+     * the resolved model reports prompt-cache support ({@code promptCacheCaps != null}, ADR-0002 /
+     * § 2.6 "null = unsupported") AND the stable-prefix estimate meets the model's per-checkpoint
+     * token minimum ({@link PromptCacheCaps#minTokensPerCheckpoint()}). Absent support OR a
+     * sub-minimum prefix &rArr; no breakpoint (graceful degradation; the loop is unaffected).
+     */
+    private boolean shouldPlaceCachePoint(List<String> system) {
+        if (promptCacheCaps == null) {
+            return false;
+        }
+        return estimatePrefixTokens(system) >= promptCacheCaps.minTokensPerCheckpoint();
+    }
+
+    /**
+     * A documented char-based estimate of the stable-prefix token count (T-4.4 — ADR-0006 gate):
+     * the total character length of the system blocks divided by {@link #ESTIMATED_CHARS_PER_TOKEN}.
+     * Bedrock returns exact {@code usage} only after a call (§ 6.A.1), so the build-time gate uses
+     * this conservative heuristic rather than an embedded tokenizer (out of scope for v1).
+     */
+    private static int estimatePrefixTokens(List<String> system) {
+        long chars = 0;
+        for (String block : system) {
+            chars += block.length();
+        }
+        return (int) (chars / ESTIMATED_CHARS_PER_TOKEN);
     }
 
     private ContentBlock toDomainResponseBlock(

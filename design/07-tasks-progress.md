@@ -2,41 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-29
 last_updated_at_commit: pending
-total_resolved_count: 48
+total_resolved_count: 49
 
 last_resolved:
-  task: T-4.3
-  title: "Capability profiles (C5): completed the ModelCapabilityProfile to the full ADR-0002/§2.6 shape (added ProviderFamily enum, supportsExtendedThinking + thinkingBudgetConfigurable, supportsToolUse, PromptCacheCaps [minTokensPerCheckpoint/maxCheckpoints/ttls, null=unsupported], inferenceParamPassthrough; preserved contextWindowTokens + supportsImage/DocumentInput + backward-compatible window-only/3-arg ctors). New prefix-keyed ModelCapabilityRegistry.resolve(modelId, fallbackWindow) — Claude (ANTHROPIC) profiles populated [opus checkpoint-min 4096, other Claude 1024, maxCheckpoints 4, image/doc/thinking/tool-use all true], unknown id → conservative default (OTHER, no thinking, null promptCache, tool-use true, no image/doc, safe-minimum window). AgentLoopFactory's inline resolution refactored to delegate to the registry (resolution logic moved OUT of the JaCoCo-excluded composition root into a coverage-counted class). CT-SCH-15 (Claude profile + conservative default both validate against model-capability-profile.schema.json via the networknt validator). Non-default model swap resolves independently (NFR-MODEL-SUBAGENT/AC-8.3). Conservative-default window kept as a compiled-in constant (option a — config-key promotion deferred as a non-blocking Discussion, closes T-2.1 D2)."
+  task: T-4.4
+  title: "Prompt-cache placement (C6, C4): place a single Converse cachePoint at the tools→system→memory-index stable-prefix boundary, capability-gated (ADR-0006, OQ-I). ConverseWireMapper.toRequest now appends SystemContentBlock.fromCachePoint(CachePointBlock DEFAULT) to the END of system[] — the cached region is everything before the breakpoint, and cache order is tools→system→messages, so tools+system+memory-index are cached and the variable messages tail stays uncached. Gate: profile.promptCache() != null (prompt-cache supported) AND a documented ~chars/4 build-time stable-prefix estimate ≥ minTokensPerCheckpoint() (Opus ≥4096); capability-absent OR below-minimum → NO cachePoint, request still valid (graceful degradation). PromptCacheCaps threaded via the mapper ctor (mirroring the DCR-2 maxOutputTokens seam) + wired by AgentLoopFactory; single-breakpoint per ADR-0006 conservatism (no multi-checkpoint mgmt). Realized at the wire layer (SDK CachePointBlock), not as a domain ContentBlock. The Verify column is '(manual)' — live cache write/read token observation is the future on-Bedrock step, out of unit-test scope."
   resolved_at: 2026-06-29
-  commit: 7c7145b
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-4.4
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-29T00:00:00+00:00
-  last_updated_at: 2026-06-29T00:00:00+00:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-4.4
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-29T00:00:00+00:00
-  last_updated_at: 2026-06-29T00:00:00+00:00
 
 
 
@@ -568,3 +545,13 @@ in_flight:
 - dcrs_consumed: []
 - label: THIRD M4 task (deps T-0.5, resolved). Completes the C5 capability layer (ADR-0002, OQ-J): the full ModelCapabilityProfile shape + a prefix-keyed registry + feature-detection / graceful degradation + non-default model swap. CT-SCH-15. Resolving T-4.3 UNBLOCKS T-4.4 (prompt-cache placement, deps T-2.4 + T-4.3). No DCR; clean single-agent round 1.
 - notes: >>> M4 (T-4.3, capability profiles) under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main): ModelCapabilityProfile COMPLETED to the full ADR-0002/§2.6 shape — added ProviderFamily enum (ANTHROPIC/AMAZON/META/MISTRAL/OTHER), supportsExtendedThinking + thinkingBudgetConfigurable, supportsToolUse, PromptCacheCaps (record: minTokensPerCheckpoint/maxCheckpoints/ttls with a TimeToLive enum FIVE_MINUTES/ONE_HOUR whose @JsonValue wireToken() serializes "5m"/"1h" per the schema; null = unsupported), inferenceParamPassthrough; PRESERVED the prior fields (contextWindowTokens, supportsImage/DocumentInput) and the backward-compatible window-only + 3-arg ctors as delegating ctors so TokenBudgetGuard/AttachmentResolver/ReplRunner/AgentLoopFactory + their tests are unchanged. New ModelCapabilityRegistry.resolve(modelId, fallbackWindowTokens): prefix-keyed static registry — Claude (ANTHROPIC) profiles populated (opus → checkpoint-min 4096, other Claude → 1024, maxCheckpoints 4, supportsExtendedThinking/ToolUse/Image/Document all true), unknown modelId → conservative default (OTHER, no extended thinking, null promptCache, tool-use assumed true, no image/doc, safe-minimum window). AgentLoopFactory's inline resolution refactored to DELEGATE to the registry — the resolution logic moved OUT of the JaCoCo-excluded composition root into a coverage-counted class (forModelId(String,int) retained as a thin delegate so there is ONE resolution path). Feature-detection is by profile.supportsX(), never modelId.contains("claude"). Phase B (CT-SCH-15): new ModelCapabilityProfileSchemaContractTest +8 (a Claude profile AND the conservative default profile both validate against model-capability-profile.schema.json via the networknt validator — the CT-SCH-15 positive; schema copied into src/test/resources/schemas/ as the oracle fixture, mirroring the content-block/event schema-contract-test pattern) + new ModelCapabilityRegistryTest +13 (prefix resolution; Claude families; unknown→conservative default reports false for optional caps but still tool-use=true [graceful-degrade]; non-default model swap resolves independently — NFR-MODEL-SUBAGENT/AC-8.3) + new PromptCacheCapsTest +5 + ModelCapabilityProfileTest extended to 16. Oracles trace to model-capability-profile.schema.json + ADR-0002 + NFR-MODEL-PROVIDER/SUBAGENT, never to impl behaviour (maxCheckpoints=4 carried as a registry datum, deliberately NOT asserted as an oracle since no spec symbol pins it). mvn clean verify GREEN (1253 tests, +31 over the 1222 baseline, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met at 0.9136; new classes 100% line each). Self-checks: oracle-traceability=passed, reuse=passed (extended the existing profile + unified the resolution path; no duplicate resolution). 0 Blocker / 0 Major / 1 Minor / 0 Nit / 1 Discussion. The 1 Minor (m1): AgentLoopFactory:79-82 Javadoc (a prior task's forward-reference) now mis-states T-4.3 sources the conservative-default window from config — comment-accuracy in JaCoCo-excluded wiring, left for a follow-on touch rather than re-opening Phase A; non-gating. One Discussion (D1, suggested_amendment_kind=schema-update): the conservative-default context window is still a compiled-in constant, not a config key — promoting it to resolved-config (defaultModelContextWindowTokens) closes the deferred T-2.1 D2; chosen option (a) keeps T-4.3 design/-clean (the config key would edit design/06-formal/resolved-config.schema.json, the designer's lane); NON-BLOCKING, user's call (logged to open-questions.md). No AWS/Bedrock calls (static offline registry by design — ADR-0002 rejected runtime capability queries).
+
+## T-4.4 — Prompt-cache placement (C6, C4): cachePoint after tools→system→memory-index, capability-gated
+- commit: PENDING_T44
+- review: design/reviews/code/T-4.4-r1.md
+- resolved: 2026-06-29
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- label: FOURTH M4 task (deps T-2.4 memory index + T-4.3 capability profiles — both resolved; T-4.3 unblocked this). Places the prompt-cache breakpoint per ADR-0006/OQ-I, capability-gated via the T-4.3 PromptCacheCaps. Fulfils the cachePoint Javadoc deferral ConverseWireMapper carried ("out of scope — deferred to the task that needs it"). Verify is '(manual)' (live cache-token observation) — the unit-testable contract is the placement + gate. No DCR; clean single-agent round 1.
+- notes: >>> M4 (T-4.4, prompt-cache placement) under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main, 3 files): ConverseWireMapper.toRequest now places a SINGLE Converse cachePoint (SDK SystemContentBlock.fromCachePoint(CachePointBlock DEFAULT)) appended to the END of the system[] content list — because the cached region is everything BEFORE the breakpoint and Converse cache order is tools→system→messages, the end-of-system position makes tools+system+memory-index the cached stable prefix and leaves the variable messages tail uncached (exactly ADR-0006's "after the stable prefix tools→system→memory-index"). Realized at the WIRE layer (SDK CachePointBlock), NOT as a domain ContentBlock (cachePoint is a wire-format breakpoint, not domain content — ContentBlock deliberately leaves it unmodelled). Capability-gate (both ADR-0006 conditions): profile.promptCache() != null (prompt-cache supported) AND a documented conservative ~chars/4 build-time estimate of the system-block char length ≥ promptCache().minTokensPerCheckpoint() (Opus ≥4096); capability-absent OR prefix-below-minimum → NO cachePoint, request still builds + is valid (graceful degradation, loop unaffected). PromptCacheCaps threaded via a new ConverseWireMapper(Integer maxOutputTokens, PromptCacheCaps) ctor (mirroring the DCR-2 maxOutputTokens seam — toRequest's signature + every existing caller untouched) + new ModelClient(BedrockRuntimeClient, PromptCacheCaps) / forGreenfield(BedrockRuntimeClient, PromptCacheCaps) overloads, wired by AgentLoopFactory (the existing no-caps forms retained + delegating). Single breakpoint per ADR-0006 conservatism (no multi-checkpoint management). Phase B (the unit-testable contract; the Verify column is "(manual)" so NO numbered CT): ConverseWireMapperTest + a PromptCachePlacement nested class (+9: cachePoint placed at end-of-system when promptCache supported AND estimate≥min; NO cachePoint when promptCache null [graceful no-op, request still valid]; NO cachePoint when supported-but-prefix-below-minimum; placement does not disturb tools/messages/inferenceConfig) + ModelClientTest (+2 caps-threading). Assertions inspect the BUILT ConverseRequest (no Bedrock call). Oracles trace to ADR-0006 placement rule + the capability gate (profile.promptCache()/minTokensPerCheckpoint), never to impl behaviour. mvn clean verify GREEN (1264 tests, +11 over the 1253 baseline, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met; ConverseWireMapper 97% line / 90% branch). Self-checks: oracle-traceability=passed, reuse=passed (reused the maxOutputTokens ctor seam; cachePoint at the wire layer not duplicated as domain content). 0 Blocker / 0 Major / 0 Minor / 1 Nit / 1 Discussion. Two stated_assumptions (both defensible): build-time prefix token estimate = conservative ~chars/4 (Bedrock returns exact usage only post-call; the estimate under-counts so it errs toward NOT placing a borderline cachePoint — the safe direction; honours BOTH ADR-0006 gate conditions rather than the weaker capability-only reading; exact tokenizer out of v1 scope); single-breakpoint position = end-of-system[] (the tools→system→memory-index boundary; the SDK exposes no "between tools and system" seam and the memory-index is the tail of the system content). One Discussion (D1, suggested_amendment_kind=NONE — informational, NOT an amendment candidate): the token-minimum gate uses the ~chars/4 build-time estimate and the live cache write/read-token observation is the future on-Bedrock manual verification step (the Verify column's "(manual)"), not a spec gap. No AWS/Bedrock calls.

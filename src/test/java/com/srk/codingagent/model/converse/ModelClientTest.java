@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.srk.codingagent.model.PromptCacheCaps;
 import com.srk.codingagent.persistence.ContentBlock;
 import com.srk.codingagent.persistence.StopReason;
 import java.util.List;
@@ -221,6 +222,52 @@ class ModelClientTest {
         // Oracle: § 7 — a model turn is response (stopReason + content) plus usage; a Turn
         // that omits either is not a valid record of the turn.
         assertThrows(NullPointerException.class, () -> new ModelClient.Turn(null, null));
+    }
+
+    @Test
+    @DisplayName("T-4.4 (ADR-0006): a client built with prompt-cache caps threads them so the built request carries the stable-prefix cachePoint")
+    void converse_threadsPromptCacheCapsToRequest() {
+        // Oracle: ADR-0006 — the cachePoint is placed when the resolved model reports prompt-cache
+        // support. The Model Client is the seam the factory threads the capability profile's caps
+        // through (the same way it threads the output budget). A client constructed with non-null
+        // caps must build a request carrying the cachePoint for an above-minimum stable prefix; the
+        // placement itself is the wire mapper's, but this pins that the caps reach it via the client.
+        StubBedrockClient stub = StubBedrockClient.returning(endTurnResponse("ok"));
+        PromptCacheCaps caps = new PromptCacheCaps(4096, 4, List.of(PromptCacheCaps.TimeToLive.ONE_HOUR));
+        ModelClient client = new ModelClient(stub, caps);
+
+        client.converse(
+                MODEL_ID,
+                List.of(ConverseMessage.user(List.of(ContentBlock.text("hi")))),
+                List.of("S".repeat(40_000)),
+                null);
+
+        long cachePoints = stub.captured.get().system().stream()
+                .filter(b -> b.cachePoint() != null)
+                .count();
+        assertEquals(1, cachePoints,
+                "ADR-0006: caps threaded through the client place the stable-prefix cachePoint on the request");
+    }
+
+    @Test
+    @DisplayName("T-4.4 (ADR-0006 graceful degradation): a client with no caps (default ctor) builds a request with NO cachePoint")
+    void converse_noCachePointWhenClientHasNoCaps() {
+        // Oracle: ADR-0006 — "Absent support => NO cachePoint, loop unaffected". The default
+        // (no-caps) client must not place a breakpoint, even with an above-minimum prefix.
+        StubBedrockClient stub = StubBedrockClient.returning(endTurnResponse("ok"));
+        ModelClient client = new ModelClient(stub);
+
+        client.converse(
+                MODEL_ID,
+                List.of(ConverseMessage.user(List.of(ContentBlock.text("hi")))),
+                List.of("S".repeat(40_000)),
+                null);
+
+        long cachePoints = stub.captured.get().system().stream()
+                .filter(b -> b.cachePoint() != null)
+                .count();
+        assertEquals(0, cachePoints,
+                "ADR-0006: a client with no prompt-cache caps places no cachePoint (graceful degradation)");
     }
 
     @Test

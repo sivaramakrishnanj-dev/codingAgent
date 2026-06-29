@@ -1,5 +1,6 @@
 package com.srk.codingagent.model.converse;
 
+import com.srk.codingagent.model.PromptCacheCaps;
 import com.srk.codingagent.persistence.ModelResponsePayload;
 import com.srk.codingagent.persistence.ModelUsagePayload;
 import java.util.List;
@@ -40,7 +41,10 @@ public final class ModelClient {
 
     /**
      * Creates a Model Client over the given Bedrock client, wired with the production
-     * {@link ConverseWireMapper}.
+     * {@link ConverseWireMapper} and no prompt-cache breakpoint (prompt caching off). Kept for
+     * callers that do not thread a capability profile; equivalent to
+     * {@link #ModelClient(BedrockRuntimeClient, PromptCacheCaps)} with a {@code null}
+     * {@code promptCacheCaps}.
      *
      * @param bedrock the configured Bedrock runtime client (from
      *                {@link com.srk.codingagent.model.credentials.BedrockClientFactory});
@@ -48,16 +52,30 @@ public final class ModelClient {
      * @throws NullPointerException if {@code bedrock} is {@code null}.
      */
     public ModelClient(BedrockRuntimeClient bedrock) {
-        this(bedrock, new ConverseWireMapper());
+        this(bedrock, (PromptCacheCaps) null);
     }
 
     /**
-     * Creates a Model Client for the greenfield phase path (DCR-2 — D1, ADR-0012;
-     * {@code 02-architecture.md} § 2.1): its wire mapper sets {@code inferenceConfig.maxTokens} to
-     * {@link ConverseWireMapper#GREENFIELD_MAX_OUTPUT_TOKENS} (16K) on every request, so a full
-     * requirements/design/tasks deliverable is not truncated at the backend's default 4096
-     * output-token cap. Distinct from {@link #ModelClient(BedrockRuntimeClient)} (no cap — the
-     * brownfield/one-shot path, backend default applies).
+     * Creates a Model Client over the given Bedrock client whose wire mapper places the single
+     * stable-prefix {@code cachePoint} (T-4.4 — ADR-0006, OQ-I) when {@code promptCacheCaps} is
+     * non-null (the resolved model reports prompt-cache support, ADR-0002 / C5). A {@code null}
+     * {@code promptCacheCaps} (prompt caching unsupported, § 2.6 "null = unsupported") places no
+     * breakpoint (graceful degradation). This is the brownfield/one-shot path (no output-token
+     * cap; backend default applies).
+     *
+     * @param bedrock         the configured Bedrock runtime client; must not be {@code null}.
+     * @param promptCacheCaps the resolved model's prompt-cache capabilities, or {@code null} when
+     *                        prompt caching is unsupported.
+     * @throws NullPointerException if {@code bedrock} is {@code null}.
+     */
+    public ModelClient(BedrockRuntimeClient bedrock, PromptCacheCaps promptCacheCaps) {
+        this(bedrock, new ConverseWireMapper(null, promptCacheCaps));
+    }
+
+    /**
+     * Creates a Model Client for the greenfield phase path with no prompt-cache breakpoint;
+     * equivalent to {@link #forGreenfield(BedrockRuntimeClient, PromptCacheCaps)} with a
+     * {@code null} {@code promptCacheCaps}. Kept for callers that thread only the output budget.
      *
      * @param bedrock the configured Bedrock runtime client; must not be {@code null}.
      * @return a Model Client whose requests carry the greenfield output-token budget; never
@@ -65,8 +83,31 @@ public final class ModelClient {
      * @throws NullPointerException if {@code bedrock} is {@code null}.
      */
     public static ModelClient forGreenfield(BedrockRuntimeClient bedrock) {
+        return forGreenfield(bedrock, null);
+    }
+
+    /**
+     * Creates a Model Client for the greenfield phase path (DCR-2 — D1, ADR-0012;
+     * {@code 02-architecture.md} § 2.1): its wire mapper sets {@code inferenceConfig.maxTokens} to
+     * {@link ConverseWireMapper#GREENFIELD_MAX_OUTPUT_TOKENS} (16K) on every request, so a full
+     * requirements/design/tasks deliverable is not truncated at the backend's default 4096
+     * output-token cap, AND places the single stable-prefix {@code cachePoint} (T-4.4 — ADR-0006)
+     * when {@code promptCacheCaps} is non-null. Distinct from
+     * {@link #ModelClient(BedrockRuntimeClient, PromptCacheCaps)} (no output cap — the
+     * brownfield/one-shot path, backend default applies).
+     *
+     * @param bedrock         the configured Bedrock runtime client; must not be {@code null}.
+     * @param promptCacheCaps the resolved model's prompt-cache capabilities, or {@code null} when
+     *                        prompt caching is unsupported.
+     * @return a Model Client whose requests carry the greenfield output-token budget (and the
+     *         stable-prefix cachePoint when prompt caching is supported); never {@code null}.
+     * @throws NullPointerException if {@code bedrock} is {@code null}.
+     */
+    public static ModelClient forGreenfield(BedrockRuntimeClient bedrock,
+            PromptCacheCaps promptCacheCaps) {
         return new ModelClient(bedrock,
-                new ConverseWireMapper(ConverseWireMapper.GREENFIELD_MAX_OUTPUT_TOKENS));
+                new ConverseWireMapper(
+                        ConverseWireMapper.GREENFIELD_MAX_OUTPUT_TOKENS, promptCacheCaps));
     }
 
     /**

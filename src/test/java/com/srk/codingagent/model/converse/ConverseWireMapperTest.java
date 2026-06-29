@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.srk.codingagent.model.PromptCacheCaps;
 import com.srk.codingagent.persistence.ContentBlock;
 import com.srk.codingagent.persistence.ModelResponsePayload;
 import com.srk.codingagent.persistence.ModelUsagePayload;
@@ -22,7 +23,9 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import software.amazon.awssdk.core.document.Document;
+import software.amazon.awssdk.services.bedrockruntime.model.CachePointType;
 import software.amazon.awssdk.services.bedrockruntime.model.ContentBlock.Type;
+import software.amazon.awssdk.services.bedrockruntime.model.SystemContentBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
@@ -418,6 +421,205 @@ class ConverseWireMapperTest {
             // construction error (defensive — the production value is the positive 16K constant).
             assertThrows(IllegalArgumentException.class, () -> new ConverseWireMapper(0));
             assertThrows(IllegalArgumentException.class, () -> new ConverseWireMapper(-1));
+        }
+    }
+
+    @Nested
+    @DisplayName("T-4.4 — prompt-cache placement (cachePoint after tools→system→memory-index, capability-gated; ADR-0006, OQ-I)")
+    class PromptCachePlacement {
+
+        // ADR-0006: "Opus 4.5/4.6: >= 4096" tokens per checkpoint (§ 6.A.1). The PromptCacheCaps
+        // value object's own javadoc names this figure too. Used as the model's per-checkpoint
+        // minimum the gate compares the stable-prefix estimate against.
+        private static final int OPUS_MIN_TOKENS_PER_CHECKPOINT = 4096;
+
+        private static PromptCacheCaps opusCaps() {
+            // A prompt-cache-SUPPORTING profile's caps: the Opus per-checkpoint minimum, the
+            // §6.A.1 max-4-checkpoints, and the 1h TTL Opus 4.5 supports. Only the
+            // minTokensPerCheckpoint figure is load-bearing for the gate; the others are valid
+            // shape so the value object constructs.
+            return new PromptCacheCaps(OPUS_MIN_TOKENS_PER_CHECKPOINT, 4,
+                    List.of(PromptCacheCaps.TimeToLive.ONE_HOUR));
+        }
+
+        /** A system prompt whose total char length comfortably clears the 4096-token minimum. */
+        private static List<String> largeStablePrefix() {
+            // ADR-0006 gates on the prefix meeting the model's token minimum. The build-time gate
+            // uses a documented ~chars/4 estimate (no exact tokenizer pre-call, § 6.A.1), so a
+            // prefix well above 4096 * 4 = 16384 chars must clear the gate by any reasonable
+            // estimate. Use 40000 chars (~10000 estimated tokens) — unambiguously above-minimum.
+            return List.of("S".repeat(40_000));
+        }
+
+        private static List<ConverseMessage> oneUserTurn() {
+            return List.of(ConverseMessage.user(List.of(ContentBlock.text("do the task"))));
+        }
+
+        private static long cachePointBlockCount(List<SystemContentBlock> system) {
+            return system.stream().filter(b -> b.cachePoint() != null).count();
+        }
+
+        @Test
+        @DisplayName("ADR-0006: a cachePoint is placed when the profile reports prompt-cache support and the prefix meets the minimum")
+        void placesCachePointWhenSupportedAndPrefixMeetsMinimum() {
+            // Oracle: ADR-0006 — "Place a cachePoint after the STABLE PREFIX ... Capability-gated.
+            // ONLY when the profile reports prompt-cache support AND the prefix meets the model's
+            // token minimum". A supporting profile (non-null caps) with an above-minimum stable
+            // prefix must yield exactly one cachePoint on the built request.
+            ConverseWireMapper cachingMapper = new ConverseWireMapper(null, opusCaps());
+
+            ConverseRequest request = cachingMapper.toRequest(
+                    MODEL_ID, oneUserTurn(), largeStablePrefix(), null);
+
+            assertEquals(1, cachePointBlockCount(request.system()),
+                    "ADR-0006: prompt-cache supported + above-minimum prefix => exactly one cachePoint");
+        }
+
+        @Test
+        @DisplayName("ADR-0006 (graceful degradation): NO cachePoint when the profile's promptCache is null (unsupported)")
+        void placesNoCachePointWhenPromptCacheUnsupported() {
+            // Oracle: ADR-0006 — "Absent support => NO cachePoint, loop unaffected (graceful
+            // degradation)"; § 2.6 — "null = unsupported". A mapper carrying null caps (the
+            // capability-absent case) must place no cachePoint even with an above-minimum prefix.
+            ConverseWireMapper nonCachingMapper = new ConverseWireMapper(null, null);
+
+            ConverseRequest request = nonCachingMapper.toRequest(
+                    MODEL_ID, oneUserTurn(), largeStablePrefix(), null);
+
+            assertEquals(0, cachePointBlockCount(request.system()),
+                    "ADR-0006: prompt-cache unsupported (null caps) => no cachePoint (graceful degradation)");
+        }
+
+        @Test
+        @DisplayName("ADR-0006: the request still builds and is valid when prompt-cache is unsupported (loop unaffected)")
+        void requestStillValidWhenPromptCacheUnsupported() {
+            // Oracle: ADR-0006 — "Absent support => NO cachePoint, loop unaffected". The
+            // unsupported path must still produce a well-formed request: the modelId, the
+            // messages, and the system text blocks all carried, just without a breakpoint.
+            ConverseWireMapper nonCachingMapper = new ConverseWireMapper(null, null);
+
+            ConverseRequest request = nonCachingMapper.toRequest(
+                    MODEL_ID, oneUserTurn(), List.of("You are a coding agent."), null);
+
+            assertEquals(MODEL_ID, request.modelId(), "the request still carries the model id");
+            assertEquals(1, request.messages().size(), "the messages tail is still carried");
+            assertTrue(request.hasSystem(), "the system blocks are still carried");
+            assertEquals(1, request.system().size(),
+                    "ADR-0006: only the system text block, no appended cachePoint (unsupported)");
+            assertEquals(SystemContentBlock.Type.TEXT, request.system().get(0).type(),
+                    "the lone system block is the text block, not a cachePoint");
+        }
+
+        @Test
+        @DisplayName("ADR-0006: NO cachePoint when the stable prefix is below the model's token minimum")
+        void placesNoCachePointWhenPrefixBelowMinimum() {
+            // Oracle: ADR-0006 — the gate requires the prefix to "meet the model's token minimum
+            // (Opus 4.5/4.6: >= 4096)". A tiny stable prefix (a handful of chars, far below the
+            // 4096-token minimum by any reasonable estimate) must NOT get a cachePoint even though
+            // prompt-cache IS supported — the second gate condition fails.
+            ConverseWireMapper cachingMapper = new ConverseWireMapper(null, opusCaps());
+
+            ConverseRequest request = cachingMapper.toRequest(
+                    MODEL_ID, oneUserTurn(), List.of("You are a coding agent."), null);
+
+            assertEquals(0, cachePointBlockCount(request.system()),
+                    "ADR-0006: a below-minimum stable prefix gets no cachePoint, even when supported");
+        }
+
+        @Test
+        @DisplayName("ADR-0006 (simplified single-breakpoint): exactly ONE cachePoint is placed, never multiple")
+        void placesExactlyOneBreakpointNeverMultiple() {
+            // Oracle: ADR-0006 — "Use the model's SIMPLIFIED SINGLE-BREAKPOINT cache management ...
+            // don't micro-manage multiple checkpoints in v1". Even with several system blocks
+            // (tools/system/memory-index regions), the mapper places exactly one breakpoint, not
+            // one per block.
+            ConverseWireMapper cachingMapper = new ConverseWireMapper(null, opusCaps());
+            List<String> multiBlockPrefix = List.of(
+                    "S".repeat(20_000), "M".repeat(20_000), "I".repeat(20_000));
+
+            ConverseRequest request = cachingMapper.toRequest(
+                    MODEL_ID, oneUserTurn(), multiBlockPrefix, null);
+
+            assertEquals(1, cachePointBlockCount(request.system()),
+                    "ADR-0006: the simplified single-breakpoint strategy places exactly one cachePoint");
+        }
+
+        @Test
+        @DisplayName("ADR-0006: the cachePoint is placed AFTER the stable prefix (last in system[]) so tools+system+memory-index are the cached region")
+        void cachePointIsLastInSystemAfterTheStablePrefix() {
+            // Oracle: ADR-0006 — "Place a cachePoint AFTER the STABLE PREFIX — tools → system →
+            // memory-index"; § 6.A.1 — "cache order is tools→system→messages". The cached region is
+            // everything BEFORE the breakpoint, so to cache tools+system+memory-index the cachePoint
+            // must be the LAST system block (the text blocks — which include the memory-index tail —
+            // come first, the breakpoint last), leaving the variable messages tail uncached.
+            ConverseWireMapper cachingMapper = new ConverseWireMapper(null, opusCaps());
+            List<String> prefix = largeStablePrefix();
+
+            ConverseRequest request = cachingMapper.toRequest(MODEL_ID, oneUserTurn(), prefix, null);
+
+            List<SystemContentBlock> system = request.system();
+            assertEquals(prefix.size() + 1, system.size(),
+                    "ADR-0006: the cachePoint is appended after the system text blocks (one extra block)");
+            for (int i = 0; i < prefix.size(); i++) {
+                assertEquals(SystemContentBlock.Type.TEXT, system.get(i).type(),
+                        "ADR-0006: the stable-prefix text blocks come first (index " + i + ")");
+            }
+            SystemContentBlock last = system.get(system.size() - 1);
+            assertEquals(SystemContentBlock.Type.CACHE_POINT, last.type(),
+                    "ADR-0006: the cachePoint is the LAST system block (after the stable prefix), so "
+                            + "tools+system+memory-index are the cached region and messages stay uncached");
+        }
+
+        @Test
+        @DisplayName("ADR-0006 (conservatism): the single cachePoint uses the default kind, no multi-checkpoint TTL micro-management")
+        void cachePointUsesDefaultKind() {
+            // Oracle: ADR-0006 — "Conservatism. Use the model's SIMPLIFIED SINGLE-BREAKPOINT cache
+            // management where available; don't micro-manage multiple checkpoints in v1". The one
+            // breakpoint is the default cachePoint kind (no bespoke TTL juggling), the conservative
+            // v1 shape.
+            ConverseWireMapper cachingMapper = new ConverseWireMapper(null, opusCaps());
+
+            ConverseRequest request = cachingMapper.toRequest(
+                    MODEL_ID, oneUserTurn(), largeStablePrefix(), null);
+
+            SystemContentBlock cachePointBlock = request.system().stream()
+                    .filter(b -> b.cachePoint() != null)
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("expected a cachePoint block"));
+            assertEquals(CachePointType.DEFAULT, cachePointBlock.cachePoint().type(),
+                    "ADR-0006: the single breakpoint is the default cachePoint kind (conservative v1)");
+        }
+
+        @Test
+        @DisplayName("ADR-0006: NO cachePoint when there is no stable prefix (empty system), even when prompt-cache is supported")
+        void placesNoCachePointWhenNoStablePrefix() {
+            // Oracle: ADR-0006 — the cached region is the stable prefix (tools→system→memory-index).
+            // With no system blocks there is no stable region to cache (the estimate is 0 tokens,
+            // below any minimum), so no cachePoint is placed and the request still builds.
+            ConverseWireMapper cachingMapper = new ConverseWireMapper(null, opusCaps());
+
+            ConverseRequest request = cachingMapper.toRequest(MODEL_ID, oneUserTurn(), null, null);
+
+            assertTrue(request.system() == null || request.system().isEmpty(),
+                    "ADR-0006: no system prefix => no system[] cachePoint to place");
+        }
+
+        @Test
+        @DisplayName("the placement is orthogonal to the output budget: a greenfield-budget mapper with caps still carries BOTH")
+        void placementCoexistsWithOutputBudget() {
+            // Oracle: ADR-0006 (cachePoint placement) + ADR-0012/DCR-2 (output budget) are
+            // independent request members; a mapper carrying both must set inferenceConfig.maxTokens
+            // AND place the cachePoint, dropping neither (the greenfield path threads both).
+            ConverseWireMapper greenfieldCaching = new ConverseWireMapper(
+                    ConverseWireMapper.GREENFIELD_MAX_OUTPUT_TOKENS, opusCaps());
+
+            ConverseRequest request = greenfieldCaching.toRequest(
+                    MODEL_ID, oneUserTurn(), largeStablePrefix(), null);
+
+            assertEquals(16384, request.inferenceConfig().maxTokens(),
+                    "ADR-0012: the output budget is still set");
+            assertEquals(1, cachePointBlockCount(request.system()),
+                    "ADR-0006: the cachePoint is still placed alongside the output budget");
         }
     }
 
