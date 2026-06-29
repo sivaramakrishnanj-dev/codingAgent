@@ -1,14 +1,14 @@
 ---
 doc: tasks-progress
 last_updated: 2026-06-29
-last_updated_at_commit: pending
+last_updated_at_commit: 2dad251
 total_resolved_count: 46
 
 last_resolved:
   task: T-4.1
   title: "Web delegate (C11): web_search/web_fetch Class-X tools over a swappable WebLookupBackend (v1 = constrained `claude -p` via the reused CommandExecutor/ADR-0003 subprocess machinery, scratch CWD not the workspace, 120 s NFR-NET-WEBLOOKUP-TIMEOUT). Tools declare SIDE_EFFECTING and route through the existing PermissionGate so READ_ONLY denies them (AC-11.2/RD-6) with no new gate path; success returns summarized text (AC-11.1); absent-on-PATH / error / timeout returns WebLookupResult.failure so the agent reports rather than fabricates (AC-11.3); registered in ToolRegistryComposer so the loop's existing TOOL_USE/TOOL_RESULT event path logs invocations (AC-11.4). NFR-NET-WEBLOOKUP-TIMEOUT carried as an injectable Duration (composer constant WEB_LOOKUP_TIMEOUT default 120 s) — no resolved-config key added (avoids a design/06-formal schema change; injection seam keeps it config-drivable later). ADR-0008."
   resolved_at: 2026-06-29
-  commit: pending
+  commit: 2dad251
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
@@ -514,7 +514,7 @@ in_flight: null
 - notes: >>> DCR-7 (T-3.10, intra-IMPLEMENT resume) under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main, GreenfieldImplementLoop only): markComplete() is now write-paired-with-read — it appends the `- [x] <taskId> Implemented` marker AND a new readCompletedTaskIds() reads the same shape back on a resumed run. The CRITICAL subtlety (the markers live in the SAME 02-tasks.md artifact and are themselves checkbox lines TASK_LINE would recognize) is handled by recognizing the completion marker via its WHOLE CompletionStamp shape — checked `- [x]` box PLUS the trailing `Implemented` MARKER token as the line's final content (CompletionStamp.isCompletionLine/taskIdOf, package-private, no public-API change; a round-trip test pins writer↔reader agreement) — NOT by the `[x]` checkbox alone. readPlannedTasksInOrder() strips the marker lines BEFORE reusing TaskTraceability.tasksInOrder(), so the planned enumeration is never double-counted by the marker lines; tasksInOrder()/check() stay marker-UNAWARE and backward-compatible (the skip logic lives in the loop, not the gate — per directive). run() now: read planned tasks in order, read completed-marker ids, implement only the not-yet-completed tasks in order (resume at first incomplete), then run the T-3.9 end-of-phase verify. A fully-already-complete re-entry implements nothing this run but STILL runs the end-of-phase verify once over the whole phase (AC-3.2 gates the PHASE) and reports ALL_IMPLEMENTED carrying the full completed phase in breakdown order (no new disposition added — reuses ALL_IMPLEMENTED). Phase B (CT-GF-6): GreenfieldImplementLoopTest +8 (6 resume-skip tests — partial breakdown resumes at first incomplete, completed skipped, terminates, does NOT restart at T-1; + 2 CompletionStamp read-back parser tests) + GreenfieldResumeContractTest +1 (CT-GF-6 contract-level: reconstruct→IMPLEMENT over a temp disk repo with a partially-completed breakdown, the real implement loop resumes at the first incomplete task). Oracles trace to AC-7.6/AC-3.3 + ADR-0012 + CT-GF-6, never to impl behaviour. mvn clean verify GREEN (1135 tests, +9 over the 1126 baseline, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met at 0.9129). Self-checks: oracle-traceability=passed, reuse=passed. 0 Blocker / 0 Major / 0 Minor / 0 Nit / 0 Discussion. Two stated_assumptions (both defensible): marker-vs-planned-task distinction = WHOLE CompletionStamp shape (not the `[x]` checkbox alone, since a real planned task may itself be a checkbox line); end-of-phase verify on a fully-already-complete re-entry = still runs once over the whole phase (AC-3.2 gates the PHASE), terminal ALL_IMPLEMENTED with the full completed set. No AWS/Bedrock calls (scripted seams + temp-disk store). With T-3.8 + T-3.9 + T-3.10 landed, ALL THREE DCR-7 IMPLEMENT-phase defects (D1 no-test livelock, D2 no-progress-on-resume, D3 per-task-verify-vs-scaffold-first) are resolved; the shaded codingagent.jar is rebuilt by the coordinator (Phase 3) carrying all three. This only UNBLOCKS the future G3 live greenfield smoke test; G3 stays OPEN. Bug 3 (live-generated CalculatorTest referencing CalcException unqualified) is now expected to be caught by the end-of-phase verify (T-3.9), not separately fixed.
 
 ## T-4.1 — Web delegate (C11): web_search/web_fetch via constrained `claude -p`, swappable backend, denied in READ_ONLY
-- commit: PENDING_T41
+- commit: 2dad251
 - review: design/reviews/code/T-4.1-r1.md
 - resolved: 2026-06-29
 - context_mode: narrow
