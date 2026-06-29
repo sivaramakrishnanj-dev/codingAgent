@@ -1,6 +1,7 @@
 package com.srk.codingagent.cli;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -368,5 +369,228 @@ class CliArgumentsTest {
         assertThrows(UsageException.class,
                 () -> CliArguments.parse(new String[] {"--mode", "   "}),
                 "a blank --mode value is a usage error");
+    }
+
+    // --- 04-apis § 1.3 / 05-operations § 3 : --debug raises the operational log level (T-4.5) ----
+
+    @Test
+    @DisplayName("04-apis § 1.3: --debug is parsed (orthogonal to the kind) and reported by debug()")
+    void debugFlagIsParsedOrthogonally() {
+        // Oracle: 04-apis § 1.3 "--debug: DEBUG-level internals to stderr". --debug is orthogonal to
+        // the kind (like --mode/--attach): it continues the scan and -p still selects the one-shot
+        // shape; debug() reports it was given.
+        CliArguments parsed = CliArguments.parse(new String[] {"--debug", "-p", "fix the bug"});
+
+        assertEquals(CliArguments.Kind.ONE_SHOT, parsed.kind(),
+                "--debug does not change the kind (it is orthogonal)");
+        assertEquals("fix the bug", parsed.prompt().orElseThrow(), "the one-shot prompt is parsed");
+        assertTrue(parsed.debug(), "04-apis § 1.3: --debug is parsed and reported");
+    }
+
+    @Test
+    @DisplayName("05-operations § 3: no --debug means debug() is false (default INFO baseline)")
+    void noDebugFlagIsFalse() {
+        // Oracle: 05-operations § 3 — the default level baseline is INFO; --debug is opt-in. An
+        // invocation without --debug reports debug() == false.
+        assertFalse(CliArguments.parse(new String[] {"-p", "no debug"}).debug(),
+                "an invocation without --debug is not in debug mode");
+        assertFalse(CliArguments.parse(new String[] {}).debug(),
+                "the bare interactive shape is not in debug mode by default");
+    }
+
+    @Test
+    @DisplayName("04-apis § 1.3: --debug coexists with the interactive shape and other flags")
+    void debugCoexistsWithOtherFlags() {
+        // Oracle: 04-apis § 1.3 / ADR-0012 — --debug is orthogonal; it coexists with --mode on the
+        // interactive shape (no -p) and is reported alongside the selected mode.
+        CliArguments parsed = CliArguments.parse(new String[] {"--mode", "greenfield", "--debug"});
+
+        assertEquals(CliArguments.Kind.INTERACTIVE, parsed.kind(), "no -p is the interactive shape");
+        assertEquals(SessionMode.GREENFIELD, parsed.mode(), "--mode is still parsed");
+        assertTrue(parsed.debug(), "--debug is parsed alongside --mode");
+    }
+
+    // --- 04-apis § 1.2 : memory subcommand (US-14) ------------------------------------------------
+
+    @Test
+    @DisplayName("04-apis § 1.2: bare `memory` is the memory-list shape (LIST, no slug)")
+    void bareMemoryIsListShape() {
+        // Oracle: 04-apis § 1.2 — "memory [list|show <slug>|edit <slug>|rm <slug>]". The bracketed
+        // action is optional; bare `memory` defaults to listing (the always-loaded awareness
+        // surface, AC-14.3), with no slug.
+        CliArguments parsed = CliArguments.parse(new String[] {"memory"});
+
+        assertEquals(CliArguments.Kind.MEMORY, parsed.kind(), "memory selects the MEMORY shape");
+        assertEquals(CliArguments.MemoryAction.LIST, parsed.memoryAction().orElseThrow(),
+                "bare memory is the LIST action");
+        assertTrue(parsed.memorySlug().isEmpty(), "bare memory carries no slug");
+    }
+
+    @Test
+    @DisplayName("04-apis § 1.2: `memory list` is the explicit list shape")
+    void memoryListIsListShape() {
+        // Oracle: 04-apis § 1.2 — `list` is the explicit listing action (not only the bare default).
+        CliArguments parsed = CliArguments.parse(new String[] {"memory", "list"});
+
+        assertEquals(CliArguments.Kind.MEMORY, parsed.kind());
+        assertEquals(CliArguments.MemoryAction.LIST, parsed.memoryAction().orElseThrow(),
+                "memory list selects the LIST action");
+    }
+
+    @Test
+    @DisplayName("04-apis § 1.2: `memory show <slug>` carries the slug to inspect (AC-14.1)")
+    void memoryShowCarriesSlug() {
+        // Oracle: 04-apis § 1.2 — "show <slug>" inspects a memory entry (AC-14.1). The word after
+        // `show` is the slug to display.
+        CliArguments parsed = CliArguments.parse(new String[] {"memory", "show", "a-learning"});
+
+        assertEquals(CliArguments.MemoryAction.SHOW, parsed.memoryAction().orElseThrow(),
+                "memory show selects the SHOW action");
+        assertEquals("a-learning", parsed.memorySlug().orElseThrow(),
+                "memory show <slug> carries the slug to inspect");
+    }
+
+    @Test
+    @DisplayName("04-apis § 1.2: `memory edit <slug>` carries the slug to hand-edit (AC-14.1)")
+    void memoryEditCarriesSlug() {
+        // Oracle: 04-apis § 1.2 — "edit <slug>" (also hand-editable on disk, AC-14.1).
+        CliArguments parsed = CliArguments.parse(new String[] {"memory", "edit", "a-learning"});
+
+        assertEquals(CliArguments.MemoryAction.EDIT, parsed.memoryAction().orElseThrow(),
+                "memory edit selects the EDIT action");
+        assertEquals("a-learning", parsed.memorySlug().orElseThrow(),
+                "memory edit <slug> carries the slug to hand-edit");
+    }
+
+    @Test
+    @DisplayName("04-apis § 1.2: `memory rm <slug>` carries the slug to remove (AC-14.3)")
+    void memoryRmCarriesSlug() {
+        // Oracle: 04-apis § 1.2 — "rm <slug>" curates (removes) a memory entry (AC-14.1/14.3).
+        CliArguments parsed = CliArguments.parse(new String[] {"memory", "rm", "a-learning"});
+
+        assertEquals(CliArguments.MemoryAction.RM, parsed.memoryAction().orElseThrow(),
+                "memory rm selects the RM action");
+        assertEquals("a-learning", parsed.memorySlug().orElseThrow(),
+                "memory rm <slug> carries the slug to remove");
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: `memory show` with no slug is a usage error")
+    void memoryShowWithoutSlugIsUsageError() {
+        // Oracle: § 3.2 "bad CLI args → exit 2". show/edit/rm each require a slug; a missing one is
+        // a malformed invocation named for G2.
+        UsageException thrown = assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"memory", "show"}));
+
+        assertEquals("show", thrown.offendingArgument(),
+                "the usage error names the memory action missing its slug");
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: an unknown memory action is a usage error naming it")
+    void unknownMemoryActionIsUsageError() {
+        // Oracle: § 3.2 "bad CLI args → exit 2". An action that is not list/show/edit/rm is
+        // rejected naming the bad action (G2).
+        UsageException thrown = assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"memory", "frobnicate"}));
+
+        assertEquals("frobnicate", thrown.offendingArgument(),
+                "the usage error names the unknown memory action");
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: `memory list <extra>` is a usage error (list takes no argument)")
+    void memoryListWithExtraArgIsUsageError() {
+        // Oracle: § 3.2 "bad CLI args → exit 2". `memory list` takes no argument; an extra word is
+        // a malformed invocation named for G2.
+        UsageException thrown = assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"memory", "list", "extra"}));
+
+        assertEquals("extra", thrown.offendingArgument(),
+                "the usage error names the unexpected argument after memory list");
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: `memory show <blank-slug>` is a usage error")
+    void memoryShowWithBlankSlugIsUsageError() {
+        // Oracle: § 3.2 "bad CLI args → exit 2". A blank slug names no entry; reject it fail-fast,
+        // naming the action (G2), rather than carrying an empty slug.
+        UsageException thrown = assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"memory", "show", "   "}));
+
+        assertEquals("show", thrown.offendingArgument(),
+                "the usage error names the memory action for the blank slug");
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: `memory show <slug> <extra>` is a usage error (one slug only)")
+    void memoryShowWithExtraArgIsUsageError() {
+        // Oracle: § 3.2 "bad CLI args → exit 2". show takes exactly one slug; a second positional is
+        // malformed.
+        UsageException thrown = assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"memory", "show", "slug-1", "slug-2"}));
+
+        assertEquals("slug-2", thrown.offendingArgument(),
+                "the usage error names the unexpected extra argument after the slug");
+    }
+
+    // --- 04-apis § 1.2 : config subcommand (US-8) -------------------------------------------------
+
+    @Test
+    @DisplayName("04-apis § 1.2: bare `config` is the show shape (resolved config)")
+    void bareConfigIsShowShape() {
+        // Oracle: 04-apis § 1.2 — "config [show|path]". The bracketed action is optional; bare
+        // `config` defaults to showing the resolved configuration (US-8).
+        CliArguments parsed = CliArguments.parse(new String[] {"config"});
+
+        assertEquals(CliArguments.Kind.CONFIG, parsed.kind(), "config selects the CONFIG shape");
+        assertEquals(CliArguments.ConfigAction.SHOW, parsed.configAction().orElseThrow(),
+                "bare config is the SHOW action");
+    }
+
+    @Test
+    @DisplayName("04-apis § 1.2: `config show` shows the resolved config (US-8)")
+    void configShowIsShowShape() {
+        // Oracle: 04-apis § 1.2 — "config show: show resolved config".
+        CliArguments parsed = CliArguments.parse(new String[] {"config", "show"});
+
+        assertEquals(CliArguments.Kind.CONFIG, parsed.kind());
+        assertEquals(CliArguments.ConfigAction.SHOW, parsed.configAction().orElseThrow(),
+                "config show selects the SHOW action");
+    }
+
+    @Test
+    @DisplayName("04-apis § 1.2: `config path` shows the config file locations (US-8)")
+    void configPathIsPathShape() {
+        // Oracle: 04-apis § 1.2 — "config path: show ... file locations".
+        CliArguments parsed = CliArguments.parse(new String[] {"config", "path"});
+
+        assertEquals(CliArguments.Kind.CONFIG, parsed.kind());
+        assertEquals(CliArguments.ConfigAction.PATH, parsed.configAction().orElseThrow(),
+                "config path selects the PATH action");
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: an unknown config action is a usage error naming it")
+    void unknownConfigActionIsUsageError() {
+        // Oracle: § 3.2 "bad CLI args → exit 2". A config action that is neither show nor path is
+        // rejected naming the bad action (G2).
+        UsageException thrown = assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"config", "dump"}));
+
+        assertEquals("dump", thrown.offendingArgument(),
+                "the usage error names the unknown config action");
+    }
+
+    @Test
+    @DisplayName("cli-exit-codes 2: `config show <extra>` is a usage error (config takes one action)")
+    void configWithExtraArgIsUsageError() {
+        // Oracle: § 3.2 "bad CLI args → exit 2". config takes at most one action word; a second
+        // positional is malformed.
+        UsageException thrown = assertThrows(UsageException.class,
+                () -> CliArguments.parse(new String[] {"config", "show", "extra"}));
+
+        assertEquals("extra", thrown.offendingArgument(),
+                "the usage error names the unexpected argument after config");
     }
 }

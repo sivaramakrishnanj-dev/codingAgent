@@ -218,4 +218,81 @@ class MemoryStoreTest {
                 () -> memory.write(entry("x-slug", MemoryTier.PROJECT, "w", "b"), " "));
         assertThrows(IllegalArgumentException.class, () -> memory.readEntry("x-slug", " "));
     }
+
+    @Test
+    @DisplayName("AC-14.1/14.3: delete removes the entry file and its index line")
+    void deleteRemovesEntryAndIndexLine(@TempDir Path store) throws IOException {
+        // Oracle: AC-14.1/14.3 — memory is curatable; removing an entry deletes its markdown file
+        // and drops its line from the tier index, so a re-read no longer surfaces it (INV-14).
+        MemoryStore memory = new MemoryStore(store);
+        memory.write(entry("rm-slug", MemoryTier.GLOBAL, "to remove", "body"), REPO_KEY);
+        assertTrue(Files.isRegularFile(store.resolve("memory/rm-slug.md")), "present before delete");
+
+        boolean removed = memory.delete("rm-slug", REPO_KEY);
+
+        assertTrue(removed, "delete reports it removed an existing entry");
+        assertFalse(Files.exists(store.resolve("memory/rm-slug.md")), "the entry file is deleted");
+        assertTrue(memory.loadIndexes(REPO_KEY).stream().noneMatch(l -> l.slug().equals("rm-slug")),
+                "AC-14.3: the entry's index line is dropped");
+    }
+
+    @Test
+    @DisplayName("AC-14.1: delete keeps sibling index lines intact")
+    void deleteKeepsSiblings(@TempDir Path store) {
+        // Oracle: AC-14.3 — removing one entry must not disturb the index lines of the others.
+        MemoryStore memory = new MemoryStore(store);
+        memory.write(entry("keep-slug", MemoryTier.GLOBAL, "keep me", "b1"), REPO_KEY);
+        memory.write(entry("drop-slug", MemoryTier.GLOBAL, "drop me", "b2"), REPO_KEY);
+
+        memory.delete("drop-slug", REPO_KEY);
+
+        List<MemoryIndexLine> lines = memory.loadIndexes(REPO_KEY);
+        assertTrue(lines.stream().anyMatch(l -> l.slug().equals("keep-slug")),
+                "the sibling entry's index line survives the delete");
+        assertTrue(lines.stream().noneMatch(l -> l.slug().equals("drop-slug")),
+                "the removed entry's index line is gone");
+    }
+
+    @Test
+    @DisplayName("delete of a missing slug is a no-op returning false")
+    void deleteMissingSlugIsNoOp(@TempDir Path store) {
+        // Oracle: AC-14.1 — curating is forgiving; deleting a non-existent slug is a no-op (no
+        // crash), reported as false so the subcommand can say "no such entry".
+        assertFalse(new MemoryStore(store).delete("never-existed", REPO_KEY),
+                "deleting a missing entry returns false");
+    }
+
+    @Test
+    @DisplayName("AC-14.1: entryPath resolves an existing entry's on-disk markdown path")
+    void entryPathResolvesExistingFile(@TempDir Path store) {
+        // Oracle: AC-14.1 "also hand-editable on disk" — entryPath resolves the real on-disk file
+        // for the memory edit subcommand to point at. It must return the actual <slug>.md file.
+        MemoryStore memory = new MemoryStore(store);
+        memory.write(entry("path-slug", MemoryTier.GLOBAL, "why", "body"), REPO_KEY);
+
+        Optional<Path> path = memory.entryPath("path-slug", REPO_KEY);
+
+        assertTrue(path.isPresent(), "an existing entry has a resolvable on-disk path");
+        assertEquals(store.resolve("memory/path-slug.md"), path.orElseThrow(),
+                "entryPath resolves the entry's actual <slug>.md file (GLOBAL tier)");
+    }
+
+    @Test
+    @DisplayName("entryPath returns empty for a slug with no entry on disk")
+    void entryPathEmptyWhenAbsent(@TempDir Path store) {
+        // Oracle: INV-14 — re-checked against disk; a slug with no file (e.g. hand-deleted) has no
+        // path.
+        assertTrue(new MemoryStore(store).entryPath("absent-slug", REPO_KEY).isEmpty(),
+                "an absent entry has no on-disk path");
+    }
+
+    @Test
+    @DisplayName("delete and entryPath reject blank slug / repoKey")
+    void deleteAndEntryPathRejectBlank(@TempDir Path store) {
+        MemoryStore memory = new MemoryStore(store);
+        assertThrows(IllegalArgumentException.class, () -> memory.delete(" ", REPO_KEY));
+        assertThrows(IllegalArgumentException.class, () -> memory.delete("s", " "));
+        assertThrows(IllegalArgumentException.class, () -> memory.entryPath(" ", REPO_KEY));
+        assertThrows(IllegalArgumentException.class, () -> memory.entryPath("s", " "));
+    }
 }

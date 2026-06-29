@@ -5,6 +5,7 @@ import com.srk.codingagent.config.ConfigLocations;
 import com.srk.codingagent.config.ConfigResolver;
 import com.srk.codingagent.config.ResolvedConfig;
 import com.srk.codingagent.loop.AgentLoop;
+import com.srk.codingagent.memory.MemoryStore;
 import com.srk.codingagent.model.credentials.CredentialResolutionException;
 import com.srk.codingagent.permission.Approver;
 import com.srk.codingagent.persistence.ContentBlock;
@@ -110,7 +111,12 @@ public final class Main {
      * {@link OneShotRunner}. For {@code --help} / {@code --version} it prints the requested
      * information and returns {@code 0}. For the {@code resume} / {@code sessions}
      * subcommands it delegates to {@link ResumeCommand} (pure persistence + replay — no
-     * config or model call). For the interactive REPL shape (no {@code -p}) it builds the
+     * config or model call); for {@code memory} it delegates to {@link MemoryCommand} (pure
+     * on-disk inspect/curate, also before the config gate); for {@code config} it delegates to
+     * {@link ConfigCommand} after resolving config so {@code config show} reflects the layered
+     * merge (US-8). The {@code --debug} log-level toggle is applied earlier still, by
+     * {@link Launcher} before any logger binds (04-apis § 1.3, 05-operations § 3). For the
+     * interactive REPL shape (no {@code -p}) it builds the
      * agent loop with an interactive approver, installs the SIGINT handler, and delegates
      * the read-eval loop to {@link ReplRunner}, returning the session's exit code (clean
      * {@code 0} on {@code /exit} / EOF, {@code 130} on Ctrl-C).
@@ -134,16 +140,20 @@ public final class Main {
             return printInfo(parsed.infoFlag().orElseThrow());
         }
 
-        // Session subcommands (resume / sessions) are pure persistence + replay: they list
-        // and reconstruct from the on-disk session store and need no config resolution or
-        // model call (04-apis § 1.2). They run before the config gate so listing/resume work
-        // even when no model is reachable.
+        // Session / memory subcommands (resume / sessions / memory) are pure on-disk persistence:
+        // they list, reconstruct, or curate from the on-disk store and need no config resolution
+        // or model call (04-apis § 1.2). They run before the config gate so they work even when no
+        // model is reachable or the config is malformed.
         if (parsed.kind() == CliArguments.Kind.SESSIONS) {
             return resumeCommand().list();
         }
         if (parsed.kind() == CliArguments.Kind.RESUME) {
             ResumeCommand command = resumeCommand();
             return parsed.sessionId().map(command::resume).orElseGet(command::list);
+        }
+        if (parsed.kind() == CliArguments.Kind.MEMORY) {
+            return memoryCommand().run(
+                    parsed.memoryAction().orElseThrow(), parsed.memorySlug().orElse(null));
         }
 
         ResolvedConfig config;
@@ -158,6 +168,13 @@ public final class Main {
         }
         LOGGER.info("codingagent CLI started with model '{}' in mode {}",
                 config.modelId(), config.permissionMode());
+
+        // The config subcommand renders the resolved configuration (config show) or the config
+        // file locations (config path) — US-8, 04-apis § 1.2. It runs after resolution so `show`
+        // reflects the layered merge; a malformed config still fails fast above (naming the key).
+        if (parsed.kind() == CliArguments.Kind.CONFIG) {
+            return configCommand(config).run(parsed.configAction().orElseThrow());
+        }
 
         if (parsed.kind() == CliArguments.Kind.ONE_SHOT) {
             return runOneShot(config, parsed.prompt().orElseThrow(), parsed.mode(),
@@ -183,6 +200,32 @@ public final class Main {
                 new SessionReplay(),
                 new SessionLineage(),
                 repoKey(),
+                System.out);
+    }
+
+    /**
+     * Builds the {@link MemoryCommand} for the {@code memory} subcommand over the user-home
+     * curated-memory store (the same {@code ~/.codingagent} store root sessions use), scoped to
+     * the current target project's AC-7.3 repo key ({@link #repoKey()}) so the PROJECT tier reads
+     * the right repository's memory. Like {@link #resumeCommand()} this is pure on-disk
+     * persistence — no config resolution or model call (04-apis § 1.2, US-14).
+     */
+    private static MemoryCommand memoryCommand() {
+        return new MemoryCommand(MemoryStore.forUserHome(), repoKey(), System.out);
+    }
+
+    /**
+     * Builds the {@link ConfigCommand} for the {@code config} subcommand over the already-resolved
+     * configuration and the on-disk config file locations (the same {@link ConfigLocations} the
+     * resolution reads, US-8). The resolution itself is reused from {@link #resolveConfig()}; this
+     * only renders the result, keeping the layered merge in one place.
+     */
+    private static ConfigCommand configCommand(ResolvedConfig config) {
+        ConfigLocations locations = ConfigLocations.forUserHome();
+        return new ConfigCommand(
+                config,
+                locations.globalConfig(),
+                locations.projectConfigForUnkeyedRepo(),
                 System.out);
     }
 

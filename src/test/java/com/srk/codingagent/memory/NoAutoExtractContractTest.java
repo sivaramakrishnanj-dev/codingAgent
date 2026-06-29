@@ -20,23 +20,38 @@ import org.junit.jupiter.api.io.TempDir;
  * auto-extracted in v1 (AC-21.4, RD-9). The store is the SUT.
  *
  * <p>The invariant is existential ("there is no write path that persists an entry without an
- * explicit/approved call"), so the test pins it two ways: (1) the only public mutating method
- * on {@link MemoryStore} is {@code write} — the read methods are query-only; (2) behaviourally,
- * reading an empty store creates nothing, and an entry appears on disk only once {@code write}
- * is explicitly invoked. T-2.4 owns the explicit path; T-2.5's approval flow is a separate
- * caller of the <em>same</em> {@code write} after the developer approves — there is no
- * auto-extraction path in either case.
+ * explicit/approved call"), so the test pins it two ways: (1) the only entry-<em>persisting</em>
+ * method on {@link MemoryStore} is {@code write} — the rest of the public surface is query
+ * ({@code readEntry} / {@code loadIndexes} / {@code entryPath}) or explicit, developer-initiated
+ * curation ({@code delete}, the {@code memory rm} subcommand's seam, T-4.5), never
+ * auto-persistence; (2) behaviourally, reading an empty store creates nothing, and an entry
+ * appears on disk only once {@code write} is explicitly invoked. T-2.4 owns the explicit write
+ * path; T-2.5's approval flow is a separate caller of the <em>same</em> {@code write} after the
+ * developer approves; T-4.5 adds explicit curation ({@code delete}/{@code entryPath}) — there is
+ * no auto-extraction path in any case.
  */
 class NoAutoExtractContractTest {
 
     private static final String REPO_KEY = "github.com_srk_codingagent";
 
+    /**
+     * The full public instance surface that does NOT auto-persist a learning: the single explicit
+     * persisting method ({@code write}), the queries ({@code readEntry} / {@code loadIndexes} /
+     * {@code entryPath}), and explicit developer-initiated curation ({@code delete}, the
+     * {@code memory rm} seam — T-4.5). The CT-INV-11 oracle is "no MemoryEntry persists without an
+     * explicit/approved write" — i.e. no <em>auto-extraction</em>; an explicit remove is not an
+     * auto-persist, so it is allowed alongside {@code write}.
+     */
+    private static final List<String> NON_AUTO_PERSISTING_METHODS =
+            List.of("write", "readEntry", "loadIndexes", "entryPath", "delete");
+
     @Test
-    @DisplayName("CT-INV-11 / INV-13: write is the only public mutating method on the store")
+    @DisplayName("CT-INV-11 / INV-13: write is the only entry-persisting method (no auto-extract)")
     void writeIsTheSolePersistencePath() {
-        // Oracle: INV-13 — an entry persists ONLY via an explicit/approved write. The store's
-        // public surface must expose exactly one entry-persisting method (`write`); everything
-        // else is a query (readEntry / loadIndexes / tierDir).
+        // Oracle: contract-tests § 3.1 CT-INV-11 / INV-13 — "no MemoryEntry persists without an
+        // explicit/approved write (no auto-extract)". The store's public surface must expose
+        // exactly one entry-PERSISTING method (`write`); everything else is a query or explicit,
+        // developer-initiated curation (delete / entryPath, T-4.5) — never an auto-persistence path.
         List<String> publicInstanceMethods = Arrays.stream(MemoryStore.class.getDeclaredMethods())
                 .filter(m -> Modifier.isPublic(m.getModifiers()) && !Modifier.isStatic(m.getModifiers()))
                 .map(Method::getName)
@@ -44,13 +59,14 @@ class NoAutoExtractContractTest {
                 .sorted()
                 .toList();
 
-        // The mutating method is `write`; the rest are read/query operations.
+        // The single persisting method is `write` (T-2.4 explicit / T-2.5 approved); no other.
         assertTrue(publicInstanceMethods.contains("write"), "the explicit write path exists");
-        List<String> mutators = publicInstanceMethods.stream()
-                .filter(name -> !List.of("write", "readEntry", "loadIndexes").contains(name))
+        List<String> unexpected = publicInstanceMethods.stream()
+                .filter(name -> !NON_AUTO_PERSISTING_METHODS.contains(name))
                 .toList();
-        assertTrue(mutators.isEmpty(),
-                "the only public mutating store method is `write` (INV-13); unexpected methods: " + mutators);
+        assertTrue(unexpected.isEmpty(),
+                "no public store method persists a learning except the explicit `write` (INV-13 — "
+                        + "no auto-extract); unexpected methods: " + unexpected);
     }
 
     @Test

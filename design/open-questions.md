@@ -1054,3 +1054,26 @@ auto-invokes the designer.
   (`ModelCapabilityRegistry.resolve(modelId, fallbackWindowTokens)` takes the window as a parameter), so
   the code change is small once the schema key lands — user's call. No action required to proceed.
 - status: open (informational; no action required to proceed)
+
+## Discussion items from T-4.5 — 2026-06-29
+
+### D1 — NoAutoExtractContractTest reflection allowlist widened to admit the authorized MemoryStore.delete/entryPath curation surface (suggested: contract-test-update)
+- task: T-4.5
+- spec_refs: CT-INV-11 (06-formal/contract-tests.md § 3.1, "no MemoryEntry persists without an explicit/approved write — no auto-extract"), INV-13, AC-21.4
+- suggested_amendment_kind: contract-test-update (documentary only)
+- finding: T-4.5's `memory rm <slug>` subcommand (04-apis § 1.2, AC-14.1/14.3 — memory is curatable + hand-editable)
+  required a `MemoryStore.delete(slug, repoKey)` op + a `MemoryStore.entryPath(slug, repoKey)` query (for
+  `memory edit <slug>` to resolve the on-disk markdown path). The pre-existing `NoAutoExtractContractTest`
+  (the test mechanism guarding CT-INV-11 / the no-auto-extract invariant) carries a reflection ALLOWLIST of
+  the MemoryStore mutation surface; the task-builder widened that allowlist to admit the new task-authorized
+  `delete` (explicit curation — the `memory rm` command) + `entryPath` (a read-only query, not a persistence
+  path). The FORMAL CT-INV-11 oracle ("no MemoryEntry persists without an explicit/approved write") is
+  UNCHANGED and still enforced (the behavioural no-auto-extract assertions are intact) — `delete` is explicit
+  user curation, `entryPath` writes nothing, so neither is an auto-persistence path.
+- coordinator note: non-blocking; T-4.5 resolved cleanly (0 Blocker/0 Major/0 Minor/0 Nit; 1 Discussion = this).
+  This is a test-mechanism widening to track a task-authorized curation API, NOT an oracle weakening — the
+  no-auto-extract guarantee (INV-13/AC-21.4) stands. The reviewer (Phase C) accepted it. If the user wants the
+  formal CT-INV-11 row's wording in contract-tests.md to explicitly note that an explicit `delete`/curation op
+  is permitted (so the formal note matches the widened allowlist), that is a small documentary
+  contract-test-update amendment — user's call. No action required to proceed.
+- status: open (informational; no action required to proceed)

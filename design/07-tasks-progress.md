@@ -2,41 +2,18 @@
 doc: tasks-progress
 last_updated: 2026-06-29
 last_updated_at_commit: pending
-total_resolved_count: 49
+total_resolved_count: 50
 
 last_resolved:
-  task: T-4.4
-  title: "Prompt-cache placement (C6, C4): place a single Converse cachePoint at the tools→system→memory-index stable-prefix boundary, capability-gated (ADR-0006, OQ-I). ConverseWireMapper.toRequest now appends SystemContentBlock.fromCachePoint(CachePointBlock DEFAULT) to the END of system[] — the cached region is everything before the breakpoint, and cache order is tools→system→messages, so tools+system+memory-index are cached and the variable messages tail stays uncached. Gate: profile.promptCache() != null (prompt-cache supported) AND a documented ~chars/4 build-time stable-prefix estimate ≥ minTokensPerCheckpoint() (Opus ≥4096); capability-absent OR below-minimum → NO cachePoint, request still valid (graceful degradation). PromptCacheCaps threaded via the mapper ctor (mirroring the DCR-2 maxOutputTokens seam) + wired by AgentLoopFactory; single-breakpoint per ADR-0006 conservatism (no multi-checkpoint mgmt). Realized at the wire layer (SDK CachePointBlock), not as a domain ContentBlock. The Verify column is '(manual)' — live cache write/read token observation is the future on-Bedrock step, out of unit-test scope."
+  task: T-4.5
+  title: "sessions/memory/config subcommands + --debug + SLF4J log levels (C1). resume/sessions pre-existed (T-1.2) and were NOT rebuilt. NET-NEW: MemoryCommand (memory list|show <slug>|edit <slug>|rm <slug> over MemoryStore — added MemoryStore.delete + entryPath for rm/edit; AC-14.1/14.3, US-14) + ConfigCommand (config show|path — resolve+print / file locations via ConfigResolver+ConfigLocations; US-8). --debug parsed in CliArguments (via a new internal Builder) and realized as a slf4j-simple defaultLogLevel=debug system property set in a NEW no-logger Launcher (manifest Main-Class changed Main→Launcher) BEFORE any logger binds — empirically slf4j-simple reads the property once at first-logger-bind, so setting it inside Main.run would no-op. Default INFO; --debug raises to DEBUG (NFR-LOG, 05 §3 levels). 04-apis § 1.2/1.3. Jar-launch + Launcher→Main delegation smoke-verified by the coordinator (--version/--help/config-path all exit 0)."
   resolved_at: 2026-06-29
-  commit: 5ce0caa
+  commit: pending
   iterations: { task_builder: 1 }
   dcrs_consumed: []
 
-in_flight:
-  task: T-4.5
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  started_at: 2026-06-29T00:00:00+00:00
-  last_updated_at: 2026-06-29T00:00:00+00:00
+in_flight: null
 ---
-
-## In-flight
-
-- task: T-4.5
-  phase: TASK_BUILDER
-  loop_iter: 1
-  round: null
-  last_handoff_kind: null
-  last_handoff_status: null
-  last_review_file: null
-  files_in_working_tree: []
-  dcrs_consumed: []
-  started_at: 2026-06-29T00:00:00+00:00
-  last_updated_at: 2026-06-29T00:00:00+00:00
 
 
 
@@ -579,3 +556,13 @@ in_flight:
 - dcrs_consumed: []
 - label: FOURTH M4 task (deps T-2.4 memory index + T-4.3 capability profiles — both resolved; T-4.3 unblocked this). Places the prompt-cache breakpoint per ADR-0006/OQ-I, capability-gated via the T-4.3 PromptCacheCaps. Fulfils the cachePoint Javadoc deferral ConverseWireMapper carried ("out of scope — deferred to the task that needs it"). Verify is '(manual)' (live cache-token observation) — the unit-testable contract is the placement + gate. No DCR; clean single-agent round 1.
 - notes: >>> M4 (T-4.4, prompt-cache placement) under single-agent topology, 1 iteration, resolved at task-builder round 1. Phase A (src/main, 3 files): ConverseWireMapper.toRequest now places a SINGLE Converse cachePoint (SDK SystemContentBlock.fromCachePoint(CachePointBlock DEFAULT)) appended to the END of the system[] content list — because the cached region is everything BEFORE the breakpoint and Converse cache order is tools→system→messages, the end-of-system position makes tools+system+memory-index the cached stable prefix and leaves the variable messages tail uncached (exactly ADR-0006's "after the stable prefix tools→system→memory-index"). Realized at the WIRE layer (SDK CachePointBlock), NOT as a domain ContentBlock (cachePoint is a wire-format breakpoint, not domain content — ContentBlock deliberately leaves it unmodelled). Capability-gate (both ADR-0006 conditions): profile.promptCache() != null (prompt-cache supported) AND a documented conservative ~chars/4 build-time estimate of the system-block char length ≥ promptCache().minTokensPerCheckpoint() (Opus ≥4096); capability-absent OR prefix-below-minimum → NO cachePoint, request still builds + is valid (graceful degradation, loop unaffected). PromptCacheCaps threaded via a new ConverseWireMapper(Integer maxOutputTokens, PromptCacheCaps) ctor (mirroring the DCR-2 maxOutputTokens seam — toRequest's signature + every existing caller untouched) + new ModelClient(BedrockRuntimeClient, PromptCacheCaps) / forGreenfield(BedrockRuntimeClient, PromptCacheCaps) overloads, wired by AgentLoopFactory (the existing no-caps forms retained + delegating). Single breakpoint per ADR-0006 conservatism (no multi-checkpoint management). Phase B (the unit-testable contract; the Verify column is "(manual)" so NO numbered CT): ConverseWireMapperTest + a PromptCachePlacement nested class (+9: cachePoint placed at end-of-system when promptCache supported AND estimate≥min; NO cachePoint when promptCache null [graceful no-op, request still valid]; NO cachePoint when supported-but-prefix-below-minimum; placement does not disturb tools/messages/inferenceConfig) + ModelClientTest (+2 caps-threading). Assertions inspect the BUILT ConverseRequest (no Bedrock call). Oracles trace to ADR-0006 placement rule + the capability gate (profile.promptCache()/minTokensPerCheckpoint), never to impl behaviour. mvn clean verify GREEN (1264 tests, +11 over the 1253 baseline, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met; ConverseWireMapper 97% line / 90% branch). Self-checks: oracle-traceability=passed, reuse=passed (reused the maxOutputTokens ctor seam; cachePoint at the wire layer not duplicated as domain content). 0 Blocker / 0 Major / 0 Minor / 1 Nit / 1 Discussion. Two stated_assumptions (both defensible): build-time prefix token estimate = conservative ~chars/4 (Bedrock returns exact usage only post-call; the estimate under-counts so it errs toward NOT placing a borderline cachePoint — the safe direction; honours BOTH ADR-0006 gate conditions rather than the weaker capability-only reading; exact tokenizer out of v1 scope); single-breakpoint position = end-of-system[] (the tools→system→memory-index boundary; the SDK exposes no "between tools and system" seam and the memory-index is the tail of the system content). One Discussion (D1, suggested_amendment_kind=NONE — informational, NOT an amendment candidate): the token-minimum gate uses the ~chars/4 build-time estimate and the live cache write/read-token observation is the future on-Bedrock manual verification step (the Verify column's "(manual)"), not a spec gap. No AWS/Bedrock calls.
+
+## T-4.5 — sessions/memory/config subcommands; --debug; SLF4J log levels (C1)
+- commit: PENDING_T45
+- review: design/reviews/code/T-4.5-r1.md
+- resolved: 2026-06-29
+- context_mode: narrow
+- iterations: { task_builder: 1 }
+- dcrs_consumed: []
+- label: FIFTH and FINAL M4 task (deps T-1.1 REPL + T-2.4 memory store — both resolved). Adds the memory + config inspect/curate subcommands + the --debug log-level toggle (resume/sessions pre-existed from T-1.2 and were NOT rebuilt). Resolving T-4.5 COMPLETES M4 → the G4 milestone gate fires (coordinator stops). No DCR; clean single-agent round 1.
+- notes: >>> M4 (T-4.5, sessions/memory/config subcommands + --debug + log levels) under single-agent topology, 1 iteration, resolved at task-builder round 1. resume/sessions were CONFIRMED PRESENT (T-1.2 ResumeCommand + Main dispatch) and NOT rebuilt. Phase A (src/main, 8 files): NEW MemoryCommand (memory list|show <slug>|edit <slug>|rm <slug>, mirroring ResumeCommand's command-class+exit-code shape, over MemoryStore — added MemoryStore.delete(slug,repoKey):boolean for `rm` + MemoryStore.entryPath(slug,repoKey):Optional<Path> for `edit` to resolve the hand-editable on-disk markdown path; bare `memory`→LIST; AC-14.1/14.3, US-14) + NEW ConfigCommand (config show|path — `show` resolves the layered config via ConfigResolver and prints it; `path` prints file locations via ConfigLocations; bare `config`→SHOW; US-8) + NEW Launcher (a no-logger manifest entry point: applies the --debug→slf4j-simple defaultLogLevel decision BEFORE loading Main, because slf4j-simple reads org.slf4j.simpleLogger.defaultLogLevel ONCE at first-logger-bind — setting it inside Main.run after Main's static LOGGER binds would silently no-op; verified with a probe) + NEW DebugLogging (the --debug→level mapping helper). CliArguments: --debug parsed + memory/config kinds + MemoryAction(LIST/SHOW/EDIT/RM)/ConfigAction(SHOW/PATH) enums (adopted an internal Builder to avoid a telescoping ctor; all prior CliArgumentsTest cases stay green). Main: memory dispatched pre-config-gate (pure on-disk, like resume/sessions); config dispatched post-resolution (config show reflects the layered merge). pom.xml: manifest Main-Class Main→Launcher. Default log level INFO; --debug raises to DEBUG (NFR-LOG, 05 §3 INFO/WARN/ERROR/DEBUG). Phase B: new MemoryCommandTest(10, list/show/edit/rm over a temp store) + ConfigCommandTest(5, show/path over a temp config) + DebugLoggingTest(5, --debug→property/level mapping) + CliArgumentsTest extended to 16 (--debug + memory/config parsing) + MemoryStoreTest +6 (delete/entryPath) + NoAutoExtractContractTest +1 (allowlist widened for the authorized delete/entryPath — see D1). Oracles trace to 04-apis § 1.2/1.3 + 05 §3 log-level semantics + US-14/AC-14.1/14.3 + US-8 + NFR-LOG, never to impl behaviour; temp dirs (no real ~/.codingagent writes). mvn clean verify GREEN (1308 tests, +44 over the 1264 baseline, 0 failures/errors/skipped; JaCoCo BUNDLE line gate 0.80 met at 0.9145; new CLI command classes 98–100% line). **Coordinator jar-launch smoke (given the Main-Class change): manifest now Launcher; `java -jar codingagent.jar --version`/`--help`/`config path` all EXIT 0, Launcher→Main delegation + SLF4J INFO output + the new ConfigCommand all work live.** Self-checks: oracle-traceability=passed, reuse=passed (mirrored ResumeCommand; reused MemoryStore/ConfigResolver/ConfigLocations; did not rebuild resume/sessions). 0 Blocker / 0 Major / 0 Minor / 0 Nit / 1 Discussion. Two stated_assumptions (both defensible): bare-subcommand defaults (memory→list, config→show — the brackets in 04-apis § 1.2 mark the action optional); --debug realized as a pre-bind property set in Launcher (slf4j-simple binds the level once at first-logger-bind). One Discussion (D1, suggested_amendment_kind=contract-test-update — documentary): the NoAutoExtractContractTest reflection allowlist was widened to admit the task-authorized MemoryStore.delete (explicit `memory rm` curation) + entryPath (a query) — the FORMAL CT-INV-11 no-auto-extract oracle (INV-13/AC-21.4) is UNCHANGED and still enforced (behavioural assertions intact); a future documentary contract-test-update could note the explicit-delete carve-out in the CT-INV-11 row wording. Logged to open-questions.md; non-blocking. No AWS/Bedrock calls (subcommands inspect on-disk state; --debug is SLF4J wiring). **This is the LAST M4 task — M4 complete; G4 milestone gate now reached.**

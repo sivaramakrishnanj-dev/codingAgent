@@ -109,6 +109,37 @@ public final class MemoryStore {
     }
 
     /**
+     * Removes a curated memory entry by slug: deletes its {@code <slug>.md} file and drops its
+     * line from the tier's {@code INDEX.md}, in whichever tier(s) hold it (AC-14.1/14.3 — memory
+     * is curatable; the {@code memory rm <slug>} subcommand and a hand-delete are equivalent). A
+     * delete is honoured on the very next load (INV-14, AC-14.2): the store keeps no masking
+     * cache.
+     *
+     * <p>This is the curating counterpart to {@link #write}: it touches only the on-disk file and
+     * index (the caller logs any provenance event, as with {@code write}). Removing a slug that
+     * does not exist is a no-op that returns {@code false} rather than an error, so the subcommand
+     * can report "no such entry" cleanly.
+     *
+     * @param slug    the entry's slug; non-blank.
+     * @param repoKey the repository key for the PROJECT tier; non-blank.
+     * @return {@code true} if an entry file was removed from at least one tier, {@code false} when
+     *         no {@code <slug>.md} existed in either tier.
+     * @throws IllegalArgumentException if {@code slug} or {@code repoKey} is blank.
+     * @throws MemoryStoreException     if a matching file or index cannot be removed/rewritten.
+     */
+    public boolean delete(String slug, String repoKey) {
+        requireNonBlank(slug, "slug");
+        requireNonBlank(repoKey, "repoKey");
+        boolean removedGlobal = deleteFromTier(MemoryTier.GLOBAL, slug, repoKey);
+        boolean removedProject = deleteFromTier(MemoryTier.PROJECT, slug, repoKey);
+        boolean removed = removedGlobal || removedProject;
+        if (removed) {
+            LOGGER.info("removed memory entry {} (global={}, project={})", slug, removedGlobal, removedProject);
+        }
+        return removed;
+    }
+
+    /**
      * Reads a full memory entry by slug, searching the GLOBAL tier then the PROJECT tier,
      * re-reading from disk (INV-14). This backs the {@code read_memory(slug)} tool, which
      * pulls a full entry on demand (ADR-0007).
@@ -151,6 +182,30 @@ public final class MemoryStore {
         MemoryEntry parsed = MemoryMarkdown.parse(readString(file));
         LOGGER.debug("read memory entry {} from {} tier", slug, tier);
         return Optional.of(parsed);
+    }
+
+    /**
+     * Resolves the on-disk path of an existing entry's {@code <slug>.md} file, searching the
+     * GLOBAL tier then the PROJECT tier (INV-14, re-checked against disk). This backs the
+     * {@code memory edit <slug>} subcommand, which points the developer at the markdown file to
+     * hand-edit (AC-14.1 — memory is "also hand-editable on disk"); the store does not open an
+     * editor itself.
+     *
+     * @param slug    the entry's slug; non-blank.
+     * @param repoKey the repository key for the PROJECT tier; non-blank.
+     * @return the path to the existing {@code <slug>.md} (GLOBAL preferred), or
+     *         {@link Optional#empty()} when no such entry exists in either tier.
+     * @throws IllegalArgumentException if {@code slug} or {@code repoKey} is blank.
+     */
+    public Optional<Path> entryPath(String slug, String repoKey) {
+        requireNonBlank(slug, "slug");
+        requireNonBlank(repoKey, "repoKey");
+        Path global = tierDir(MemoryTier.GLOBAL, repoKey).resolve(slug + ENTRY_SUFFIX);
+        if (Files.isRegularFile(global)) {
+            return Optional.of(global);
+        }
+        Path project = tierDir(MemoryTier.PROJECT, repoKey).resolve(slug + ENTRY_SUFFIX);
+        return Files.isRegularFile(project) ? Optional.of(project) : Optional.empty();
     }
 
     /**
@@ -208,6 +263,45 @@ public final class MemoryStore {
         }
         kept.add(MemoryIndex.renderLine(entry));
         writeString(index, String.join("\n", kept) + "\n");
+    }
+
+    /**
+     * Deletes a slug's entry file from one tier and drops its index line. Returns whether the
+     * entry file existed (and was removed); the index is rewritten regardless so a stale line a
+     * hand-edit may have left is dropped too.
+     */
+    private boolean deleteFromTier(MemoryTier tier, String slug, String repoKey) {
+        Path dir = tierDir(tier, repoKey);
+        Path file = dir.resolve(slug + ENTRY_SUFFIX);
+        boolean existed = Files.isRegularFile(file);
+        if (existed) {
+            deleteFile(file);
+        }
+        removeIndexLine(dir, slug);
+        return existed;
+    }
+
+    private void removeIndexLine(Path dir, String slug) {
+        Path index = dir.resolve(INDEX_FILE_NAME);
+        if (!Files.isRegularFile(index)) {
+            return;
+        }
+        List<String> kept = new ArrayList<>();
+        for (String line : readString(index).lines().toList()) {
+            if (!MemoryIndex.isLineFor(line, slug)) {
+                kept.add(line);
+            }
+        }
+        writeString(index, kept.isEmpty() ? "" : String.join("\n", kept) + "\n");
+    }
+
+    private static void deleteFile(Path file) {
+        try {
+            Files.delete(file);
+        } catch (IOException e) {
+            LOGGER.error("failed to delete memory file {}", file, e);
+            throw new MemoryStoreException("failed to delete memory file: " + file, e);
+        }
     }
 
     private static void requireNonBlank(String value, String field) {

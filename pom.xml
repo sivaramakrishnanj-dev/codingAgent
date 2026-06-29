@@ -21,8 +21,13 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-        <!-- CLI entry point. Shaded jar's Main-Class manifest points here. -->
-        <main.class>com.srk.codingagent.cli.Main</main.class>
+        <!--
+          CLI entry point. Shaded jar's Main-Class manifest points here. The Launcher
+          bootstrap holds no logger of its own: it applies the debug-flag operational-log-level
+          decision (04-apis 1.3, 05-operations 3) BEFORE any logger binds the slf4j-simple
+          provider, then delegates to Main.run. (Main remains the testable launch seam.)
+        -->
+        <main.class>com.srk.codingagent.cli.Launcher</main.class>
 
         <!-- Dependency / plugin versions (single source of truth). -->
         <junit.bom.version>5.14.4</junit.bom.version>
@@ -308,6 +313,14 @@
                                   out of the bootstrap shell.
                                 -->
                                 <exclude>com/srk/codingagent/cli/Main.class</exclude>
+                                <!--
+                                  Process entry point (T-4.5): the System.exit() bootstrap that
+                                  applies the debug-flag log-level decision (DebugLogging) before
+                                  any logger binds, then delegates to Main.run. Pure wiring with no
+                                  branching business logic, like Main. The level mapping it calls
+                                  (DebugLogging) and the launch logic (Main.run) ARE tested.
+                                -->
+                                <exclude>com/srk/codingagent/cli/Launcher.class</exclude>
                                 <!--
                                   Production composition root (T-0.9): wires the agent loop
                                   from resolved config by constructing a live Bedrock client
