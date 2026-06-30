@@ -1,7 +1,7 @@
 ---
 doc: tasks-progress
-last_updated: 2026-06-29
-last_updated_at_commit: 9cb2ca5
+last_updated: 2026-06-30
+last_updated_at_commit: pending
 total_resolved_count: 50
 
 last_resolved:
@@ -58,6 +58,14 @@ in_flight: null
   - **DCR-7 verify-at-end / testable-only IMPLEMENT model worked live**: all 8 tasks implemented one at a time, each marked complete ON IMPLEMENTATION (no per-task verify — D3 fixed); then the end-of-phase `mvn -q test` failed initially and **SELF-REPAIRED via the bounded remedy loop to green on attempt 4 of 5** — this is where the deferred DCR-6 "Bug 3" non-compiling-test class (`CalculatorTest` referencing `CalcException` unqualified) was caught and fixed, exactly as DCR-7 intended. Clean terminal state, no livelock (D1 fixed).
   - **Independently re-verified by the main agent** (claims not hallucinated): re-ran `mvn test` in the target repo (exit 0) and ran the produced jar — `3+4`→`7`, `10-25`→`-15`, `3 x 4`→stderr `unsupported operator 'x'` exit 1 — a real, working, tested Maven project written end-to-end by the greenfield workflow.
 - Verdict: **M3 truly complete; G3 passed** (greenfield idea→implement arc, phase-gated, artifacts written to the target repo, end-of-phase verify self-repaired to green — all proven live). Cleared to proceed to M4 on user direction.
+
+### G4 (after M4 — Knowledge + polish) — ✅ PASSED 2026-06-30
+- Auto checks (coordinator, independently re-confirmed at the G4 gate stop, HEAD 45edd26): `mvn clean verify` → **BUILD SUCCESS, 1308 tests, 0 failures / 0 errors**; JaCoCo **0.9145** (all coverage checks met); shaded `codingagent.jar` builds (Launcher Main-Class). G4 contract assertions present + green per the §6 checklist: **CT-SCH-5/6/7/8** (`ContentBlockSchemaContractTest` — Image/Document content blocks), **CT-SCH-15** (`ModelCapabilityProfileSchemaContractTest`), **CT-INV-15/16** (`AttachmentResolverTest`). M4 fully resolved: T-4.1..T-4.6 all resolved (`total_resolved_count` 50). The §6 coverage gaps are closed.
+- **Manual real-Bedrock + real-`claude`-CLI LIVE smoke tests (main agent / user, 2026-06-30), mirroring how G0–G3 were passed; all three M4 polish criteria proven live:**
+  - **Web lookup (US-11, AC-11.\*)**: `codingagent -p "Use web_search to find the current stable Apache Maven version…"` → the loop offered `web_search`/`web_fetch`, called `web_search`, and `ClaudeCliWebLookupBackend` shelled `claude -p '…' --output-format text` (exit 0, ~44s); `web_search` completed `success=true` and the agent returned a real, sourced version (**Maven 3.9.16**, from the download page — not fabricated). The swappable ADR-0008 delegate backend works live.
+  - **Multimodal (T-4.2, INV-18/19, CT-SCH-5/6/7/8, CT-INV-15/16)**: `codingagent --attach <png> -p "What text do you see in the attached image?"` → loop logged `attachments=1`, the model read back the exact image text ("CODINGAGENT G4 TEST 42 / add these: 19 + 23"), proving the Image `ContentBlock` was built, name-sanitized, capability-gated, and delivered to live Bedrock (one-shot `--attach` path).
+  - **Model swap (T-4.3, NFR-MODEL-PROVIDER)**: config `modelId` swapped to a non-default id (`us.anthropic.claude-haiku-4-5-20251001-v1:0`; earlier also `us.anthropic.claude-sonnet-4-6`, both ≠ the Opus 4.8 default) → startup resolved `model=…haiku-4-5…` and ran cleanly through the capability-profile registry, returning a correct answer. Non-default model swap proven live.
+- Verdict: **M4 truly complete; G4 passed** (web lookup via headless-claude delegate, multimodal image attachment to live Bedrock, and non-default model swap all proven live). **G4 is the final gate — there is no M5.** This completes the v1 milestone arc M0→M4: gates **G0, G1, G2, G3, G4 are all ✅ PASSED**, and every task T-0.1..T-4.6 is resolved (`total_resolved_count` 50). **v1 scope is complete.**
 
 ## Resolved tasks
 
